@@ -369,7 +369,7 @@ EndogenousSimulator <- R6::R6Class(
           stop("Not implemented deep copy for this simulation_data object.")
         }
       }
-      if(name == "models"){
+      if(name %in% c("models", "time_parameters")){
         if (is.null(value)) return(NULL)
         if(is.list(value)){
           y <- list(value) |> unlist(recursive = FALSE)
