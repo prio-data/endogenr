@@ -1,0 +1,28 @@
+Package: endogenr
+Title: A Dynamic Endogenous Simulator of Statistical Models
+Version: 0.0.0.9000
+Authors@R: 
+    person("Jonas", "Vestby", , "jonves@prio.org", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-3054-977X"))
+Description: This package allows you to dynamically simulate a set of statistical or mathematical models. The simulator schedules the simulation based on a network graph, and uses the R formula language as the main tool for defining models.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    data.table,
+    R6
+Suggests: 
+    renv,
+    broom,
+    dplyr,
+    zoo,
+    conflicted,
+    distributional,
+    fabletools,
+    progressr,
+    zoo,
+    pbapply
+Depends: 
+    R (>= 2.10)
+LazyData: true
