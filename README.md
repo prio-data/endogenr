@@ -50,8 +50,6 @@ m5 <- StochasticStaticModel$new(~round(yjbest), "nbinom", fit_args = list(discre
 m6 <- LinearRegressionModel$new(d1, boot = T)
 m7 <- ExogenModel$new(~psecprop, exogendata = df)
 
-models <- list(m1, m2, m3, m4, m5, m6, m7)
-
 simulator <- EndogenousSystem$new(
   df, 
   timevar = timevar, 
