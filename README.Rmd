@@ -42,12 +42,12 @@ train_start = 1970; test_start = 2010; timevar = "year"; groupvar = "gwcode"
 df <- example_data
 train <- df[time >= train_start & time < test_start, env = list(time = timevar)]
 
-e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
-c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
-d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+e1 <- gdppc_grwt ~ dplyr::lag(yjbest) + dplyr::lag(gdppc_grwt) + dplyr::lag(log(gdppc)) + dplyr::lag(psecprop) + dplyr::lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
+c1 <- yjbest ~ dplyr::lag(yjbest) + dplyr::lag(log(gdppc)) + dplyr::lag(log(population)) + dplyr::lag(psecprop) + dplyr::lag(dem) + dplyr::lag(gdppc_grwt) + dplyr::lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
+d1 <- dem ~ dplyr::lag(dem) + dplyr::lag(gdppc_grwt) + dplyr::lag(log(gdppc)) + dplyr::lag(yjbest) + dplyr::lag(psecprop) + dplyr::lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
 
 m1 <- StochasticStaticModel$new(~gdppc_grwt, "t_ls", fit_args = list(start = list(df = 1, mu = mean(train$gdppc_grwt), sigma = sd(train$gdppc_grwt))), censor = list("upper" = 0.8, "lower" = -0.8))
-m2 <- DeterministicModel$new(gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt))))
+m2 <- DeterministicModel$new(gdppc ~ I(abs(dplyr::lag(gdppc)*(1+gdppc_grwt))))
 m3 <- ExogenModel$new(~population, exogendata = df)
 m4 <- DeterministicModel$new(gdp ~ I(abs(gdppc * population)))
 m5 <- StochasticStaticModel$new(~round(yjbest), "nbinom", fit_args = list(discrete = TRUE, method = "mme"))
