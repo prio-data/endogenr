@@ -20,12 +20,20 @@ all(abs(result - test) <= 0.1)
 
 library(dplyr)
 df <- endogenr::example_data
+
+df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
+
+
 simdf <- prepare_simulation_data(df, "gwcode", "year", 1970, 1990, 32)
-train <- df[year <= 1990,]
+train <- df |> dplyr::filter(year <= 1990)
+
+
 
 e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
 c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
 d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+
+create_panel_frame(e1, train)
 
 test_start <- 1990
 
@@ -35,8 +43,8 @@ model_system <- list(
   parametric_distribution_model(~gdppc_grwt, distribution = "norm", data = train),
   linearmodel(c1, boot = "resid", data = train),
   linearmodel(d1, boot = "resid", data = train),
-  exogenmodel(~psecprop, impute_from = test_start, newdata = endogenr::example_data),
-  exogenmodel(~population, impute_from = test_start, newdata = endogenr::example_data)
+  exogenmodel(~psecprop, impute_from = test_start, newdata = df),
+  exogenmodel(~population, impute_from = test_start, newdata = df)
 )
 
 dependency_graph <-  igraph::make_empty_graph(directed = TRUE)
@@ -49,9 +57,13 @@ execution_order <- get_execution_order(dependency_graph)
 
 model_system[sapply(model_system, function(x) !x$independent)]
 
+em <- exogenmodel(~psecprop, 1990, newdata = df)
+
+simdf |> dplyr::rows_patch(em$fitted, by = c("gwcode", "year")) |> dplyr::filter(year == 1990)
+
 start <- Sys.time()
 simdf <- process_independent_models(simdf, model_system, test_start)
-simdf <- process_dependent_models(simdf, model_system, test_start, 32, execution_order)
+simdf <- process_dependent_models(simdf, model_system, test_start, 12, execution_order)
 Sys.time() - start
 
 
@@ -65,9 +77,12 @@ models <- lapply(model_system, build_model)
 
 m <- linearmodel(e1, boot = NULL, data = train)
 m <- linearmodel(e1, boot = "resid", data = train)
-m$fitted |> predict(interval = "prediction")
-pred1 <- predict(m, simdf, 2010, what = "expecation")
-pred2 <- predict(m, simdf, 2010, what = "pi")
+pred <- m$fitted |> predict(interval = "prediction")
+pred3 <- m$fitted |> predict(se.fit = T)
+pred1 <- predict(m, simdf, 1990)
+pred2 <- predict(m, simdf, 1990, what = "expectation")
+
+microbenchmark::microbenchmark(predict(m, simdf, 1990, what = "pi"))
 
 summary(pred1[["gdppc_grwt"]])
 summary(pred2[["gdppc_grwt"]])
@@ -86,13 +101,13 @@ anyNA(res$lag_x) # this should be true (and that only happens when lag is dplyr:
 
 
 dm <- deterministicmodel(gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt))))
-predict(dm, 2008, simdf)
+predict(dm, 1989, simdf)
 
-em <- exogenmodel(~psecprop, 2010, newdata = endogenr::example_data)
+em <- exogenmodel(~psecprop, 2010, newdata = df)
 predict(em)
 
 pm <- parametric_distribution_model(~gdppc_grwt, distribution = "norm", data = train)
-predict(pm, data = simdf, test_start = 2010)
+predict(pm, data = simdf, test_start = 1990)
 
 
 
