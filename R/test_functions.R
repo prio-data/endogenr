@@ -20,12 +20,7 @@ all(abs(result - test) <= 0.1)
 
 library(dplyr)
 df <- endogenr::example_data
-
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
-
-
-simdf <- prepare_simulation_data(df, "gwcode", "year", 1970, 1990, 32)
-train <- df |> dplyr::filter(year <= 1990)
 
 
 
@@ -33,40 +28,35 @@ e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecpro
 c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
 d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
 
-create_panel_frame(e1, train)
-
-test_start <- 1990
-
 model_system <- list(
-  deterministicmodel(gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
-  deterministicmodel(gdp ~ I(abs(gdppc*population))),
-  parametric_distribution_model(~gdppc_grwt, distribution = "norm", data = train),
-  linearmodel(c1, boot = "resid", data = train),
-  linearmodel(d1, boot = "resid", data = train),
-  exogenmodel(~psecprop, impute_from = test_start, newdata = df),
-  exogenmodel(~population, impute_from = test_start, newdata = df)
+  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("linear", formula = d1, boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
 )
 
-dependency_graph <-  igraph::make_empty_graph(directed = TRUE)
-for(model in model_system){
-  dependency_graph <- update_dependency_graph(model, dependency_graph)
-}
+simulator_setup <- setup_simulator(models = model_system,
+                data = df,
+                train_start = 1970,
+                test_start = 1990,
+                horizon = 12,
+                groupvar = "gwcode",
+                timevar = "year")
 
-execution_order <- get_execution_order(dependency_graph)
+#simulator_setup$execution_order <- c("psecprop", "population", "gdppc_grwt", "yjbest", "dem", "gdppc", "gdp")
 
+set.seed(42)
+res <- simulate_endogenr(nsim = 10, simulator_setup = simulator_setup)
 
-model_system[sapply(model_system, function(x) !x$independent)]
+simdf$.id <- 1
+simdf <- simdf |> dplyr::filter(year >= 1990)
 
-em <- exogenmodel(~psecprop, 1990, newdata = df)
+sim_to_dist(res, "gdppc_grwt")
 
-simdf |> dplyr::rows_patch(em$fitted, by = c("gwcode", "year")) |> dplyr::filter(year == 1990)
-
-start <- Sys.time()
-simdf <- process_independent_models(simdf, model_system, test_start)
-simdf <- process_dependent_models(simdf, model_system, test_start, 12, execution_order)
-Sys.time() - start
-
-
+plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
 
 sapply(model_system, function(x) parse_formula(x)$outcome)
 

@@ -140,10 +140,10 @@ predict.linear <- function(model, data, t, what = "pi", ...) {
   grp <- tsibble::key_vars(data)
 
   # Find any numbers in the RHS and use that as the max number of past time periods to include.
-  #max_history <- stringr::str_extract_all(m$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric() |> max()
+  max_history <- stringr::str_extract_all(model$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric() |> max()
 
-  #data <- data |>
-  #  dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t-max_history-1))
+  data <- data |>
+    dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t-max_history-1))
 
   # Create panel frame using the tsibble version
   data <- create_panel_frame(model$formula, data)$data
@@ -535,33 +535,135 @@ process_dependent_models <- function(simulation_data, models, test_start, horizo
   return(simulation_data)
 }
 
-# process_dependent_models = function(simulation_data, models, test_start, horizon, execution_order){
-#   dependent_models <- models[sapply(models, function(x) !x$independent)]
-#   outcomes <- sapply(dependent_models, function(x) parse_formula(x)$outcome)
-#   names(dependent_models) <- outcomes
-#   execution_order <- execution_order[execution_order %in% outcomes]
-#   dependent_models <- dependent_models[execution_order]
-#
-#   grp <- data.table::key(simulation_data)
-#   idx <- data.table::indices(simulation_data)
-#
-#   simulation_data <- data.table::copy(simulation_data)
-#   simulation_data[["update_index"]] <- 1:nrow(simulation_data)
-#
-#   for (t in test_start:(test_start + horizon)) {
-#     for (model in dependent_models) {
-#       pred <- predict(model, t = t, data = simulation_data)
-#       # consider adding possible constraints to the outcome here
-#       outcome <- parse_formula(model)$outcome
-#
-#       data.table::set(simulation_data,
-#                       i = simulation_data[pred, update_index, on = c(grp, idx)],
-#                       j = outcome,
-#                       value = pred[[outcome]])
-#     }
-#   }
-#   simulation_data[,update_index := NULL]
-#   data.table::setkeyv(simulation_data, grp)
-#   data.table::setindexv(simulation_data, idx)
-#   return(data.table::copy(simulation_data))
-# }
+
+
+build_model <- function(type, formula, ...) {
+  dots <- list(...)
+
+  f <- switch(type,
+         "deterministic" = purrr::partial(
+           deterministicmodel,
+           formula = formula
+         ),
+         "parametric_distribution" = purrr::partial(
+           parametric_distribution_model,
+           formula = formula,
+           distribution = dots$distribution
+         ),
+         "linear" = purrr::partial(
+           linearmodel,
+           formula = formula,
+           outcome = dots$outcome,
+           boot = dots$boot
+         ),
+         "exogen" = purrr::partial(
+           exogenmodel,
+           formula = formula
+         ),
+         stop("Unknown model type: ", type)
+  )
+
+  class(f) <- c(class(f), type)
+  return(f)
+}
+
+setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar){
+  data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= test_start + horizon)
+  train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
+
+  models <- lapply(models, function(x){
+    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen")
+    type <- model_types[model_types %in% class(x)]
+
+    switch(type,
+           "deterministic" = x,
+           "parametric_distribution" = purrr::partial(x, data = train),
+           "linear" = purrr::partial(
+             x,
+             data = train
+           ),
+           "exogen" = purrr::partial(
+             x,
+             newdata = data,
+             impute_from = test_start
+           ),
+           stop("Unknown model type: ", type)
+    )
+  })
+
+  fitted_models <- lapply(models, function(x) x())
+
+  dependency_graph <-  igraph::make_empty_graph(directed = TRUE)
+  for(model in fitted_models){
+    dependency_graph <- update_dependency_graph(model, dependency_graph)
+  }
+  execution_order <- get_execution_order(dependency_graph)
+
+  simulation_data <- prepare_simulation_data(data, groupvar, timevar, train_start, test_start, horizon)
+
+  return(list("simulation_data" = simulation_data,
+              "models" = models,
+              "test_start" = test_start,
+              "horizon" = horizon,
+              "execution_order" = execution_order,
+              "groupvar" = groupvar,
+              "timevar" = timevar))
+}
+
+simulate_endogenr <- function(nsim, simulator_setup){
+  simulate <- function(i, simulation_data, models, test_start, horizon, execution_order){
+    fitted_models <- lapply(models, function(x) x()) # fit new
+    sim <- process_independent_models(simulation_data, fitted_models, test_start)
+    sim <- process_dependent_models(sim, fitted_models, test_start, horizon, execution_order)
+    return(sim)
+  }
+  simulation_results <- lapply(1:nsim, simulate,
+                               simulation_data = simulator_setup$simulation_data,
+                               models = simulator_setup$models,
+                               test_start = simulator_setup$test_start,
+                               horizon = simulator_setup$horizon,
+                               execution_order = simulator_setup$execution_order)
+  simulation_results <- lapply(simulation_results, dplyr::as_tibble)
+  simulation_results <- dplyr::bind_rows(simulation_results, .id = ".id")
+  simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".id"), index = simulator_setup$timevar) |>
+    dplyr::filter(year >= simulator_setup$test_start)
+
+  return(simulation_results)
+}
+
+sim_to_dist = function(simulation_results, outputs, sim_var = ".id"){
+  grp <- tsibble::key_vars(simulation_results)
+  grp <- grp[!grp %in% sim_var]
+  idx <- tsibble::index_var(simulation_results)
+  # Create the summarise expression dynamically
+  summarise_expr <- outputs |>
+    purrr::map(~ rlang::expr(list(!!rlang::sym(.x)))) |>
+    rlang::set_names(outputs)
+
+  # Apply the transformation
+  nested_sim <- simulation_results |> dplyr::as_tibble() |>
+    dplyr::group_by(!!rlang::sym(idx), !!rlang::sym(grp)) |>
+    dplyr::summarise(!!!summarise_expr, .groups = "drop_last") |>
+    dplyr::mutate(across(all_of(outputs), ~ distributional::dist_sample(.))) |>
+    tsibble::tsibble(key = grp, index = idx)
+  return(nested_sim)
+}
+
+plotsim <- function(simulation_results, outcome, units, true_data, sim_var = ".id"){
+  # Get key and index variables from tsibble
+  grp <- tsibble::key_vars(simulation_results)
+  grp <- grp[!grp %in% sim_var]
+  idx <- tsibble::index_var(simulation_results)
+  group_sym <- rlang::sym(grp)
+
+  simulation_results <- simulation_results |>
+    dplyr::filter(!!group_sym %in% units)
+
+  myplot <- function(){
+    sim_to_dist(simulation_results, outcome) |>
+      fabletools::fable(key = grp, index = idx,  response = outcome, distribution = outcome) |>
+      fabletools::autoplot(true_data, level = base::seq(5, 95, 5), point_forecast = list("median" = median), alpha = 0.4) +
+      ggplot2::scale_y_continuous(labels = scales::comma)}
+
+  suppressWarnings(myplot()) # Warning in fabletools::fable
+}
