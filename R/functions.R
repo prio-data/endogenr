@@ -42,20 +42,15 @@ create_panel_frame <- function(formula, data) {
       mf <- stats::model.frame(formula, data = ., na.action = NULL)
       tibble::as_tibble(mf)
     }) |>
-    dplyr::ungroup() |>
-    # Convert back to tsibble
-    tsibble::as_tsibble(
-      key = !!rlang::sym(grp),
-      index = !!rlang::sym(idx)
-    )
+    dplyr::ungroup()
 
   # Clean names
   result <- result |>
     janitor::clean_names() |>
     # Ensure tsibble structure is maintained
     tsibble::as_tsibble(
-      key = !!rlang::sym(grp),
-      index = !!rlang::sym(idx)
+      key = grp,
+      index = idx
     )
 
   # Get naive formula for the cleaned result
@@ -163,8 +158,8 @@ predict.linear <- function(model, data, t, what = "pi", ...) {
   result <- data |>
     dplyr::select(!!!rlang::syms(c(grp, idx, model$outcome))) |>
     tsibble::as_tsibble(
-      key = !!rlang::sym(grp),
-      index = !!rlang::sym(idx)
+      key = grp,
+      index = idx
     )
 
   # Update outcome column based on prediction type
@@ -193,8 +188,8 @@ deterministicmodel <- function(formula = NULL){
   return(model)
 }
 
-exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL){
-  fit_exogenous_model <- function(formula, impute_from, data) {
+exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL, inner_sims = NULL){
+  fit_exogenous_model <- function(formula, impute_from, data, inner_sims) {
     # Get key and index variables from tsibble
     grp <- tsibble::key_vars(data)
     idx <- tsibble::index_var(data)
@@ -213,19 +208,49 @@ exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL){
     result <- stats::model.matrix(model_formula, filtered_data) |>
       # Convert to tibble and add back key and index columns
       tibble::as_tibble() |>
-      # Convert to tsibble
       tsibble::as_tsibble(
-        key = !!rlang::sym(grp),
-        index = !!rlang::sym(idx)
+        key = grp,
+        index = idx
+      )
+
+    # Create sequence of all times
+    all_times <- base::seq(min(result[[idx]]), max(result[[idx]]), by = 1)
+
+    # Get unique groups
+    all_groups <- tsibble::key_data(result)[[grp]]
+
+    # Create expanded grid using tidyr
+    group_sym <- rlang::sym(grp)
+    time_sym <- rlang::sym(idx)
+    expanded <- tidyr::expand_grid(
+      !!time_sym := all_times,
+      !!group_sym := all_groups,
+      sim = 1:inner_sims
+    )
+
+    # Convert to tsibble
+    result <- expanded |>
+      tsibble::as_tsibble(
+        key = c(grp, "sim"),
+        index = idx
+      ) |>
+      dplyr::left_join(
+        result,
+        by = c(grp, idx)
       )
 
     # Return a fresh copy
     return(result)
   }
 
+  grp <- tsibble::key_vars(newdata)
+  idx <- tsibble::index_var(newdata)
+
   model <- new_endogenmodel(formula)
   model$impute_from <- impute_from
-  model$fitted <- fit_exogenous_model(formula, impute_from, newdata)
+
+  model$fitted <- fit_exogenous_model(formula, impute_from, newdata, inner_sims)
+
   class(model) <- c("exogen", class(model))
   model$independent <- TRUE
 
@@ -233,7 +258,7 @@ exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL){
   return(model)
 }
 
-predict.exogen <- function(model, ...){
+predict.exogen <- function(model, data, ...){
   return(model$fitted)
 }
 
@@ -331,8 +356,8 @@ predict.deterministic <- function(model, t, data, ...) {
     dplyr::rename(!!rlang::sym(y) := !!rlang::sym(y_star)) %>%
     # Convert to tsibble
     tsibble::as_tsibble(
-      key = !!rlang::sym(grp),
-      index = !!rlang::sym(idx)
+      key = grp,
+      index = idx
     )
   return(result)
 }
@@ -375,8 +400,8 @@ predict.parametric_distribution <- function(model, data, test_start, ...) {
     ) %>%
     # Ensure tsibble structure
     tsibble::as_tsibble(
-      key = !!rlang::sym(grp),
-      index = !!rlang::sym(idx)
+      key = grp,
+      index = idx
     )
 
   # Return a fresh copy
@@ -442,7 +467,7 @@ update_dependency_graph <- function(model, dependency_graph) {
 }
 
 
-prepare_simulation_data <- function(data, groupvar, timevar, train_start, test_start, horizon) {
+prepare_simulation_data <- function(data, groupvar, timevar, train_start, test_start, horizon, inner_sims) {
   # Convert groupvar and timevar to symbols for tidy evaluation
   group_sym <- rlang::sym(groupvar)
   time_sym <- rlang::sym(timevar)
@@ -462,14 +487,15 @@ prepare_simulation_data <- function(data, groupvar, timevar, train_start, test_s
   # Create expanded grid using tidyr
   expanded <- tidyr::expand_grid(
     !!time_sym := all_times,
-    !!group_sym := all_groups
+    !!group_sym := all_groups,
+    sim = 1:inner_sims
   )
 
   # Convert to tsibble
   result <- expanded %>%
     tsibble::as_tsibble(
-      key = !!group_sym,
-      index = !!time_sym
+      key = c(groupvar, "sim"),
+      index = timevar
     ) %>%
     dplyr::left_join(
       simulation_data,
@@ -567,7 +593,7 @@ build_model <- function(type, formula, ...) {
   return(f)
 }
 
-setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar){
+setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims){
   data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= test_start + horizon)
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
@@ -585,7 +611,8 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
            "exogen" = purrr::partial(
              x,
              newdata = data,
-             impute_from = test_start
+             impute_from = test_start,
+             inner_sims = inner_sims
            ),
            stop("Unknown model type: ", type)
     )
@@ -599,7 +626,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   }
   execution_order <- get_execution_order(dependency_graph)
 
-  simulation_data <- prepare_simulation_data(data, groupvar, timevar, train_start, test_start, horizon)
+  simulation_data <- prepare_simulation_data(data, groupvar, timevar, train_start, test_start, horizon, inner_sims)
 
   return(list("simulation_data" = simulation_data,
               "models" = models,
@@ -607,7 +634,8 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
               "horizon" = horizon,
               "execution_order" = execution_order,
               "groupvar" = groupvar,
-              "timevar" = timevar))
+              "timevar" = timevar,
+              "inner_sims" = inner_sims))
 }
 
 simulate_endogenr <- function(nsim, simulator_setup){
@@ -625,7 +653,7 @@ simulate_endogenr <- function(nsim, simulator_setup){
                                execution_order = simulator_setup$execution_order)
   simulation_results <- lapply(simulation_results, dplyr::as_tibble)
   simulation_results <- dplyr::bind_rows(simulation_results, .id = ".id")
-  simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".id"), index = simulator_setup$timevar) |>
+  simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".id", "sim"), index = simulator_setup$timevar) |>
     dplyr::filter(year >= simulator_setup$test_start)
 
   return(simulation_results)

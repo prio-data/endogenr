@@ -22,6 +22,15 @@ library(dplyr)
 df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
+create_panel_frame(gdppc_grwt ~ lag(gdppc_grwt), data = df)
+formula <- gdppc_grwt ~ lag(gdppc_grwt)
+# data <- df
+# groupvar <- "gwcode"
+# timevar <- "year"
+# test_start <- 1990
+# train_start <- 1970
+# horizon <- 12
+# inner_sims <- 10
 
 
 e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
@@ -42,14 +51,19 @@ simulator_setup <- setup_simulator(models = model_system,
                 data = df,
                 train_start = 1970,
                 test_start = 1990,
-                horizon = 12,
+                horizon = 2,
                 groupvar = "gwcode",
-                timevar = "year")
+                timevar = "year",
+                inner_sims = 2)
 
 #simulator_setup$execution_order <- c("psecprop", "population", "gdppc_grwt", "yjbest", "dem", "gdppc", "gdp")
 
 set.seed(42)
-res <- simulate_endogenr(nsim = 10, simulator_setup = simulator_setup)
+res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+
+unique(res$.id) |> as.numeric()
+unique(res$sim)
+
 
 simdf$.id <- 1
 simdf <- simdf |> dplyr::filter(year >= 1990)
@@ -93,7 +107,7 @@ anyNA(res$lag_x) # this should be true (and that only happens when lag is dplyr:
 dm <- deterministicmodel(gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt))))
 predict(dm, 1989, simdf)
 
-em <- exogenmodel(~psecprop, 2010, newdata = df)
+em <- exogenmodel(~psecprop, 2010, newdata = df, inner_sims = 10)
 predict(em)
 
 pm <- parametric_distribution_model(~gdppc_grwt, distribution = "norm", data = train)
