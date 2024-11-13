@@ -638,28 +638,49 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
               "inner_sims" = inner_sims))
 }
 
-simulate_endogenr <- function(nsim, simulator_setup){
+simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6){
   simulate <- function(i, simulation_data, models, test_start, horizon, execution_order){
     fitted_models <- lapply(models, function(x) x()) # fit new
     sim <- process_independent_models(simulation_data, fitted_models, test_start)
     sim <- process_dependent_models(sim, fitted_models, test_start, horizon, execution_order)
     return(sim)
   }
-  simulation_results <- lapply(1:nsim, simulate,
-                               simulation_data = simulator_setup$simulation_data,
-                               models = simulator_setup$models,
-                               test_start = simulator_setup$test_start,
-                               horizon = simulator_setup$horizon,
-                               execution_order = simulator_setup$execution_order)
+
+  if(parallel){
+    old_plan <- future::plan()
+    future::plan(future::multisession, workers = ncores, gc = TRUE)
+
+    simulation_results <- future.apply::future_lapply(1:nsim, simulate,
+                                 simulation_data = simulator_setup$simulation_data,
+                                 models = simulator_setup$models,
+                                 test_start = simulator_setup$test_start,
+                                 horizon = simulator_setup$horizon,
+                                 execution_order = simulator_setup$execution_order,
+                                 future.seed = TRUE,
+                                 future.packages = "dplyr")
+    future::plan(old_plan)
+  } else{
+    simulation_results <- lapply(1:nsim, simulate,
+                                 simulation_data = simulator_setup$simulation_data,
+                                 models = simulator_setup$models,
+                                 test_start = simulator_setup$test_start,
+                                 horizon = simulator_setup$horizon,
+                                 execution_order = simulator_setup$execution_order)
+  }
+
   simulation_results <- lapply(simulation_results, dplyr::as_tibble)
   simulation_results <- dplyr::bind_rows(simulation_results, .id = ".id")
-  simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".id", "sim"), index = simulator_setup$timevar) |>
-    dplyr::filter(year >= simulator_setup$test_start)
+
+  ids <- simulation_results |> dplyr::select(.id, sim) |> unique() |> dplyr::mutate(newid = 1:dplyr::n())
+  simulation_results <- dplyr::left_join(simulation_results, ids, by = c(".id", "sim"))
+  simulation_results$.id <- NULL
+  simulation_results$sim <- NULL
+  simulation_results <- simulation_results |> dplyr::rename(.sim = newid)
 
   return(simulation_results)
 }
 
-sim_to_dist = function(simulation_results, outputs, sim_var = ".id"){
+sim_to_dist = function(simulation_results, outputs, sim_var = ".sim"){
   grp <- tsibble::key_vars(simulation_results)
   grp <- grp[!grp %in% sim_var]
   idx <- tsibble::index_var(simulation_results)
@@ -677,7 +698,21 @@ sim_to_dist = function(simulation_results, outputs, sim_var = ".id"){
   return(nested_sim)
 }
 
-plotsim <- function(simulation_results, outcome, units, true_data, sim_var = ".id"){
+get_accuracy <- function(simulation_results, outcome, truth, sim_var = ".sim"){
+  grp <- tsibble::key_vars(simulation_results)
+  grp <- grp[!grp %in% sim_var]
+  idx <- tsibble::index_var(simulation_results)
+
+  forecast <- sim_to_dist(simulation_results, outcome) |>
+    fabletools::fable(key = grp, index = idx,  response = outcome, distribution = outcome)
+
+  metrics <- list(crps = fabletools::CRPS, mae = fabletools::MAE, winkler = function(.dist, .actual, ...) fabletools::winkler_score(.dist, .actual, level = 50))
+  acc <- forecast |> fabletools::accuracy(truth, metrics)
+  return(acc)
+  #acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
+}
+
+plotsim <- function(simulation_results, outcome, units, true_data, sim_var = ".sim"){
   # Get key and index variables from tsibble
   grp <- tsibble::key_vars(simulation_results)
   grp <- grp[!grp %in% sim_var]

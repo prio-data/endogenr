@@ -51,31 +51,37 @@ simulator_setup <- setup_simulator(models = model_system,
                 data = df,
                 train_start = 1970,
                 test_start = 1990,
-                horizon = 2,
+                horizon = 12,
                 groupvar = "gwcode",
                 timevar = "year",
-                inner_sims = 2)
+                inner_sims = 10)
 
 #simulator_setup$execution_order <- c("psecprop", "population", "gdppc_grwt", "yjbest", "dem", "gdppc", "gdp")
 
 set.seed(42)
-res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
-
-unique(res$.id) |> as.numeric()
-unique(res$sim)
+res <- simulate_endogenr(nsim = 6, simulator_setup = simulator_setup, parallel = T)
 
 
-simdf$.id <- 1
-simdf <- simdf |> dplyr::filter(year >= 1990)
+scaled_logit <- function(x, lower=0, upper=1){
+  log((x-lower)/(upper-x))
+}
+inv_scaled_logit <- function(x, lower=0, upper=1){
+  (upper-lower)*exp(x)/(1+exp(x)) + lower
+}
+my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit)
 
-sim_to_dist(res, "gdppc_grwt")
+yj <- scales::transform_yj(p = 0.4)
+# Back-transform
+simulation_results <- simulation_results |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
+                                        best = yj$inverse(yjbest))
 
-plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
+simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
+  dplyr::filter(year >= simulator_setup$test_start)
 
-sapply(model_system, function(x) parse_formula(x)$outcome)
+acc <- get_accuracy(res, "gdppc_grwt", df)
+acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 
-
-models <- lapply(model_system, build_model)
+plotsim(simulation_results, "gdppc", c(2, 20, 530), df)
 
 #process_independent_models(simdf, models)
 
