@@ -13,7 +13,6 @@ univariate_fable_model <- function(formula = NULL, data = NULL, ...){
 
   model$fitted <- df |> fabletools::model(fable::ARIMA(formula))
 
-
   class(model) <- c("univariate_fable", class(model))
   model$independent <- TRUE
 
@@ -32,27 +31,19 @@ univariate_fable_model <- function(formula = NULL, data = NULL, ...){
 #' @export
 #'
 #' @examples
-predict.univariate_fable <- function(model, horizon, test_start, data){
+predict.univariate_fable <- function(model, horizon, test_start, inner_sims, data){
   # Get index and key variables from tsibble
   idx <- tsibble::index_var(data)
   grp <- tsibble::key_vars(data)
 
   forecast <- model$fitted |> fabletools::forecast(h = paste(horizon, "years")) |>
-    dplyr::mutate(sample = distributional::generate(!!rlang::sym(model$outcome), 1) |> unlist()) |>
-    dplyr::select(dplyr::all_of(c(grp, idx, "sample"))) |>
-    tsibble::tsibble(key = grp, index = grp)
+    dplyr::mutate(samples = distributional::generate(!!rlang::sym(model$outcome), inner_sims)) |>
+    dplyr::as_tibble() |>
+    dplyr::select(dplyr::all_of(c(grp, idx, "samples"))) |>
+    tidyr::unnest(samples) |>
+    dplyr::mutate(.sim = rep(1:inner_sims, n()/inner_sims)) |>
+    dplyr::rename(!!rlang::sym(model$outcome) := "samples") |>
+    tsibble::tsibble(key = c(grp, ".sim"), index = idx)
 
-  # Create prediction data frame with only necessary columns
-  pred_data <- data |>
-    dplyr::filter(!!rlang::sym(idx) >= test_start) |>
-    dplyr::select(
-      !!!rlang::syms(grp),
-      !!rlang::sym(idx),
-      !!rlang::sym(model$outcome)
-    ) |>
-    tsibble::tsibble(key = grp, index = grp)
-
-  pred_data <- dplyr::left_join(pred_data, forecast)
-
-  return(pred_data)
+  return(forecast)
 }

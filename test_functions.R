@@ -24,7 +24,7 @@ df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
 m <- univariate_fable_model(gdppc_grwt ~ 1, df)
-
+predict(m, data = df, horizon = 12, test_start = 2010)
 
 create_panel_frame(gdppc_grwt ~ lag(gdppc_grwt), data = df)
 formula <- gdppc_grwt ~ lag(gdppc_grwt)
