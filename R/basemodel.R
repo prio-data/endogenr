@@ -1,13 +1,3 @@
-#' Gives you the independent model types
-#'
-#' @return
-#' @export
-#'
-#' @examples
-get_independent_models <- function(){
-  c("exogen", "parametric_distribution")
-}
-
 #' A baseline structure for a model
 #'
 #' @param formula

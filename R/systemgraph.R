@@ -80,3 +80,14 @@ update_dependency_graph <- function(model, dependency_graph) {
 
   return(dependency_graph)
 }
+
+
+#' Gives you the independent model types
+#'
+#' @return
+#' @export
+#'
+#' @examples
+get_independent_models <- function(){
+  c("exogen", "parametric_distribution", "univariate_fable")
+}
