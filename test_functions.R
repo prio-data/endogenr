@@ -1,4 +1,5 @@
-source("R/functions.R")
+library(endogenr)
+library(dplyr)
 
 #### test the select_col_per_row function ####
 mm <- matrix(1:12, nrow = 3)
@@ -18,7 +19,6 @@ test <- predict(m, interval = "prediction")[,c(2,1,3)]
 result <- row_quantiles_apply(result) |> t()
 all(abs(result - test) <= 0.1)
 
-library(dplyr)
 df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
@@ -72,16 +72,21 @@ my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit
 
 yj <- scales::transform_yj(p = 0.4)
 # Back-transform
-simulation_results <- simulation_results |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
+res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
                                         best = yj$inverse(yjbest))
 
-simulation_results <- tsibble::tsibble(simulation_results, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
+res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
   dplyr::filter(year >= simulator_setup$test_start)
 
 acc <- get_accuracy(res, "gdppc_grwt", df)
 acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 
-plotsim(simulation_results, "gdppc", c(2, 20, 530), df)
+plotsim(res, "gdppc", c(2, 20, 530), df)
+plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
+plotsim(res, "v2x_libdem", c(2, 20, 530), df)
+plotsim(res, "best", c(2, 20, 530), df)
+
+
 
 #process_independent_models(simdf, models)
 

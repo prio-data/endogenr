@@ -221,7 +221,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
                                                       horizon = simulator_setup$horizon,
                                                       execution_order = simulator_setup$execution_order,
                                                       future.seed = TRUE,
-                                                      future.packages = "dplyr")
+                                                      future.packages = c("dplyr", "endogenr"))
     future::plan(old_plan)
   } else{
     simulation_results <- lapply(1:nsim, simulate,
