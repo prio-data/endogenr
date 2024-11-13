@@ -17,7 +17,7 @@ univariate_fable_model <- function(formula = NULL, data = NULL, ...){
   class(model) <- c("univariate_fable", class(model))
   model$independent <- TRUE
 
-  outcome <- parse_formula(model)$outcome
+  model$outcome <- parse_formula(model)$outcome
   return(model)
 }
 
