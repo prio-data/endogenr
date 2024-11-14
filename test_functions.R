@@ -23,8 +23,10 @@ all(abs(result - test) <= 0.1)
 df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
-m <- univariate_fable_model(gdppc_grwt ~ 1, df)
-predict(m, data = df, horizon = 12, test_start = 2010)
+m <- univariate_fable_model(gdppc_grwt ~ 1, df|>dplyr::filter(year<1992), method = "arima")
+m <- univariate_fable_model(gdppc_grwt ~ error("A") + trend("N") + season("N"), df|>dplyr::filter(year<1992), method = "ets")
+
+predict(m, horizon = 12, inner_sims = 1, data = df) |> dplyr::pull(year) |> unique()
 
 create_panel_frame(gdppc_grwt ~ lag(gdppc_grwt), data = df)
 formula <- gdppc_grwt ~ lag(gdppc_grwt)
@@ -46,7 +48,7 @@ model_system <- list(
   build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
   build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
   build_model("linear", formula = c1, boot = "resid"),
-  build_model("linear", formula = d1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
   build_model("exogen", formula = ~psecprop),
   build_model("exogen", formula = ~population)
 )
@@ -82,7 +84,7 @@ res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
 res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
   dplyr::filter(year >= simulator_setup$test_start)
 
-acc <- get_accuracy(res, "gdppc_grwt", df)
+acc <- get_accuracy(res, "v2x_libdem", df)
 acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 
 plotsim(res, "gdppc", c(2, 20, 530), df)

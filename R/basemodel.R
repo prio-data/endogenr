@@ -48,6 +48,11 @@ build_model <- function(type, formula, ...) {
                 exogenmodel,
                 formula = formula
               ),
+              "univariate_fable" = purrr::partial(
+                univariate_fable_model,
+                formula = formula,
+                method = dots$method
+              ),
               stop("Unknown model type: ", type)
   )
 

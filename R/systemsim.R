@@ -23,7 +23,7 @@ prepare_simulation_data <- function(data, groupvar, timevar, train_start, test_s
     dplyr::filter(!!time_sym < test_start)
 
   # Create sequence of all times
-  all_times <- base::seq(train_start, test_start + horizon, by = 1)
+  all_times <- base::seq(train_start, (test_start + horizon - 1), by = 1)
 
   # Get unique groups
   all_groups <- simulation_data %>%
@@ -61,7 +61,7 @@ prepare_simulation_data <- function(data, groupvar, timevar, train_start, test_s
 #' @export
 #'
 #' @examples
-process_independent_models <- function(simulation_data, models, test_start) {
+process_independent_models <- function(simulation_data, models, test_start, horizon, inner_sims) {
   # Input validation
   if (!is.numeric(test_start)) {
     stop("`test_start´ must be numeric")
@@ -77,7 +77,7 @@ process_independent_models <- function(simulation_data, models, test_start) {
   # Process each independent model
   for (model in independent_models) {
     # Get predictions
-    pred <- predict(model, data = simulation_data, test_start = test_start)
+    pred <- predict(model, data = simulation_data, test_start = test_start, horizon = horizon, inner_sims = inner_sims)
 
     # Update the simulation data with new predictions
     simulation_data <- simulation_data |>
@@ -114,7 +114,7 @@ process_dependent_models <- function(simulation_data, models, test_start, horizo
   idx <- tsibble::index_var(simulation_data)
 
   # Process each time point
-  for (t in test_start:(test_start + horizon)) {
+  for (t in test_start:(test_start + horizon - 1)) {
     # Process each model in the specified order
     for (model in dependent_models) {
       # Get predictions for current time point
@@ -146,11 +146,11 @@ process_dependent_models <- function(simulation_data, models, test_start, horizo
 #'
 #' @examples
 setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims){
-  data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= test_start + horizon)
+  data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= (test_start + horizon - 1))
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
   models <- lapply(models, function(x){
-    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen")
+    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen", "univariate_fable")
     type <- model_types[model_types %in% class(x)]
 
     switch(type,
@@ -165,6 +165,10 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
              newdata = data,
              impute_from = test_start,
              inner_sims = inner_sims
+           ),
+           "univariate_fable" = purrr::partial(
+             x,
+             data = train
            ),
            stop("Unknown model type: ", type)
     )
@@ -203,9 +207,9 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 #'
 #' @examples
 simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6){
-  simulate <- function(i, simulation_data, models, test_start, horizon, execution_order){
+  simulate <- function(i, simulation_data, models, test_start, horizon, execution_order, inner_sims){
     fitted_models <- lapply(models, function(x) x()) # fit new
-    sim <- process_independent_models(simulation_data, fitted_models, test_start)
+    sim <- process_independent_models(simulation_data, fitted_models, test_start, horizon, inner_sims)
     sim <- process_dependent_models(sim, fitted_models, test_start, horizon, execution_order)
     return(sim)
   }
@@ -220,6 +224,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
                                                       test_start = simulator_setup$test_start,
                                                       horizon = simulator_setup$horizon,
                                                       execution_order = simulator_setup$execution_order,
+                                                      inner_sims = simulator_setup$inner_sims,
                                                       future.seed = TRUE,
                                                       future.packages = c("dplyr", "endogenr"))
     future::plan(old_plan)
@@ -229,7 +234,8 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
                                  models = simulator_setup$models,
                                  test_start = simulator_setup$test_start,
                                  horizon = simulator_setup$horizon,
-                                 execution_order = simulator_setup$execution_order)
+                                 execution_order = simulator_setup$execution_order,
+                                 inner_sims = simulator_setup$inner_sims)
   }
 
   simulation_results <- lapply(simulation_results, dplyr::as_tibble)
