@@ -60,12 +60,12 @@ simulator_setup <- setup_simulator(models = model_system,
                 horizon = 12,
                 groupvar = "gwcode",
                 timevar = "year",
-                inner_sims = 10)
+                inner_sims = 5)
 
 #simulator_setup$execution_order <- c("psecprop", "population", "gdppc_grwt", "yjbest", "dem", "gdppc", "gdp")
 
 set.seed(42)
-res <- simulate_endogenr(nsim = 6, simulator_setup = simulator_setup, parallel = T)
+res <- simulate_endogenr(nsim = 8, simulator_setup = simulator_setup, parallel = T, ncores = 8)
 
 
 scaled_logit <- function(x, lower=0, upper=1){
