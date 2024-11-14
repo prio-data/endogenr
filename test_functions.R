@@ -1,5 +1,62 @@
 library(endogenr)
 library(dplyr)
+df <- endogenr::example_data
+df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
+
+e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
+c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
+d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+
+model_system <- list(
+  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
+)
+
+simulator_setup <- setup_simulator(models = model_system,
+                                   data = df,
+                                   train_start = 1970,
+                                   test_start = 2010,
+                                   horizon = 12,
+                                   groupvar = "gwcode",
+                                   timevar = "year",
+                                   inner_sims = 50,
+                                   min_window = 10)
+
+set.seed(42)
+res <- simulate_endogenr(nsim = 16, simulator_setup = simulator_setup, parallel = T, ncores = 8)
+
+saveRDS(res, "~/Dropbox/Work/Papers/endogen_historical_nexus/results/endogenr_sims/sim1.rds")
+
+
+scaled_logit <- function(x, lower=0, upper=1){
+  log((x-lower)/(upper-x))
+}
+inv_scaled_logit <- function(x, lower=0, upper=1){
+  (upper-lower)*exp(x)/(1+exp(x)) + lower
+}
+my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit)
+
+yj <- scales::transform_yj(p = 0.4)
+# Back-transform
+res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
+                            best = yj$inverse(yjbest))
+
+res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
+  dplyr::filter(year >= simulator_setup$test_start)
+
+acc <- get_accuracy(res, "gdppc_grwt", df)
+acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
+
+plotsim(res, "gdppc", c(2, 20, 530), df)
+plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
+plotsim(res, "v2x_libdem", c(2, 20, 530), df)
+plotsim(res, "best", c(2, 20, 530), df)
+
 
 
 #### test the select_col_per_row function ####
@@ -20,8 +77,6 @@ test <- predict(m, interval = "prediction")[,c(2,1,3)]
 result <- row_quantiles_apply(result) |> t()
 all(abs(result - test) <= 0.1)
 
-df <- endogenr::example_data
-df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
 m <- univariate_fable_model(gdppc_grwt ~ 1, df|>dplyr::filter(year<1992), method = "arima")
 m <- univariate_fable_model(gdppc_grwt ~ error("A") + trend("N") + season("N"), df|>dplyr::filter(year<1992), method = "ets")
@@ -38,59 +93,6 @@ formula <- gdppc_grwt ~ lag(gdppc_grwt)
 # horizon <- 12
 # inner_sims <- 10
 
-
-e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
-c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
-d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
-
-model_system <- list(
-  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
-  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
-  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
-  build_model("linear", formula = c1, boot = "resid"),
-  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
-  build_model("exogen", formula = ~psecprop),
-  build_model("exogen", formula = ~population)
-)
-
-simulator_setup <- setup_simulator(models = model_system,
-                data = df,
-                train_start = 1970,
-                test_start = 1990,
-                horizon = 12,
-                groupvar = "gwcode",
-                timevar = "year",
-                inner_sims = 5)
-
-#simulator_setup$execution_order <- c("psecprop", "population", "gdppc_grwt", "yjbest", "dem", "gdppc", "gdp")
-
-set.seed(42)
-res <- simulate_endogenr(nsim = 8, simulator_setup = simulator_setup, parallel = T, ncores = 8)
-
-
-scaled_logit <- function(x, lower=0, upper=1){
-  log((x-lower)/(upper-x))
-}
-inv_scaled_logit <- function(x, lower=0, upper=1){
-  (upper-lower)*exp(x)/(1+exp(x)) + lower
-}
-my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit)
-
-yj <- scales::transform_yj(p = 0.4)
-# Back-transform
-res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
-                                        best = yj$inverse(yjbest))
-
-res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
-  dplyr::filter(year >= simulator_setup$test_start)
-
-acc <- get_accuracy(res, "v2x_libdem", df)
-acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
-
-plotsim(res, "gdppc", c(2, 20, 530), df)
-plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
-plotsim(res, "v2x_libdem", c(2, 20, 530), df)
-plotsim(res, "best", c(2, 20, 530), df)
 
 
 

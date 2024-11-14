@@ -41,7 +41,7 @@ bootstraplm <- function(formula, data, type){
 #' @export
 #'
 #' @examples
-linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ...){
+linearmodel <- function(formula = NULL, boot = NULL, data = NULL, subset = NULL, ...){
   model <- new_endogenmodel(formula)
   model$boot <- boot
   model$fit_args <- rlang::list2(...)
@@ -49,13 +49,24 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ...){
 
   panel_frame <- create_panel_frame(model$formula, data)
   model$naive_formula <- panel_frame$naive_formula
+  model$data <- panel_frame$data
+  model$timevar <- tsibble::index_var(data)
+  model$subset <- subset
   class(model) <- c("linear", class(model))
 
-  if(!is.null(boot)){
-    model$fitted <- bootstraplm(model$naive_formula, panel_frame$data, type = boot)
-  } else(
-    model$fitted = stats::lm(model$naive_formula, panel_frame$data)
-  )
+  model$fit <- function(formula, data, boot, subset, timevar){
+    if(!is.null(subset)){
+      data <- data |> dplyr::filter(!!rlang::sym(timevar) >= subset$start, !!rlang::sym(timevar) <= subset$end)
+    }
+
+    if(!is.null(boot)){
+      fitted <- bootstraplm(formula, data, type = boot)
+    } else(
+      fitted = stats::lm(formula, data)
+    )
+  }
+
+  model$fitted <- model$fit(model$naive_formula, model$data, model$boot, model$subset, model$timevar)
 
   model$coefs <- broom::tidy(model$fitted)
   model$gof <- broom::glance(model$fitted)

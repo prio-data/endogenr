@@ -1,3 +1,30 @@
+#' Draw a random time-window
+#'
+#' @param earliest_train_start
+#' @param test_start
+#' @param min_window
+#'
+#' @return
+#' @export
+#'
+#' @examples
+get_train_window <- function(earliest_train_start, test_start, min_window = NULL){
+  if(is.null(min_window)){
+    return(list("start" = earliest_train_start, "end" = test_start -1, "window" = NULL))
+  }
+  full_range <- test_start - earliest_train_start
+  if(min_window > full_range){
+    stop("Train min_window must be smaller or equal to largest possible train-set.")
+  }
+  if(min_window < 1){
+    stop("Train min_window must be 1 or larger")
+  }
+
+  start_increment <- sample.int(full_range-min_window, 1) - 1
+  stop_decrement <- sample.int(full_range-min_window-start_increment, 1) - 1
+  return(list("start" = earliest_train_start+start_increment, "end" = test_start - stop_decrement))
+}
+
 #' Creates a panel data frame based on a formula and tsibble
 #'
 #' This correctly handles by-group functions in a formula, unlike stats::model.frame.

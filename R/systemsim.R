@@ -145,13 +145,16 @@ process_dependent_models <- function(simulation_data, models, test_start, horizo
 #' @export
 #'
 #' @examples
-setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims){
+setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims, min_window = NULL){
   data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= (test_start + horizon - 1))
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
   models <- lapply(models, function(x){
     model_types <- c("deterministic", "parametric_distribution", "linear", "exogen", "univariate_fable")
     type <- model_types[model_types %in% class(x)]
+    if(!is.null(min_window) & type == "linear"){
+      type <- "linear_subset"
+    }
 
     switch(type,
            "deterministic" = x,
@@ -159,6 +162,11 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
            "linear" = purrr::partial(
              x,
              data = train
+           ),
+           "linear_subset" = purrr::partial(
+             x,
+             data = train,
+             subset = get_train_window(train_start, test_start, min_window)
            ),
            "exogen" = purrr::partial(
              x,
