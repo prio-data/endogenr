@@ -2,10 +2,21 @@ library(endogenr)
 library(dplyr)
 df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
+train <- df |> dplyr::filter(year >= 1970, year < 2010)
 
 e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
 c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
 d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+
+model_system <- list(
+  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "t_ls", start = list(df = 1, mu = mean(train$gdppc_grwt), sigma = sd(train$gdppc_grwt))),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
+)
 
 model_system <- list(
   build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
@@ -17,20 +28,25 @@ model_system <- list(
   build_model("exogen", formula = ~population)
 )
 
+lapply(model_system, function(x) class(x))
+
 simulator_setup <- setup_simulator(models = model_system,
                                    data = df,
                                    train_start = 1970,
                                    test_start = 2010,
-                                   horizon = 12,
+                                   horizon = 3,
                                    groupvar = "gwcode",
                                    timevar = "year",
-                                   inner_sims = 50,
+                                   inner_sims = 2,
                                    min_window = 10)
 
 set.seed(42)
-res <- simulate_endogenr(nsim = 16, simulator_setup = simulator_setup, parallel = T, ncores = 8)
+simulator_setup$execution_order <- c("gdppc_grwt", "population", "psecprop", "dem", "yjbest", "gdppc", "gdp")
 
-saveRDS(res, "~/Dropbox/Work/Papers/endogen_historical_nexus/results/endogenr_sims/sim1.rds")
+options(warn=2) #warnings as errors
+res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = F)
+
+res <- simulate_endogenr(nsim = 8, simulator_setup = simulator_setup, parallel = T, ncores = 8)
 
 
 scaled_logit <- function(x, lower=0, upper=1){

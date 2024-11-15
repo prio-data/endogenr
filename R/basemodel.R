@@ -36,7 +36,11 @@ build_model <- function(type, formula, ...) {
               "parametric_distribution" = purrr::partial(
                 parametric_distribution_model,
                 formula = formula,
-                distribution = dots$distribution
+                distribution = dots$distribution,
+                start = dots$start,
+                method = ifelse(is.null(dots$method), "mle", dots$method),
+                discrete = ifelse(is.null(dots$discrete), FALSE, dots$discrete),
+                fix.arg = dots$fix.arg
               ),
               "linear" = purrr::partial(
                 linearmodel,

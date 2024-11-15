@@ -4,7 +4,7 @@
 \alias{predict.univariate_fable}
 \title{Predict univariate fable model}
 \usage{
-\method{predict}{univariate_fable}(model, horizon, test_start, data)
+\method{predict}{univariate_fable}(model, horizon, inner_sims, data, ...)
 }
 \arguments{
 \item{data}{}

@@ -4,7 +4,7 @@
 \alias{univariate_fable_model}
 \title{Univariate model from fable}
 \usage{
-univariate_fable_model(formula = NULL, data = NULL, ...)
+univariate_fable_model(formula = NULL, data = NULL, method = "arima", ...)
 }
 \arguments{
 \item{...}{}

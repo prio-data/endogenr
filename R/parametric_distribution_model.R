@@ -179,8 +179,8 @@ predict.parametric_distribution <- function(model, data, test_start, ...) {
       !!rlang::sym(model$outcome) := distributional::generate(
         model$fitted,
         dplyr::n()
-      )$mean
-    ) %>%
+      ) |> unlist()
+    ) |>
     # Ensure tsibble structure
     tsibble::as_tsibble(
       key = grp,

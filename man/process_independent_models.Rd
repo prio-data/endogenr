@@ -4,7 +4,13 @@
 \alias{process_independent_models}
 \title{Imputes the time-independent forecasts}
 \usage{
-process_independent_models(simulation_data, models, test_start)
+process_independent_models(
+  simulation_data,
+  models,
+  test_start,
+  horizon,
+  inner_sims
+)
 }
 \arguments{
 \item{test_start}{}

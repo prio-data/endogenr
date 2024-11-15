@@ -156,7 +156,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
       type <- "linear_subset"
     }
 
-    switch(type,
+    f <- switch(type,
            "deterministic" = x,
            "parametric_distribution" = purrr::partial(x, data = train),
            "linear" = purrr::partial(
@@ -180,6 +180,8 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
            ),
            stop("Unknown model type: ", type)
     )
+    class(f) <- c(class(f), type)
+    return(f)
   })
 
   fitted_models <- lapply(models, function(x) x())
@@ -203,6 +205,35 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 }
 
 
+#' The inner simulation loop
+#'
+#' @param i
+#' @param simulation_data
+#' @param models
+#' @param test_start
+#' @param horizon
+#' @param execution_order
+#' @param inner_sims
+#'
+#' @return
+#' @export
+#'
+#' @examples
+inner_simulation <- function(i, simulation_data, models, test_start, horizon, execution_order, inner_sims){
+  # Fit the linear models every new simulation
+  fitted_models <- lapply(models, function(x){
+    if(c("linear", "linear_subset") %in% class(x) |> any()){
+      return(x())
+    } else{
+      return(x)
+    }
+  })
+  #fitted_models <- lapply(models, function(x) x()) # fit new
+  sim <- process_independent_models(simulation_data, fitted_models, test_start, horizon, inner_sims)
+  sim <- process_dependent_models(sim, fitted_models, test_start, horizon, execution_order)
+  return(sim)
+}
+
 #' Dynamic simulation of the system
 #'
 #' @param nsim
@@ -215,36 +246,58 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 #'
 #' @examples
 simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6){
-  simulate <- function(i, simulation_data, models, test_start, horizon, execution_order, inner_sims){
-    fitted_models <- lapply(models, function(x) x()) # fit new
-    sim <- process_independent_models(simulation_data, fitted_models, test_start, horizon, inner_sims)
-    sim <- process_dependent_models(sim, fitted_models, test_start, horizon, execution_order)
-    return(sim)
-  }
 
+
+  old_plan <- future::plan()
   if(parallel){
-    old_plan <- future::plan()
     future::plan(future::multisession, workers = ncores, gc = TRUE)
-
-    simulation_results <- future.apply::future_lapply(1:nsim, simulate,
-                                                      simulation_data = simulator_setup$simulation_data,
-                                                      models = simulator_setup$models,
-                                                      test_start = simulator_setup$test_start,
-                                                      horizon = simulator_setup$horizon,
-                                                      execution_order = simulator_setup$execution_order,
-                                                      inner_sims = simulator_setup$inner_sims,
-                                                      future.seed = TRUE,
-                                                      future.packages = c("dplyr", "endogenr"))
-    future::plan(old_plan)
   } else{
-    simulation_results <- lapply(1:nsim, simulate,
-                                 simulation_data = simulator_setup$simulation_data,
-                                 models = simulator_setup$models,
-                                 test_start = simulator_setup$test_start,
-                                 horizon = simulator_setup$horizon,
-                                 execution_order = simulator_setup$execution_order,
-                                 inner_sims = simulator_setup$inner_sims)
+    future::plan(future::sequential)
   }
+
+  # simulation_results <- lapply(1:nsim, inner_simulation,
+  #                                                   simulation_data = simulator_setup$simulation_data,
+  #                                                   models = simulator_setup$models,
+  #                                                   test_start = simulator_setup$test_start,
+  #                                                   horizon = simulator_setup$horizon,
+  #                                                   execution_order = simulator_setup$execution_order,
+  #                                                   inner_sims = simulator_setup$inner_sims)
+  #
+  # simulation_results <- future.apply::future_lapply(1:nsim, inner_simulation,
+  #                                                   simulation_data = simulator_setup$simulation_data,
+  #                                                   models = simulator_setup$models,
+  #                                                   test_start = simulator_setup$test_start,
+  #                                                   horizon = simulator_setup$horizon,
+  #                                                   execution_order = simulator_setup$execution_order,
+  #                                                   inner_sims = simulator_setup$inner_sims,
+  #                                                   future.seed = TRUE,
+  #                                                   future.packages = c("dplyr", "endogenr"))
+
+  # Fit all that only needs to be fit once
+  simulator_setup$models <- lapply(simulator_setup$models, function(x){
+    if(c("linear", "linear_subset") %in% class(x) |> any()){
+      return(x)
+    } else{
+      return(x())
+    }
+  })
+
+  simulation_results <- list()
+  for(i in 1:nsim){
+    simulation_results[[i]] <- future::future({
+      inner_simulation(
+        i,
+        simulation_data = simulator_setup$simulation_data,
+        models = simulator_setup$models,
+        test_start = simulator_setup$test_start,
+        horizon = simulator_setup$horizon,
+        execution_order = simulator_setup$execution_order,
+        inner_sims = simulator_setup$inner_sims
+      )
+    }, packages = c("dplyr", "endogenr"), seed = TRUE, globals = "simulator_setup")
+  }
+  simulation_results <- lapply(simulation_results, FUN = future::value)
+  future::plan(old_plan)
 
   simulation_results <- lapply(simulation_results, dplyr::as_tibble)
   simulation_results <- dplyr::bind_rows(simulation_results, .id = ".id")

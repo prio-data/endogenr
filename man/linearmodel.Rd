@@ -4,7 +4,7 @@
 \alias{linearmodel}
 \title{Linear model}
 \usage{
-linearmodel(formula = NULL, boot = NULL, data = NULL, ...)
+linearmodel(formula = NULL, boot = NULL, data = NULL, subset = NULL, ...)
 }
 \arguments{
 \item{...}{}
