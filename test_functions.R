@@ -34,10 +34,10 @@ simulator_setup <- setup_simulator(models = model_system,
                                    data = df,
                                    train_start = 1970,
                                    test_start = 2010,
-                                   horizon = 3,
+                                   horizon = 12,
                                    groupvar = "gwcode",
                                    timevar = "year",
-                                   inner_sims = 2,
+                                   inner_sims = 50,
                                    min_window = 10)
 
 set.seed(42)
@@ -46,8 +46,10 @@ simulator_setup$execution_order <- c("gdppc_grwt", "population", "psecprop", "de
 options(warn=2) #warnings as errors
 res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = F)
 
-res <- simulate_endogenr(nsim = 8, simulator_setup = simulator_setup, parallel = T, ncores = 8)
+set.seed(42)
+res <- simulate_endogenr(nsim = 16, simulator_setup = simulator_setup, parallel = T, ncores = 8)
 
+options(warn=1)
 
 scaled_logit <- function(x, lower=0, upper=1){
   log((x-lower)/(upper-x))
