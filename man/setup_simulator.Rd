@@ -12,7 +12,8 @@ setup_simulator(
   horizon,
   groupvar,
   timevar,
-  inner_sims
+  inner_sims,
+  min_window = NULL
 )
 }
 \arguments{

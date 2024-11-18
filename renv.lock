@@ -292,6 +292,26 @@
       ],
       "Hash": "3fd29944b231036ad67c3edb32e02201"
     },
+    "fable": {
+      "Package": "fable",
+      "Version": "0.4.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "Rcpp",
+        "distributional",
+        "dplyr",
+        "fabletools",
+        "rlang",
+        "stats",
+        "tibble",
+        "tidyr",
+        "tsibble",
+        "utils"
+      ],
+      "Hash": "1515a618a47d110a2b97bf4d9e4b520f"
+    },
     "fabletools": {
       "Package": "fabletools",
       "Version": "0.5.0",
@@ -398,20 +418,6 @@
         "utils"
       ],
       "Hash": "475771e3edb711591476be387c9a8c2e"
-    },
-    "future.apply": {
-      "Package": "future.apply",
-      "Version": "1.11.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "future",
-        "globals",
-        "parallel",
-        "utils"
-      ],
-      "Hash": "0efead26b03bb60716ed29971b1953dc"
     },
     "generics": {
       "Package": "generics",
@@ -744,6 +750,18 @@
       ],
       "Hash": "110ee9d83b496279960e162ac97764ce"
     },
+    "microbenchmark": {
+      "Package": "microbenchmark",
+      "Version": "1.5.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "graphics",
+        "stats"
+      ],
+      "Hash": "f9d226d88d4087d817d4e616626ce8e5"
+    },
     "mime": {
       "Package": "mime",
       "Version": "0.12",
@@ -800,17 +818,6 @@
         "utils"
       ],
       "Hash": "6e8b139c1904f5e9e14c69db64453bbe"
-    },
-    "pbapply": {
-      "Package": "pbapply",
-      "Version": "1.7-2",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "R",
-        "parallel"
-      ],
-      "Hash": "68a2d681e10cf72f0afa1d84d45380e5"
     },
     "pillar": {
       "Package": "pillar",
