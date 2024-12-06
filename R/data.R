@@ -14,7 +14,7 @@
 #'   \item{dem}{Logit transformed liberal democracy score from V-Dem}
 #'   \item{psecprop}{The proportion of the population with completed post-secondary education from WCDE}
 #'   \item{best}{Best estimate of battle-deaths from UCDP and PRIO}
-#'   \item{v2x_libdem}{Liberal democracy score from V-Dem}}
+#'   \item{v2x_libdem}{Liberal democracy score from V-Dem}
 #'   \item{gdp}{Gross domestic product}
 #' }
 #' @source [PRIO Battle-deaths 3.1](https://www.prio.org/data/1)
