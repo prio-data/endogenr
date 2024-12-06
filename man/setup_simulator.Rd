@@ -2,7 +2,7 @@
 % Please edit documentation in R/systemsim.R
 \name{setup_simulator}
 \alias{setup_simulator}
-\title{Sets up the simulator, including fitting the models}
+\title{Sets up the endogenr simulator, including fitting the models}
 \usage{
 setup_simulator(
   models,
@@ -17,8 +17,56 @@ setup_simulator(
 )
 }
 \arguments{
-\item{inner_sims}{}
+\item{models}{A list of models created using \code{\link[=build_model]{build_model()}}}
+
+\item{data}{A data.frame. Must contain all variables in the model system, groupvar, timevar, and future exogenous data.}
+
+\item{train_start}{Integer. When to (at least) start training. The system will remove all data before this time.}
+
+\item{test_start}{Integer. When to start the forecast period. Forecast includes the test_start time.}
+
+\item{horizon}{Integer. How many time steps to forecast into.}
+
+\item{groupvar}{A string. The variable denoting groups in the panel-data.}
+
+\item{timevar}{A string. The variable denoting time in the panel-data.}
+
+\item{inner_sims}{Integer. The number of "inner simulations", i.e., simulations using the same estimated models. While a pure bootstrapping
+might only want outer simulations, it is much faster to calculate the inner ones, and exploring the uncertainty of any estimated model system
+that way.}
+
+\item{min_window}{Integer. When using linear models (see \code{\link[=build_model]{build_model()}}), if min_window is not NULL, every outer simulation will provide
+a random subset time-window of training data as training data for the linear models. This can be useful to explore uncertainties in data-generating
+processes that are not stable across time.}
+}
+\value{
+A list of setup parameters for \code{\link[=simulate_endogenr]{simulate_endogenr()}}.
 }
 \description{
-Sets up the simulator, including fitting the models
+Used as input to \code{\link[=simulate_endogenr]{simulate_endogenr()}}. The function will impute further parameters into the models defined in \code{\link[=build_model]{build_model()}}
+using \code{\link[purrr:partial]{purrr::partial()}}.
+}
+\examples{
+df <- endogenr::example_data |> tsibble::as_tsibble(key = "gwcode", index = "year")
+train <- df |> dplyr::filter(year>= 1970, year < 2010) # used for starting values in parametric distribution
+c1 <- yjbest ~ lag(zoo::rollsumr(yjbest, k = 5, fill = NA)) + lag(log(gdppc))
+model_system <- list(
+  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "t_ls", start = list(df = 1, mu = mean(train$gdppc_grwt), sigma = sd(train$gdppc_grwt))),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
+)
+
+simulator_setup <- setup_simulator(models = model_system,
+                                  data = df,
+                                  train_start = 1970,
+                                  test_start = 2010,
+                                  horizon = 12,
+                                  groupvar = "gwcode",
+                                  timevar = "year",
+                                  inner_sims = 50,
+                                  min_window = 10)
 }

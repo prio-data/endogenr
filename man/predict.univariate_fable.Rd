@@ -7,8 +7,15 @@
 \method{predict}{univariate_fable}(model, horizon, inner_sims, data, ...)
 }
 \arguments{
-\item{data}{}
+\item{model}{a univariate_fable endogenmodel}
+
+\item{horizon}{the number of future steps to predict}
+
+\item{inner_sims}{the number of inner simulations. See \code{\link[=setup_simulator]{setup_simulator()}}.}
+
+\item{data}{the data used in forecasting (used to gain information about group and index variables)}
 }
 \description{
-Predict univariate fable model
+Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
+separately, you should use fable directly!
 }

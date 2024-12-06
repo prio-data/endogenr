@@ -1,13 +1,17 @@
 #' Univariate model from fable
 #'
-#' @param formula
-#' @param data
-#' @param ...
+#' Univariate statistical models ("univariate_fable") currently supports exponential smoothing (ETS) and ARIMA models. See <https://otexts.com/fpp3/> for
+#' details on these models. These models are estimated independently for each groupvar in [setup_simulator()], and the forecasts are completely
+#' independent of the rest of the system (the forecasts are populated in the simulation dataset before the dynamic simulation is calculated). See [fable::ETS()]
+#' and [fable::ARIMA()] for how to write the function calls for these models. A simple exponential smoothing model can be set up using
+#' build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
 #'
-#' @return
+#' @param formula An R-formula using the model specification in [fable::ARIMA()] or [fable::ETS()]
+#' @param data The training data used to fit the model. A tsibble.
+#' @param ... Other arguments from [fable::ARIMA()] or [fable::ETS()]
+#'
+#' @return A univariate_fable endogenmodel class.
 #' @export
-#'
-#' @examples
 univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima", ...){
   model <- new_endogenmodel(formula)
 
@@ -29,10 +33,13 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
 
 #' Predict univariate fable model
 #'
-#' @param model
-#' @param horizon
-#' @param test_start
-#' @param data
+#' Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
+#' separately, you should use fable directly!
+#'
+#' @param model a univariate_fable endogenmodel
+#' @param horizon the number of future steps to predict
+#' @param inner_sims the number of inner simulations. See [setup_simulator()].
+#' @param data the data used in forecasting (used to gain information about group and index variables)
 #'
 #' @return
 #' @export

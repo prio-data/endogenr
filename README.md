@@ -29,6 +29,9 @@ You can install the development version of endogenr from
 pak::pak("prio-data/endogenr")
 ```
 
+You can also clone (download) the repository, open it as a project in
+RStudio, find the “Build” tab, and press “Install”.
+
 ## Example
 
 ``` r
@@ -76,6 +79,7 @@ simulator_setup <- setup_simulator(models = model_system,
 set.seed(42)
 res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = F)
 
+# Example that you can back-transform variables you have simulated as transformed variables
 scaled_logit <- function(x, lower=0, upper=1){
   log((x-lower)/(upper-x))
 }
@@ -84,7 +88,7 @@ inv_scaled_logit <- function(x, lower=0, upper=1){
 }
 my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit)
 
-yj <- scales::transform_yj(p = 0.4)
+yj <- scales::transform_yj(p = 0.4) # This was transformed using lambda 0.4 when creating the data.
 # Back-transform
 res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
                             best = yj$inverse(yjbest))
@@ -98,9 +102,9 @@ acc <- get_accuracy(res, "gdppc_grwt", df)
 acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 ```
 
-|      crps |       mae |  winkler |
-|----------:|----------:|---------:|
-| 0.0357186 | 0.0445135 | 0.155229 |
+|      crps |     mae |   winkler |
+|----------:|--------:|----------:|
+| 0.0344579 | 0.04324 | 0.1501716 |
 
 ``` r
 

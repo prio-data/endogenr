@@ -7,8 +7,19 @@
 univariate_fable_model(formula = NULL, data = NULL, method = "arima", ...)
 }
 \arguments{
-\item{...}{}
+\item{formula}{An R-formula using the model specification in \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
+
+\item{data}{The training data used to fit the model. A tsibble.}
+
+\item{...}{Other arguments from \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
+}
+\value{
+A univariate_fable endogenmodel class.
 }
 \description{
-Univariate model from fable
+Univariate statistical models ("univariate_fable") currently supports exponential smoothing (ETS) and ARIMA models. See \url{https://otexts.com/fpp3/} for
+details on these models. These models are estimated independently for each groupvar in \code{\link[=setup_simulator]{setup_simulator()}}, and the forecasts are completely
+independent of the rest of the system (the forecasts are populated in the simulation dataset before the dynamic simulation is calculated). See \code{\link[fable:ETS]{fable::ETS()}}
+and \code{\link[fable:ARIMA]{fable::ARIMA()}} for how to write the function calls for these models. A simple exponential smoothing model can be set up using
+build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
 }
