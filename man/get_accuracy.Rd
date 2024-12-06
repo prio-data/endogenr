@@ -7,8 +7,56 @@
 get_accuracy(simulation_results, outcome, truth, sim_var = ".sim")
 }
 \arguments{
-\item{sim_var}{}
+\item{simulation_results}{A tsibble with a c(groupvar, sim_var) as keys and timevar as index.}
+
+\item{outcome}{Any one of the other column names in simulation_results.}
+
+\item{truth}{A tsibble with groupvar as key and timevar as index that includes the observed outcome variable
+in the forecast horizon.}
+
+\item{sim_var}{Defaults to ".sim". Should be the name of the variable denoting the simulation index.}
+}
+\value{
+A tibble with a row per groupvar. Columns: groupvar, .type, crps, mae, winkler.
 }
 \description{
-Calculate probabilistic accuracy scores for simulations
+If you have simulated out-of-sample, i.e., with a true observed outcome for the forecast horizon,
+you can test the probabilistic accuracy of any simulated outcome using this function. It is essentially
+a wrapper around \code{\link[fabletools:reexports]{fabletools::accuracy()}} and \code{\link[fabletools:fable]{fabletools::fable()}}. As of now, the simulation results from
+\code{\link[=simulate_endogenr]{simulate_endogenr()}} returns a tibble. You will need to convert it to a tsibble using c(groupvar, sim_var) and timevar
+as key and index. You must also subset away the training period. Then it can be used as simulation_results here.
+}
+\details{
+The function calculates three different accuracy scores: \code{\link[fabletools:distribution_accuracy_measures]{fabletools::CRPS()}}, \link[fabletools:point_accuracy_measures]{fabletools::MAE}, and \link[fabletools:winkler_score(level = 50)]{fabletools::winkler_score(level = 50)}.
+Access to other choices can be implemented, but is not there currently.
+}
+\examples{
+df <- endogenr::example_data |> tsibble::as_tsibble(key = "gwcode", index = "year")
+train <- df |> dplyr::filter(year>= 1970, year < 2010) # used for starting values in parametric distribution
+c1 <- yjbest ~ lag(zoo::rollsumr(yjbest, k = 5, fill = NA)) + lag(log(gdppc))
+model_system <- list(
+  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "t_ls", start = list(df = 1, mu = mean(train$gdppc_grwt), sigma = sd(train$gdppc_grwt))),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
+)
+
+simulator_setup <- setup_simulator(models = model_system,
+                                  data = df,
+                                  train_start = 1970,
+                                  test_start = 2010,
+                                  horizon = 12,
+                                  groupvar = "gwcode",
+                                  timevar = "year",
+                                  inner_sims = 2,
+                                  min_window = 10)
+set.seed(42)
+res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = F)
+res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
+  dplyr::filter(year >= simulator_setup$test_start)
+acc <- get_accuracy(res, "gdppc_grwt", df)
+acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable() # return average accuracy across units
 }

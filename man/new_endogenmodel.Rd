@@ -9,6 +9,9 @@ new_endogenmodel(formula)
 \arguments{
 \item{formula}{}
 }
+\value{
+A list with class endogenmodel
+}
 \description{
-A baseline structure for a model
+Do not use directly.
 }
