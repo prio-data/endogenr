@@ -130,3 +130,6 @@ plotsim(res, "best", c(2, 20, 530), df)
 ```
 
 <img src="man/figures/README-example-4.png" width="100%" />
+
+# Funder
+This work has been completed with support from the European Union through European Research Council (ERC) grant no. 101055133 (POLIMPACT). Views and opinions expressed are however those of the authors only and do not necessarily reflect those of the European Union or the ERC. Neither the European Union nor the granting authority can be held responsible for them.
