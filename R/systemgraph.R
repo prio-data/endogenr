@@ -8,13 +8,38 @@
 #' @examples
 get_execution_order = function(dependency_graph) {
   outputs <- igraph::V(dependency_graph)$name
-  second_edges <- igraph::E(dependency_graph)[.to(igraph::V(dependency_graph)[outputs])]
-  second <- dependency_graph |> igraph::delete_edges(second_edges)
+
+  lagged_vars <- grepl("lag_", igraph::V(dependency_graph) |> names())
+
+  second <- dependency_graph |> igraph::delete_vertices(lagged_vars)
+
+  isolated_vertices <- which(igraph::degree(second) == 0)
+  exogenous_variables <- igraph::V(second)$name[isolated_vertices]
+
+  third <- second |> igraph::delete_vertices(exogenous_variables)
 
   # Use topological sort to determine calculation order
-  second_order <- igraph::topo_sort(second, mode = "out")
-  execution_order <- igraph::V(dependency_graph)$name[second_order]
-  return(execution_order[execution_order %in% outputs])
+  endogenous_order <- igraph::topo_sort(third, mode = "out")
+  endogenous_order <- igraph::V(third)$name[endogenous_order]
+  execution_order <- c(exogenous_variables, endogenous_order)
+  return(execution_order)
+}
+
+#' Test if a certain function is in each term in a formula
+#'
+#' @param formula
+#' @param func A string
+#'
+#' @return
+#' @export
+#'
+#' @examples
+func_in_term <- function(formula, func = "lag") {
+  res <- formula |>
+    terms() |>
+    attr("variables") |>
+    sapply(\(x) inherits(x, "call") && (func %in% (x |> all.vars(functions = TRUE))))
+  res[-1] # first term is always just list()
 }
 
 #' Parse a model formula to correctly anticipate the input and output variables
@@ -32,14 +57,18 @@ parse_formula <- function(model){
 
   if (!any(independent_models %in% class(model))) {
     terms <- base::all.vars(rlang::f_rhs(formula))
+    lags <- func_in_term(formula, func = "lag")[-1] # drop lhs
+    terms <- ifelse(lags, paste0("lag_", terms), terms)
     outcome <- base::all.vars(rlang::f_lhs(formula))
     edges <- data.frame("in" = terms, "out" = outcome)
     vertices <- unique(unlist(edges))
   }
 
   if (any(independent_models %in% class(model))) {
-    outcome <- vertices <- base::all.vars(formula)
-    edges <- cbind("in" = vertices, "out" = outcome)
+    outcome <- base::all.vars(formula)
+    input <- paste0("lag_", outcome)
+    vertices <- c(input, outcome)
+    edges <- cbind("in" = input, "out" = outcome)
   }
 
   return(list("edges" = edges, "vertices" = vertices, "outcome" = outcome))
