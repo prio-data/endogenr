@@ -25,8 +25,8 @@ You can install the development version of endogenr from
 [GitHub](https://github.com/) with:
 
 ``` r
-# install.packages("pak")
-pak::pak("prio-data/endogenr")
+# install.packages("renv")
+renv::install("prio-data/endogenr")
 ```
 
 You can also clone (download) the repository, open it as a project in
