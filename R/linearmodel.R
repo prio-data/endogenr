@@ -119,6 +119,9 @@ select_col_per_row <- function(mat, column_ids){
 getpi <- function(lmpred, nsamples = 1){
   sepi <- get_sepi(lmpred)
   pi <- lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
+  if(nsamples == 1){
+    pi <- as.vector(pi)
+  }
   return(pi)
 }
 
