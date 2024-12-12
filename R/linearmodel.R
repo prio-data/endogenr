@@ -107,23 +107,18 @@ select_col_per_row <- function(mat, column_ids){
 
 #' Get the predictive distribution from a linear model
 #'
-#' Samples 100 points from the predictive distribution and gives you one back.
+#' Samples nsamples points from the predictive distribution.
 #'
 #' @param lmpred
-#' @param single_sample
+#' @param nsamples
 #'
 #' @return
 #' @export
 #'
 #' @examples
-getpi <- function(lmpred, single_sample = TRUE){
+getpi <- function(lmpred, nsamples = 1){
   sepi <- get_sepi(lmpred)
-  pi <- lmpred$fit + outer(sepi, stats::rt(100, lmpred$df))
-
-  if(single_sample){
-    mycols <- base::sample.int(100, dim(pi)[1], replace = T)
-    pi <- select_col_per_row(pi, mycols)
-  }
+  pi <- lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
   return(pi)
 }
 
