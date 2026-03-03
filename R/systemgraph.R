@@ -61,6 +61,19 @@ parse_formula <- function(model){
     terms <- ifelse(lags, paste0("lag_", terms), terms)
     outcome <- base::all.vars(rlang::f_lhs(formula))
     edges <- data.frame("in" = terms, "out" = outcome)
+
+    # Also include variance formula dependencies for heterolm models
+    if ("heterolm" %in% class(model) && !is.null(model$variance_formula)) {
+      var_terms <- base::all.vars(model$variance_formula)
+      if (length(var_terms) > 0) {
+        var_lags <- func_in_term(model$variance_formula, func = "lag")
+        var_terms <- ifelse(var_lags, paste0("lag_", var_terms), var_terms)
+        var_edges <- data.frame("in" = var_terms, "out" = outcome)
+        edges <- rbind(edges, var_edges)
+      }
+    }
+
+    edges <- unique(edges)
     vertices <- unique(unlist(edges))
   }
 

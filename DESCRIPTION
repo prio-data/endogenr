@@ -12,7 +12,7 @@ RoxygenNote: 7.3.2
 Imports:
     data.table,
     R6
-Suggests: 
+Suggests:
     renv,
     broom,
     dplyr,
@@ -20,6 +20,7 @@ Suggests:
     conflicted,
     distributional,
     fabletools,
+    heterolm,
     progressr,
     zoo,
     pbapply
