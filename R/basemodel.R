@@ -108,6 +108,11 @@ build_model <- function(type, formula, ...) {
                 formula = formula,
                 method = dots$method
               ),
+              "heterolm" = purrr::partial(
+                heterolmmodel,
+                formula = formula,
+                variance = dots$variance
+              ),
               stop("Unknown model type: ", type)
   )
 
