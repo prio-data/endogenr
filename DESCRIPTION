@@ -23,7 +23,8 @@ Suggests:
     heterolm,
     progressr,
     zoo,
-    pbapply
+    pbapply,
+    sfdep
 Depends: 
     R (>= 2.10)
 LazyData: true

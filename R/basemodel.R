@@ -113,6 +113,14 @@ build_model <- function(type, formula, ...) {
                 formula = formula,
                 variance = dots$variance
               ),
+              "spatial_lag" = purrr::partial(
+                spatial_lag_model,
+                formula = formula,
+                nb = dots$nb,
+                wt = dots$wt,
+                unit_ids = dots$unit_ids,
+                island_default = if (is.null(dots$island_default)) NA_real_ else dots$island_default
+              ),
               stop("Unknown model type: ", type)
   )
 

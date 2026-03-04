@@ -180,7 +180,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
   models <- lapply(models, function(x){
-    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen", "univariate_fable", "heterolm")
+    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen", "univariate_fable", "heterolm", "spatial_lag")
     type <- model_types[model_types %in% class(x)]
     if(!is.null(min_window) & type == "linear"){
       type <- "linear_subset"
@@ -220,6 +220,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
              data = train,
              subset = get_train_window(train_start, test_start, min_window)
            ),
+           "spatial_lag" = x,
            stop("Unknown model type: ", type)
     )
     class(f) <- c(class(f), type)
