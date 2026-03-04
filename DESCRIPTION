@@ -8,7 +8,7 @@ Description: This package allows you to dynamically simulate a set of statistica
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Imports:
     data.table,
     R6
@@ -20,11 +20,12 @@ Suggests:
     conflicted,
     distributional,
     fabletools,
-    prio-data/heterolm,
+    heterolm,
     progressr,
-    zoo,
     pbapply,
     sfdep
-Depends: 
+Remotes:
+    prio-data/heterolm
+Depends:
     R (>= 2.10)
 LazyData: true
