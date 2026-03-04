@@ -20,10 +20,11 @@ Suggests:
     conflicted,
     distributional,
     fabletools,
-    heterolm,
+    prio-data/heterolm,
     progressr,
     zoo,
-    pbapply
+    pbapply,
+    sfdep
 Depends: 
     R (>= 2.10)
 LazyData: true
