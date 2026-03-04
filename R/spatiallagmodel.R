@@ -82,8 +82,29 @@ predict.spatial_lag <- function(model, t, data, ...) {
     reorder_idx <- match(model$unit_ids, df[[geo_var]])
     ordered_vals <- df[[model$source_var]][reorder_idx]
 
+    if (is.null(ordered_vals)) {
+      stop(sprintf(
+        "spatial_lag: source variable '%s' not found in simulation data at t=%s. ",
+        model$source_var, unique(df[[idx]])
+      ))
+    }
+    if (!is.numeric(ordered_vals)) {
+      stop(sprintf(
+        "spatial_lag: source variable '%s' is %s, not numeric (t=%s). ",
+        model$source_var, class(ordered_vals)[1], unique(df[[idx]])
+      ))
+    }
+    if (length(ordered_vals) != length(model$unit_ids)) {
+      stop(sprintf(
+        "spatial_lag: ordered_vals has length %d but unit_ids has length %d (t=%s). ",
+        length(ordered_vals), length(model$unit_ids), unique(df[[idx]])
+      ))
+    }
+
+    ordered_vals <- as.double(ordered_vals)
+
     # Compute weighted spatial lag
-    sl_vals <- sfdep::st_lag(model$nb, model$wt, ordered_vals, na_ok = TRUE)
+    sl_vals <- sfdep::st_lag(ordered_vals, model$nb, model$wt, na_ok = FALSE, allow_zero = TRUE)
 
     # Override island NAs with the user-specified default
     sl_vals[model$is_island] <- model$island_default
@@ -122,15 +143,18 @@ predict.spatial_lag <- function(model, t, data, ...) {
 #'
 #' @param sf_data An sf data.frame with one row per geographic unit.
 #' @param id_col Character. Name of the column in \code{sf_data} containing unit IDs.
-#' @param ... Additional arguments passed to \code{sfdep::st_weights()}.
+#' @param contiguity_args A named list of additional arguments passed to
+#'   \code{\link[sfdep]{st_contiguity}} (e.g., \code{list(queen = FALSE)}).
+#' @param weights_args A named list of additional arguments passed to
+#'   \code{\link[sfdep]{st_weights}} (e.g., \code{list(style = "W")}).
 #'
 #' @return A list with elements \code{nb}, \code{wt}, and \code{unit_ids}.
 #' @export
-st_weights_from_sf <- function(sf_data, id_col, ...) {
+st_weights_from_sf <- function(sf_data, id_col, contiguity_args = list(), weights_args = list()) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {
     stop("Package 'sfdep' is required. Install it with install.packages('sfdep').")
   }
-  nb <- sfdep::st_contiguity(sf_data)
-  wt <- sfdep::st_weights(nb, ...)
+  nb <- do.call(sfdep::st_contiguity, c(list(sf_data), contiguity_args))
+  wt <- do.call(sfdep::st_weights, c(list(nb), weights_args))
   list(nb = nb, wt = wt, unit_ids = sf_data[[id_col]])
 }

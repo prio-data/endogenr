@@ -20,7 +20,7 @@ Suggests:
     conflicted,
     distributional,
     fabletools,
-    heterolm,
+    prio-data/heterolm,
     progressr,
     zoo,
     pbapply,
