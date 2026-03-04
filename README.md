@@ -4,6 +4,7 @@
 # endogenr
 
 <!-- badges: start -->
+
 <!-- badges: end -->
 
 The goal of endogenr is to make it easy to simulate dynamic systems from
@@ -25,7 +26,9 @@ You can install the development version of endogenr from
 [GitHub](https://github.com/) with:
 
 ``` r
-# install.packages("renv")
+# install.packages("pak")
+pak::pak("prio-data/endogenr")
+# alternatively with
 renv::install("prio-data/endogenr")
 ```
 
@@ -36,7 +39,8 @@ RStudio, find the “Build” tab, and press “Install”.
 
 ``` r
 library(endogenr)
-
+library(fable)
+#> Loading required package: fabletools
 library(dplyr)
 #> 
 #> Attaching package: 'dplyr'
@@ -48,9 +52,6 @@ library(dplyr)
 #>     intersect, setdiff, setequal, union
 df <- endogenr::example_data
 df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
-#> Registered S3 method overwritten by 'tsibble':
-#>   method               from 
-#>   as_tibble.grouped_df dplyr
 
 e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
 c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
@@ -102,34 +103,132 @@ acc <- get_accuracy(res, "gdppc_grwt", df)
 acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 ```
 
-|      crps |     mae |   winkler |
-|----------:|--------:|----------:|
-| 0.0344579 | 0.04324 | 0.1501716 |
+|     crps |       mae |  winkler |
+|---------:|----------:|---------:|
+| 0.034463 | 0.0430068 | 0.149843 |
 
 ``` r
 
 plotsim(res, "gdppc", c(2, 20, 530), df)
 ```
 
-<img src="man/figures/README-example-1.png" width="100%" />
+<img src="man/figures/README-example-1.png" alt="" width="100%" />
 
 ``` r
 plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
 ```
 
-<img src="man/figures/README-example-2.png" width="100%" />
+<img src="man/figures/README-example-2.png" alt="" width="100%" />
 
 ``` r
 plotsim(res, "v2x_libdem", c(2, 20, 530), df)
 ```
 
-<img src="man/figures/README-example-3.png" width="100%" />
+<img src="man/figures/README-example-3.png" alt="" width="100%" />
 
 ``` r
 plotsim(res, "best", c(2, 20, 530), df)
 ```
 
-<img src="man/figures/README-example-4.png" width="100%" />
+<img src="man/figures/README-example-4.png" alt="" width="100%" />
 
-# Funder
-This work has been completed with support from the European Union through European Research Council (ERC) grant no. 101055133 (POLIMPACT). Views and opinions expressed are however those of the authors only and do not necessarily reflect those of the European Union or the ERC. Neither the European Union nor the granting authority can be held responsible for them.
+## Spatial Lag
+
+`endogenr` supports spatial lag variables in the simulation. The setup
+involves two steps: (1) computing the spatial lag for the historical
+data, and (2) registering a `spatial_lag` model in the model system so
+the lag is recomputed at each simulated time step.
+
+### Step 1: Prepare the spatial weights and compute the historical lag
+
+The convenience function `st_weights_from_sf` creates a neighborhood
+list and weights from an `sf` object. It defaults to queen contiguity.
+For more advanced weight schemes, use the `sfdep` package directly and
+supply the neighborhood list (`nb`), weights (`wt`), and the unit IDs in
+the order they appear in the spatial object.
+
+Note that computing the spatial lag for the historical data can be
+fiddly when the panel is unbalanced or has missing observations. The
+example below filters the data to units present in the neighborhood
+structure before computing the lag.
+
+``` r
+library(endogenr)
+library(dplyr)
+
+df <- endogenr::example_data
+df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
+
+# Load a map and filter to units present in the data
+map <- poldat::cshp_gw_modifications(france_overseas = FALSE) |>
+  dplyr::filter(end == as.Date("2019-12-31"))
+map <- map |> dplyr::filter(gwcode %in% unique(df$gwcode))
+
+# Build spatial weights (queen contiguity by default)
+sf::sf_use_s2(FALSE)
+neigh <- st_weights_from_sf(map, "gwcode", weights_args = list(allow_zero = TRUE))
+
+# Compute the spatial lag of yjbest for each year in the historical data
+df <- df |>
+  dplyr::filter(gwcode %in% neigh$unit_ids) |>
+  as_tibble() |>
+  group_by(year) |>
+  dplyr::mutate(
+    sl_yjbest = sfdep::st_lag(yjbest, neigh$nb, neigh$wt, allow_zero = TRUE)
+  )
+
+df <- tsibble::tsibble(df, key = "gwcode", index = "year")
+```
+
+### Step 2: Add a `spatial_lag` model to the system
+
+A `spatial_lag` model works like a deterministic model — it is a
+transformation applied at each simulated time step `t`. This ensures the
+spatial lag variable is updated as the underlying variable evolves
+during simulation.
+
+One important consideration is **how the spatial lag variable enters
+other model formulas**. Using `yjbest ~ sl_yjbest` will not work because
+`sl_yjbest` is computed in the same period as `yjbest`, creating a
+circular dependency. Instead, use `lag(sl_yjbest)` so the conflict model
+uses the spatial lag from the previous period.
+
+``` r
+e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) +
+  lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
+c1 <- yjbest ~ lag(yjbest) + lag(sl_yjbest) + lag(log(gdppc)) + lag(log(population)) +
+  lag(psecprop) + lag(dem) + lag(gdppc_grwt) +
+  lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
+d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) +
+  lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+
+model_system <- list(
+  # spatial_lag recomputes sl_yjbest from yjbest at each simulated t
+  build_model("spatial_lag", formula = sl_yjbest ~ yjbest,
+              nb = neigh$nb, wt = neigh$wt, unit_ids = neigh$unit_ids,
+              island_default = 0),
+  build_model("deterministic", formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc * population))),
+  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
+  build_model("linear", formula = c1, boot = "resid"),
+  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"),
+              method = "ets"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("exogen", formula = ~population)
+)
+
+simulator_setup <- setup_simulator(
+  models = model_system,
+  data = df,
+  train_start = 1970,
+  test_start = 2010,
+  horizon = 12,
+  groupvar = "gwcode",
+  timevar = "year",
+  inner_sims = 2,
+  min_window = 10
+)
+
+set.seed(42)
+res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = FALSE)
+```

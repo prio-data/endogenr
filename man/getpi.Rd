@@ -4,11 +4,11 @@
 \alias{getpi}
 \title{Get the predictive distribution from a linear model}
 \usage{
-getpi(lmpred, single_sample = TRUE)
+getpi(lmpred, nsamples = 1)
 }
 \arguments{
-\item{single_sample}{}
+\item{nsamples}{}
 }
 \description{
-Samples 100 points from the predictive distribution and gives you one back.
+Samples nsamples points from the predictive distribution.
 }
