@@ -143,7 +143,9 @@ predict.linear <- function(model, data, t, what = "pi", ...) {
   grp <- tsibble::key_vars(data)
 
   # Find any numbers in the RHS and use that as the max number of past time periods to include.
-  max_history <- stringr::str_extract_all(model$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric() |> max()
+  # Default to 1 when the RHS contains no numeric literals (e.g. plain lag() calls).
+  nums <- stringr::str_extract_all(model$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric()
+  max_history <- if (length(nums) > 0) max(nums) else 1L
 
   data <- data |>
     dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t-max_history-1))
