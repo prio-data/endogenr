@@ -194,11 +194,14 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   rhs_str         <- deparse(rlang::f_rhs(formula), width.cutoff = 500L)
   rhs_formula_ext <- stats::as.formula(paste("~", rhs_str, "+", timevar))
 
-  # Include enough history for lag() computation
+  # Include enough history for lag() computation.
+  # Covariates are observed at test_start - 1 (last training year), so that
+  # horizon h=1 targets test_start, matching the dynamic simulation convention.
+  origin <- test_start - 1L
   recent <- data |>
     dplyr::as_tibble() |>
     dplyr::group_by(!!rlang::sym(groupvar)) |>
-    dplyr::filter(!!rlang::sym(timevar) <= test_start) |>
+    dplyr::filter(!!rlang::sym(timevar) <= origin) |>
     dplyr::arrange(!!rlang::sym(timevar)) |>
     dplyr::slice_tail(n = 20L) |>
     dplyr::ungroup()
@@ -221,7 +224,7 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   time_clean <- .clean_name(timevar)
 
   rhs_at_t <- rhs_data |>
-    dplyr::filter(!!rlang::sym(time_clean) == test_start) |>
+    dplyr::filter(!!rlang::sym(time_clean) == origin) |>
     dplyr::filter(dplyr::if_all(dplyr::everything(), ~ !is.na(.)))
 
   if (nrow(rhs_at_t) == 0L) {
@@ -273,7 +276,9 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #' @param lh_setup A setup object from [setup_long_horizon()].
 #' @param data The full dataset (original, not aligned). Used to extract
 #'   baseline covariates at `test_start`.
-#' @param test_start Numeric. The forecast origin (baseline year).
+#' @param test_start Numeric. The first forecast year (same convention as
+#'   [simulate_endogenr()]). Covariates are observed at `test_start - 1`, and
+#'   horizon h=1 targets `test_start`, h=2 targets `test_start + 1`, etc.
 #' @param nsim Integer. Number of outer simulations (bootstrap draws if boot is
 #'   set; otherwise multiplied with `inner_sims` for total draws).
 #' @param inner_sims Integer. Number of inner draws per simulation.
@@ -300,7 +305,7 @@ forecast_long_horizon <- function(lh_setup, data, test_start,
         dplyr::mutate(
           test_start  = test_start,
           horizon     = h,
-          year_target = test_start + h,
+          year_target = test_start + h - 1L,
           variant     = variant
         )
     }
@@ -381,8 +386,10 @@ get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
 #' @param horizons Integer vector of forecast horizons.
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
-#' @param test_starts Numeric vector of forecast origins, e.g. `c(2000, 2005, 2010)`.
-#'   Each value is also used as `train_end` for that fold.
+#' @param test_starts Numeric vector of first forecast years (same convention as
+#'   [simulate_endogenr()]), e.g. `c(2000, 2005, 2010)`. Each value is used as
+#'   both `train_end` and `test_start`: covariates are observed at `ts - 1` and
+#'   the forecast covers `ts` through `ts + max(horizons) - 1`.
 #' @param boot Character or NULL. Bootstrap type.
 #' @param nsim Integer. Number of outer simulations.
 #' @param inner_sims Integer. Number of inner draws per simulation.
