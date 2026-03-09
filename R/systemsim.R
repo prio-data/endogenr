@@ -239,6 +239,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 
   return(list("simulation_data" = simulation_data,
               "models" = models,
+              "fitted_models" = fitted_models,
               "test_start" = test_start,
               "horizon" = horizon,
               "execution_order" = execution_order,
