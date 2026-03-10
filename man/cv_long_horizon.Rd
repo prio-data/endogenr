@@ -27,8 +27,10 @@ cv_long_horizon(
 
 \item{timevar}{Character. Time variable name.}
 
-\item{test_starts}{Numeric vector of forecast origins, e.g. \code{c(2000, 2005, 2010)}.
-Each value is also used as \code{train_end} for that fold.}
+\item{test_starts}{Numeric vector of first forecast years (same convention as
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}), e.g. \code{c(2000, 2005, 2010)}. Each value is used as
+both \code{train_end} and \code{test_start}: covariates are observed at \code{ts - 1} and
+the forecast covers \code{ts} through \code{ts + max(horizons) - 1}.}
 
 \item{boot}{Character or NULL. Bootstrap type.}
 

@@ -18,7 +18,9 @@ forecast_long_horizon(
 \item{data}{The full dataset (original, not aligned). Used to extract
 baseline covariates at \code{test_start}.}
 
-\item{test_start}{Numeric. The forecast origin (baseline year).}
+\item{test_start}{Numeric. The first forecast year (same convention as
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}). Covariates are observed at \code{test_start - 1}, and
+horizon h=1 targets \code{test_start}, h=2 targets \code{test_start + 1}, etc.}
 
 \item{nsim}{Integer. Number of outer simulations (bootstrap draws if boot is
 set; otherwise multiplied with \code{inner_sims} for total draws).}
