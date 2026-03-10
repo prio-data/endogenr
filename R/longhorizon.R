@@ -94,7 +94,12 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
         error = function(e) NULL
       )
       if (is.null(mf)) return(tibble::tibble())
-      tibble::as_tibble(mf)
+      mm <- stats::model.matrix(stats::terms(mf), data = mf,
+                                na.action = stats::na.pass)
+      mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
+      resp <- stats::setNames(data.frame(mf[[1L]], stringsAsFactors = FALSE),
+                              names(mf)[1L])
+      tibble::as_tibble(cbind(resp, as.data.frame(mm)))
     }) |>
     dplyr::ungroup() |>
     janitor::clean_names()
@@ -215,7 +220,10 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
         error = function(e) NULL
       )
       if (is.null(mf)) return(tibble::tibble())
-      tibble::as_tibble(mf)
+      mm <- stats::model.matrix(stats::terms(mf), data = mf,
+                                na.action = stats::na.pass)
+      mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
+      tibble::as_tibble(as.data.frame(mm))
     }) |>
     dplyr::ungroup() |>
     janitor::clean_names()
