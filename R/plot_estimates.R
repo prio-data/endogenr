@@ -62,11 +62,13 @@ plot_estimates <- function(
   }
   estimates$outcome <- factor(estimates$outcome, levels = lvls)
 
-  nterms <- length(setdiff(unique(estimates$term), "(Intercept)"))
+  est_no_int <- estimates[estimates$term != "(Intercept)", ]
+  max_terms <- max(tapply(est_no_int$term, est_no_int$outcome,
+                          function(x) length(unique(x))))
 
   # ── Coefficient plot ───────────────────────────────────────────────────
   p_coef <- ggplot2::ggplot(
-    estimates[estimates$term != "(Intercept)", ],
+    est_no_int,
     ggplot2::aes(
       y        = factor(.data$test_start),
       x        = .data$estimate,
@@ -80,10 +82,11 @@ plot_estimates <- function(
     ggplot2::geom_vline(xintercept = 0, linetype = 5) +
     ggh4x::facet_nested_wrap(
       outcome ~ term,
-      scales    = "free_x",
-      ncol      = nterms,
-      nest_line = FALSE,
-      strip     = ggh4x::strip_nested(
+      scales     = "free_x",
+      ncol       = max_terms,
+      nest_line  = FALSE,
+      trim_blank = FALSE,
+      strip      = ggh4x::strip_nested(
         background_x = ggh4x::elem_list_rect(fill = c("grey85", "white")),
         text_x       = ggh4x::elem_list_text(face = c("bold", "plain")),
         by_layer_x   = TRUE
@@ -157,7 +160,7 @@ plot_estimates <- function(
       axis.ticks.y = ggplot2::element_blank()
     )
 
-  p_coef + p_gof +
-    patchwork::plot_layout(widths = widths) &
+  pw <- patchwork::wrap_plots(p_coef, p_gof, widths = widths) &
     ggplot2::theme(axis.title.x = ggplot2::element_blank())
+  pw
 }
