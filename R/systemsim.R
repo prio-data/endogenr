@@ -180,10 +180,13 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
   models <- lapply(models, function(x){
-    model_types <- c("deterministic", "parametric_distribution", "linear", "exogen", "univariate_fable", "heterolm", "spatial_lag")
+    model_types <- c("deterministic", "parametric_distribution", "linear", "glm", "exogen", "univariate_fable", "heterolm", "spatial_lag")
     type <- model_types[model_types %in% class(x)]
     if(!is.null(min_window) & type == "linear"){
       type <- "linear_subset"
+    }
+    if(!is.null(min_window) & type == "glm"){
+      type <- "glm_subset"
     }
     if(!is.null(min_window) & type == "heterolm"){
       type <- "heterolm_subset"
@@ -216,6 +219,15 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
              data = train
            ),
            "heterolm_subset" = purrr::partial(
+             x,
+             data = train,
+             subset = get_train_window(train_start, test_start, min_window)
+           ),
+           "glm" = purrr::partial(
+             x,
+             data = train
+           ),
+           "glm_subset" = purrr::partial(
              x,
              data = train,
              subset = get_train_window(train_start, test_start, min_window)
@@ -266,7 +278,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 inner_simulation <- function(i, simulation_data, models, test_start, horizon, execution_order, inner_sims){
   # Fit the linear/heterolm models every new simulation
   fitted_models <- lapply(models, function(x){
-    if(c("linear", "linear_subset", "heterolm", "heterolm_subset") %in% class(x) |> any()){
+    if(c("linear", "linear_subset", "glm", "glm_subset", "heterolm", "heterolm_subset") %in% class(x) |> any()){
       return(x())
     } else{
       return(x)
@@ -350,7 +362,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
 
   # Fit all that only needs to be fit once
   simulator_setup$models <- lapply(simulator_setup$models, function(x){
-    if(c("linear", "linear_subset", "heterolm", "heterolm_subset") %in% class(x) |> any()){
+    if(c("linear", "linear_subset", "glm", "glm_subset", "heterolm", "heterolm_subset") %in% class(x) |> any()){
       return(x)
     } else{
       return(x())
