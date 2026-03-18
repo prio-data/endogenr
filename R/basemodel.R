@@ -99,6 +99,12 @@ build_model <- function(type, formula, ...) {
                 outcome = dots$outcome,
                 boot = dots$boot
               ),
+              "glm" = purrr::partial(
+                glmmodel,
+                formula = formula,
+                family = dots$family,
+                boot = dots$boot
+              ),
               "exogen" = purrr::partial(
                 exogenmodel,
                 formula = formula
