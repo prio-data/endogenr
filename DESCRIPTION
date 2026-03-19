@@ -28,6 +28,8 @@ Suggests:
     pbapply,
     sfdep
 Remotes:
+	  kvelleby/poldat,
+	  vdeminstitute/vdemdata,
     prio-data/heterolm
 Depends:
     R (>= 2.10)
