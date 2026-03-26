@@ -175,7 +175,7 @@ process_dependent_models <- function(simulation_data, models, test_start, horizo
 #'                                   timevar = "year",
 #'                                   inner_sims = 50,
 #'                                   min_window = 10)
-setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims, min_window = NULL){
+setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar, inner_sims, min_window = NULL, globals = NULL){
   data <- data |> dplyr::filter(!!rlang::sym(timevar) >= train_start, !!rlang::sym(timevar) <= (test_start + horizon - 1))
   train <- data |> dplyr::filter(!!rlang::sym(timevar) < test_start)
 
@@ -257,7 +257,8 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
               "execution_order" = execution_order,
               "groupvar" = groupvar,
               "timevar" = timevar,
-              "inner_sims" = inner_sims))
+              "inner_sims" = inner_sims,
+              "globals" = globals))
 }
 
 
@@ -369,6 +370,14 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
     }
   })
 
+  # Build globals: always include simulator_setup, plus any user-supplied functions
+  future_globals <- list(simulator_setup = simulator_setup)
+  if (!is.null(simulator_setup$globals)) {
+    for (fn_name in names(simulator_setup$globals)) {
+      future_globals[[fn_name]] <- simulator_setup$globals[[fn_name]]
+    }
+  }
+
   simulation_results <- list()
   for(i in 1:nsim){
     simulation_results[[i]] <- future::future({
@@ -381,7 +390,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
         execution_order = simulator_setup$execution_order,
         inner_sims = simulator_setup$inner_sims
       )
-    }, packages = c("dplyr", "endogenr"), seed = TRUE, globals = TRUE)
+    }, packages = c("dplyr", "endogenr"), seed = TRUE, globals = future_globals)
   }
   simulation_results <- lapply(simulation_results, FUN = future::value)
   future::plan(old_plan)
