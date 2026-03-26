@@ -381,7 +381,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
         execution_order = simulator_setup$execution_order,
         inner_sims = simulator_setup$inner_sims
       )
-    }, packages = c("dplyr", "endogenr"), seed = TRUE, globals = "simulator_setup")
+    }, packages = c("dplyr", "endogenr"), seed = TRUE, globals = TRUE)
   }
   simulation_results <- lapply(simulation_results, FUN = future::value)
   future::plan(old_plan)
