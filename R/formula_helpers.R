@@ -42,7 +42,7 @@ decay_since_event <- function(event, lambda = 0.5, max_years = 50) {
   out
 }
 
-#' Exponential peace growth since event
+#' Exponential decay time since event
 #'
 #' The inverse of \code{\link{decay_since_event}}: 0 at the time of the event,
 #' rising toward 1 as time passes. Useful for modelling a "peace dividend" or
@@ -55,8 +55,8 @@ decay_since_event <- function(event, lambda = 0.5, max_years = 50) {
 #'
 #' @examples
 #' x <- c(0, 0, 1, 0, 0, 0, 1, 0, 0)
-#' peace_since_event(x, lambda = 0.5)
-peace_since_event <- function(event, lambda = 0.5, max_years = 50) {
+#' time_since_event(x, lambda = 0.5)
+time_since_event <- function(event, lambda = 0.5, max_years = 50) {
   ceiling <- 1 - exp(-lambda * max_years)
   n <- length(event)
   out <- rep(ceiling, n)

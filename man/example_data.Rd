@@ -7,32 +7,29 @@
 \format{
 \subsection{\code{example_data}}{
 
-A tsibble with 9010 rows and 11 columns:
+A tsibble with 14,141 rows and 8 columns:
 \describe{
 \item{gwcode}{Slightly modified cShapes 2.0 gwcodes}
 \item{year}{Year}
 \item{gdppc}{GDP per capita sourced from PWT, WDI, Maddison, and WCDE}
 \item{gdppc_grwt}{Growth in GDPpc}
 \item{population}{Population sourced from WDI, WCDE, PWT, and Maddison}
-\item{yjbest}{Yao-Johnson transformed best estimate of battle-deaths from UCDP and PRIO}
-\item{dem}{Logit transformed liberal democracy score from V-Dem}
-\item{psecprop}{The proportion of the population with completed post-secondary education from WCDE}
 \item{best}{Best estimate of battle-deaths from UCDP and PRIO}
-\item{v2x_libdem}{Liberal democracy score from V-Dem}
-\item{gdp}{Gross domestic product}
+\item{psecprop}{The proportion of the population with completed post-secondary education from WCDE}
+\item{v2x_polyarchy}{Electoral democracy score from V-Dem}
 }
 }
 }
 \source{
 \href{https://www.prio.org/data/1}{PRIO Battle-deaths 3.1}
 
-\href{https://ucdp.uu.se}{UCDP GED 23.1}
+\href{https://ucdp.uu.se}{UCDP GED 25.1}
 
 \href{https://icr.ethz.ch/data/cshapes/}{cShapes 2.0}
 
-\href{https://v-dem.net/}{Varieties of Democracy 14}
+\href{https://v-dem.net/}{Varieties of Democracy 16}
 
-\href{https://www.rug.nl/ggdc/productivity/pwt}{Penn World Tables 10.01}
+\href{https://www.rug.nl/ggdc/productivity/pwt}{Penn World Tables 11.0}
 
 \href{https://www.rug.nl/ggdc/historicaldevelopment/maddison/releases/maddison-project-database-2020}{Maddison Project 2020}
 
