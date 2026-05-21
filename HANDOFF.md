@@ -2,13 +2,13 @@
 
 ## Current State (2026-05-21)
 
-**Branch**: `datatable_refactor`  
-**Tests**: 105 passing, 0 failures  
-**`devtools::check()`**: 0 errors, 4 warnings (pre-existing missing Rd descriptions), 5 notes (cosmetic)
+**Branch**: `refactor/panel-context`  
+**Tests**: 121 passing, 0 failures  
+**`devtools::check()`**: 0 errors, warnings (pre-existing missing Rd descriptions), notes (cosmetic)
 
 ### What has been done
 
-**Phase 0** (committed) and **Phase 1** (uncommitted, working) of a 7-phase refactoring plan. The full plan is in `.claude/plans/glistening-hopping-llama.md`.
+**Phases 0–2** (all committed) of a 7-phase refactoring plan. The full plan is in `~/.claude/plans/glistening-hopping-llama.md`.
 
 #### Phase 0: Bug Fixes (committed as `7a45fad`)
 
@@ -16,9 +16,7 @@
 
 - **Max history fix** (`R/systemgraph.R`): Added `.max_lag_depth(formula)` which walks the formula AST to extract lag depths from `lag(expr, n)` calls and `k` from rolling functions. Replaces the old regex heuristic (`str_extract_all(formula, "[0-9]+")`) which broke on `I(100)`, variable names with digits, etc. Model constructors now compute `model$max_history` at construction time.
 
-#### Phase 1: panel_context + data.table Migration (uncommitted)
-
-This is a large, coordinated migration. All uncommitted changes belong to this phase.
+#### Phase 1: panel_context + data.table Migration (committed as `ecaa130`)
 
 **Core change**: Replaced tsibble metadata (key_vars/index_var) and dplyr operations with `panel_context` + plain data.table throughout the package.
 
@@ -43,6 +41,22 @@ Files changed (all uncommitted):
 | `NAMESPACE` | Added exports for `panel_context`, `ctx_*`, `inject_positional_lag`. Removed `create_distribution_object`. |
 | `tests/testthat/test-systemsim.R` | Rewritten: `make_test_data()` returns data.table, assertions check for `data.table` class, added `get_accuracy` test, tsibble input acceptance test. |
 
+#### Phase 2: Validations (uncommitted)
+
+| File | What changed |
+|------|-------------|
+| `R/validate.R` | **NEW**. `validate_panel()` checks integer time steps, contiguous series, balanced panel, complete initial state, sorted data. `validate_system_closure()` checks no duplicate outcomes, every RHS variable available from model outcomes or data columns. |
+| `R/systemsim.R` | `setup_simulator()` calls `validate_panel()` and `validate_system_closure()` before fitting. `prepare_simulation_data()` warns when estimated grid > 1 GB. `process_independent_models()` and `process_dependent_models()` wrap predict calls in `tryCatch` with model name + time step in error messages. |
+| `R/basemodel.R` | `build_model()` stores `formula` and `variance` as attributes on the partial function, so validations can access them before fitting. |
+| `NAMESPACE` | Added exports for `validate_panel`, `validate_system_closure`. |
+| `tests/testthat/test-validate.R` | **NEW**. 16 tests covering all validation paths + integration tests via `setup_simulator()`. |
+
+### Gotchas discovered during Phase 2
+
+1. **`build_model()` returns closures, not lists.** Since `purrr::partial()` creates functions, `model$formula` fails with "object of type 'closure' is not subsettable". The formula must be stored as `attr(f, "formula")` on the partial. `validate_system_closure()` checks `attr(model, "formula")` first, falling back to `model$formula` for fitted model objects.
+
+2. **`model$variance_formula` on closures.** Same issue as above — accessing `$` on a function errors. Guard with `is.list(model)` before trying `model$variance_formula`.
+
 ### Gotchas discovered during Phase 1
 
 1. **`.datatable.aware = TRUE` is mandatory.** Without it, data.table's `[` method is not dispatched correctly from package namespace functions. `.SD` becomes empty, `data[data[[col]] >= val]` falls back to `[.data.frame` and fails with "undefined columns selected". This single line in `R/panel_context.R` fixes everything.
@@ -55,14 +69,7 @@ Files changed (all uncommitted):
 
 ---
 
-## What remains (Phases 2-6)
-
-### Phase 2: Validations
-
-- **Panel integrity validation** (`R/validate.R`, new file): Check integer time steps, contiguous series, balanced panel, complete initial state, sorted data. Call from `setup_simulator()` before fitting.
-- **System closure validation** (`R/systemgraph.R`): Move dependency graph construction before fitting. Validate that every RHS variable is in `{model outcomes} U {data columns}`.
-- **Error recovery**: Wrap predict calls with `tryCatch()` for informative errors naming model + time step.
-- **Memory warning**: Estimate grid size in `prepare_simulation_data()`, warn if too large.
+## What remains (Phases 3-6)
 
 ### Phase 3: Model Spec/Fit Separation
 
@@ -93,7 +100,7 @@ Files changed (all uncommitted):
 ### Phase dependency chain
 
 ```
-Phase 0 (done) -> Phase 1 (done) -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5 -> Phase 6
+Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 -> Phase 4 -> Phase 5 -> Phase 6
 ```
 
 Each phase should keep tests green. After Phase 3 (spec/fit separation), the package API is stable and Phases 4-6 are internal optimizations/cleanup.
@@ -102,13 +109,9 @@ Each phase should keep tests green. After Phase 3 (spec/fit separation), the pac
 
 ## How to continue
 
-1. **Commit Phase 1 changes.** All uncommitted changes on `datatable_refactor` are Phase 1. They form a coherent unit. Suggested commit message: "Migrate to panel_context + data.table, replace fabletools with scoringRules".
+1. **Pick up Phase 3** (spec/fit separation) next — the most architecturally significant remaining change. It removes `purrr::partial()` and introduces a clean spec/fit separation. Plan carefully — it touches `build_model()`, `setup_simulator()`, `inner_simulation()`, and all model files. Note: `build_model()` now stores `formula` as an attribute (Phase 2), which is a stepping stone toward proper spec objects.
 
-2. **Pick up Phase 2** (validations) next — it's the lowest-risk, highest-value next step. Create `R/validate.R` with panel integrity checks and call from `setup_simulator()`.
-
-3. **Phase 3** (spec/fit) is the most architecturally significant remaining change. It removes `purrr::partial()` and introduces a clean spec/fit separation. Plan carefully — it touches `build_model()`, `setup_simulator()`, `inner_simulation()`, and all model files.
-
-4. **Phases 4-6** are incremental improvements that can be done in any order after Phase 3.
+2. **Phases 4-6** are incremental improvements that can be done in any order after Phase 3.
 
 ---
 

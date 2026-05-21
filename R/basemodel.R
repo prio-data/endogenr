@@ -131,5 +131,7 @@ build_model <- function(type, formula, ...) {
   )
 
   class(f) <- c(class(f), type)
+  attr(f, "formula") <- formula
+  if (!is.null(dots$variance)) attr(f, "variance_formula") <- dots$variance
   return(f)
 }

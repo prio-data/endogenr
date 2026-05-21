@@ -21,6 +21,17 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   all_units <- unique(train[[unit_col]])
   all_times <- seq(train_start, test_start + horizon - 1)
 
+  # Memory warning for large grids
+  grid_rows <- length(all_units) * length(all_times) * inner_sims
+  ncols <- ncol(train)
+  est_mb <- grid_rows * ncols * 8 / 1e6  # rough estimate: 8 bytes per cell
+  if (est_mb > 1000) {
+    warning("Simulation grid will have ~", format(grid_rows, big.mark = ","),
+            " rows (estimated ", round(est_mb), " MB). ",
+            "Consider reducing inner_sims, horizon, or number of units.",
+            call. = FALSE)
+  }
+
   grid <- data.table::CJ(
     unit_placeholder = all_units,
     time_placeholder = all_times,
@@ -59,8 +70,19 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
   independent_models <- models[vapply(models, function(x) x$independent, logical(1))]
 
   for (model in independent_models) {
-    pred <- predict(model, data = simulation_data, ctx = ctx,
-                    test_start = test_start, horizon = horizon, inner_sims = inner_sims)
+    outcome <- tryCatch(
+      parse_formula(model)$outcome,
+      error = function(e) "unknown"
+    )
+
+    pred <- tryCatch(
+      predict(model, data = simulation_data, ctx = ctx,
+              test_start = test_start, horizon = horizon, inner_sims = inner_sims),
+      error = function(e) {
+        stop("Prediction failed for independent model '", outcome, "': ",
+             conditionMessage(e), call. = FALSE)
+      }
+    )
 
     cols <- setdiff(names(pred), join_keys)
     simulation_data[pred, (cols) := mget(paste0("i.", cols)), on = join_keys]
@@ -91,8 +113,16 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
   join_keys <- c(ctx_keys(ctx), ctx_time(ctx))
 
   for (t in test_start:(test_start + horizon - 1)) {
-    for (model in dependent_models) {
-      pred <- predict(model, t = t, data = simulation_data, ctx = ctx)
+    for (model_name in names(dependent_models)) {
+      model <- dependent_models[[model_name]]
+      pred <- tryCatch(
+        predict(model, t = t, data = simulation_data, ctx = ctx),
+        error = function(e) {
+          stop("Prediction failed for model '", model_name,
+               "' at time step ", t, ": ",
+               conditionMessage(e), call. = FALSE)
+        }
+      )
       cols <- setdiff(names(pred), join_keys)
       simulation_data[pred, (cols) := mget(paste0("i.", cols)), on = join_keys]
     }
@@ -131,7 +161,25 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 
   # Filter to relevant time range
   data <- data[data[[timevar]] >= train_start & data[[timevar]] <= (test_start + horizon - 1)]
+  data.table::setkeyv(data, c(groupvar, timevar))
   train <- data[data[[timevar]] < test_start]
+
+  # Extract model outcomes for validation
+  independent_types <- get_independent_models()
+  model_outcomes <- vapply(models, function(m) {
+    f <- attr(m, "formula")
+    if (any(independent_types %in% class(m))) {
+      all.vars(f)
+    } else {
+      all.vars(rlang::f_lhs(f))
+    }
+  }, character(1))
+
+  # Validate panel integrity
+  validate_panel(data, ctx, test_start, model_outcomes)
+
+  # Validate system closure (before fitting)
+  validate_system_closure(models, names(data))
 
   # Partially apply model constructors with data
   models <- lapply(models, function(x) {
