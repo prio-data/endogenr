@@ -6,23 +6,34 @@
 \usage{
 inner_simulation(
   i,
+  specs,
+  pre_fitted,
+  train_data,
   simulation_data,
-  models,
   ctx,
+  fit_ctx,
   test_start,
   horizon,
   execution_order,
-  inner_sims
+  inner_sims,
+  min_window,
+  train_start
 )
 }
 \arguments{
 \item{i}{Simulation index.}
 
+\item{specs}{List of endogenr_spec objects.}
+
+\item{pre_fitted}{List of pre-fitted model objects.}
+
+\item{train_data}{A data.table with training data.}
+
 \item{simulation_data}{A data.table.}
 
-\item{models}{List of (partially applied) model closures.}
+\item{ctx}{A panel_context object (with sim dimension, for predict).}
 
-\item{ctx}{A panel_context object.}
+\item{fit_ctx}{A panel_context object (without sim, for fitting).}
 
 \item{test_start}{Integer.}
 
@@ -31,6 +42,10 @@ inner_simulation(
 \item{execution_order}{Character vector.}
 
 \item{inner_sims}{Integer.}
+
+\item{min_window}{Integer or NULL.}
+
+\item{train_start}{Integer.}
 }
 \value{
 A data.table with simulation results.

@@ -1,4 +1,9 @@
 
+#' @exportS3Method
+fit_model.deterministic_spec <- function(spec, ctx = NULL, ...) {
+  deterministicmodel(formula = spec$formula, ctx = ctx)
+}
+
 #' Deterministic model
 #'
 #' This calculates a deterministic outcome based on an R formula.

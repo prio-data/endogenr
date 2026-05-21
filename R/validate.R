@@ -113,11 +113,20 @@ validate_system_closure <- function(models, data_columns) {
 
   for (i in seq_along(models)) {
     model <- models[[i]]
-    # Support both build_model partials (attr) and fitted models ($formula)
-    formula <- attr(model, "formula")
-    if (is.null(formula)) formula <- model$formula
 
-    if (any(independent_types %in% class(model))) {
+    # Support specs ($formula directly), fitted models ($formula), and legacy partials (attr)
+    formula <- model$formula
+    if (is.null(formula)) formula <- attr(model, "formula")
+
+    # Determine if independent: check spec$type, then class
+    is_independent <- FALSE
+    if (!is.null(model$type)) {
+      is_independent <- model$type %in% independent_types
+    } else {
+      is_independent <- any(independent_types %in% class(model))
+    }
+
+    if (is_independent) {
       outcome <- all.vars(formula)
     } else {
       outcome <- all.vars(rlang::f_lhs(formula))
@@ -125,9 +134,10 @@ validate_system_closure <- function(models, data_columns) {
       all_rhs_vars <- c(all_rhs_vars, rhs_vars)
 
       # Also check variance formula for heterolm
-      var_formula <- attr(model, "variance_formula")
-      if (is.null(var_formula) && is.list(model)) var_formula <- model$variance_formula
-      if ("heterolm" %in% class(model) && !is.null(var_formula)) {
+      var_formula <- if (!is.null(model$args)) model$args$variance else model$variance_formula
+      is_heterolm <- (!is.null(model$type) && model$type == "heterolm") ||
+                     ("heterolm" %in% class(model))
+      if (is_heterolm && !is.null(var_formula)) {
         all_rhs_vars <- c(all_rhs_vars, all.vars(rlang::f_rhs(var_formula)))
       }
     }

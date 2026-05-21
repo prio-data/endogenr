@@ -121,6 +121,17 @@ fit_parametric_distribution_model <- function(model, data) {
 #'
 #' @return An endogenmodel of class `parametric_distribution`.
 #' @export
+#' @exportS3Method
+fit_model.parametric_distribution_spec <- function(spec, data = NULL, ctx = NULL, ...) {
+  # Extract fitdist-specific args, excluding 'distribution'
+  extra_args <- spec$args[!names(spec$args) %in% "distribution"]
+  do.call(parametric_distribution_model, c(
+    list(formula = spec$formula, distribution = spec$args$distribution,
+         data = data, ctx = ctx),
+    extra_args
+  ))
+}
+
 parametric_distribution_model <- function(formula = NULL, distribution = NULL, data = NULL, ctx = NULL, ...) {
   model <- new_endogenmodel(formula)
   model$distribution <- distribution

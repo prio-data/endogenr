@@ -33,6 +33,17 @@ bootstrapglm <- function(formula, data, family, type){
 }
 
 
+#' @exportS3Method
+fit_model.glm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
+  family <- if (!is.null(spec$args$family)) spec$args$family else stats::gaussian()
+  glmmodel(
+    formula = spec$formula,
+    family = family,
+    boot = spec$args$boot,
+    data = data, ctx = ctx, subset = subset
+  )
+}
+
 #' GLM model
 #'
 #' @param formula

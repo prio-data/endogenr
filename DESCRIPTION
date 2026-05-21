@@ -18,7 +18,6 @@ Imports:
     igraph,
     janitor,
     patchwork,
-    purrr,
     rlang,
     scoringRules
 Suggests:

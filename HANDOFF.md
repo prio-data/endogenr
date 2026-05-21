@@ -3,12 +3,12 @@
 ## Current State (2026-05-21)
 
 **Branch**: `refactor/panel-context`  
-**Tests**: 121 passing, 0 failures  
+**Tests**: 135 passing, 0 failures  
 **`devtools::check()`**: 0 errors, warnings (pre-existing missing Rd descriptions), notes (cosmetic)
 
 ### What has been done
 
-**Phases 0–2** (all committed) of a 7-phase refactoring plan. The full plan is in `~/.claude/plans/glistening-hopping-llama.md`.
+**Phases 0–3** (all committed) of a 7-phase refactoring plan. The full plan is in `~/.claude/plans/glistening-hopping-llama.md`.
 
 #### Phase 0: Bug Fixes (committed as `7a45fad`)
 
@@ -51,11 +51,40 @@ Files changed (all uncommitted):
 | `NAMESPACE` | Added exports for `validate_panel`, `validate_system_closure`. |
 | `tests/testthat/test-validate.R` | **NEW**. 16 tests covering all validation paths + integration tests via `setup_simulator()`. |
 
+#### Phase 3: Model Spec/Fit Separation (uncommitted)
+
+| File | What changed |
+|------|-------------|
+| `R/basemodel.R` | `build_model()` returns `endogenr_spec` list (not `purrr::partial`). Added `fit_model()` S3 generic. |
+| `R/linearmodel.R` | Added `fit_model.linear_spec()`. `linearmodel()` kept as constructor. |
+| `R/glmmodel.R` | Added `fit_model.glm_spec()`. `glmmodel()` kept. |
+| `R/heterolmmodel.R` | Added `fit_model.heterolm_spec()`. `heterolmmodel()` kept. |
+| `R/deterministicmodel.R` | Added `fit_model.deterministic_spec()`. |
+| `R/exogenmodel.R` | Added `fit_model.exogen_spec()`. |
+| `R/parametric_distribution_model.R` | Added `fit_model.parametric_distribution_spec()`. |
+| `R/univariate_fable_model.R` | Added `fit_model.univariate_fable_spec()`. |
+| `R/spatiallagmodel.R` | Added `fit_model.spatial_lag_spec()`. |
+| `R/systemsim.R` | `setup_simulator()` calls `fit_model()` directly (no partials). `inner_simulation()` accepts `specs` + `pre_fitted`, refits linear/glm/heterolm per outer sim. `simulate_endogenr()` simplified — no pre-fit loop. `_subset` type variants eliminated. Setup returns `specs` instead of `models`. |
+| `R/validate.R` | `validate_system_closure()` reads `$formula` and `$type` from specs directly. |
+| `R/plot_estimates.R` | Replaced `purrr::map_dfr`/`map2_chr` with base `lapply`/`do.call(rbind, ...)`/`mapply`. |
+| `DESCRIPTION` | Removed `purrr` from Imports. |
+| `NAMESPACE` | Added `fit_model` export + S3method registrations for all spec types. |
+| `tests/testthat/test-build_model.R` | Rewritten: tests spec structure instead of function/partial. Added `fit_model` tests. |
+| `tests/testthat/test-systemsim.R` | Updated: checks for `specs` instead of `models` in setup result. |
+
+### Gotchas discovered during Phase 3
+
+1. **Roxygen `@export` on S3 methods generates bogus exports.** Using `@export` on `fit_model.linear_spec` caused roxygen to export words from the title as functions (e.g., `export(Fit)`, `export(a)`, `export(linear)`). **Fix**: Use `@exportS3Method` instead of `@export` on S3 method definitions.
+
+2. **Separate fit context needed.** `setup_simulator()` stores two contexts: `ctx` (with `sim = "sim"`, for predict) and `fit_ctx` (without sim, for fitting). `inner_simulation()` uses `fit_ctx` when re-fitting models so the training data (which has no sim column) works correctly.
+
+3. **`_subset` type variants eliminated.** Previously `setup_simulator()` created synthetic types like `"linear_subset"`, `"glm_subset"` etc. Now `subset` is just a parameter passed to `fit_model()`. The `spec$type` stays clean (`"linear"`, `"glm"`, `"heterolm"`).
+
 ### Gotchas discovered during Phase 2
 
-1. **`build_model()` returns closures, not lists.** Since `purrr::partial()` creates functions, `model$formula` fails with "object of type 'closure' is not subsettable". The formula must be stored as `attr(f, "formula")` on the partial. `validate_system_closure()` checks `attr(model, "formula")` first, falling back to `model$formula` for fitted model objects.
+1. **`build_model()` returns closures, not lists.** (Now resolved by Phase 3 — specs are plain lists.)
 
-2. **`model$variance_formula` on closures.** Same issue as above — accessing `$` on a function errors. Guard with `is.list(model)` before trying `model$variance_formula`.
+2. **`model$variance_formula` on closures.** (Now resolved — specs have `$args$variance` directly.)
 
 ### Gotchas discovered during Phase 1
 
@@ -69,13 +98,7 @@ Files changed (all uncommitted):
 
 ---
 
-## What remains (Phases 3-6)
-
-### Phase 3: Model Spec/Fit Separation
-
-- Replace `purrr::partial()` with a proper spec/fit pattern: `build_model()` returns a spec object, `fit_model()` is a generic with methods per type. This is the biggest remaining architectural change.
-- Wire up per-outer-sim refitting: `inner_simulation()` calls `fit_model(spec, data, ctx, subset)` for linear-type models with fresh random training windows.
-- Remove `purrr` dependency.
+## What remains (Phases 4-6)
 
 ### Phase 4: Performance (Pre-materialize)
 
@@ -100,7 +123,7 @@ Files changed (all uncommitted):
 ### Phase dependency chain
 
 ```
-Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 -> Phase 4 -> Phase 5 -> Phase 6
+Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 (done) -> Phase 4 -> Phase 5 -> Phase 6
 ```
 
 Each phase should keep tests green. After Phase 3 (spec/fit separation), the package API is stable and Phases 4-6 are internal optimizations/cleanup.
@@ -109,9 +132,9 @@ Each phase should keep tests green. After Phase 3 (spec/fit separation), the pac
 
 ## How to continue
 
-1. **Pick up Phase 3** (spec/fit separation) next — the most architecturally significant remaining change. It removes `purrr::partial()` and introduces a clean spec/fit separation. Plan carefully — it touches `build_model()`, `setup_simulator()`, `inner_simulation()`, and all model files. Note: `build_model()` now stores `formula` as an attribute (Phase 2), which is a stepping stone toward proper spec objects.
+1. **Pick up Phase 4** (pre-materialize performance). Split `create_panel_frame()` into `materialize_formula()` and `derive_naive_formula()`. Pre-materialize before the step loop in `process_dependent_models()`.
 
-2. **Phases 4-6** are incremental improvements that can be done in any order after Phase 3.
+2. **Phases 5-6** (parallelism fix + NAMESPACE cleanup) are incremental improvements. Phase 5 replaces the manual future loop with `future.apply::future_lapply()`. Phase 6 marks internal functions with `@keywords internal`.
 
 ---
 
@@ -126,3 +149,4 @@ Each phase should keep tests green. After Phase 3 (spec/fit separation), the pac
 | scoringRules for accuracy | Direct CRPS/MAE computation without fabletools. Already in CRAN |
 | `.sample_from_fitdist()` replaces distributional | Direct `r*()` calls from fitdistrplus results. No distributional dependency for parametric models |
 | `split()/lapply()` in `create_panel_frame()` | Avoids `model.frame()` + data.table `[, by]` scoping issues from package namespace. Simpler, equally fast for typical panel sizes |
+| Spec/fit separation over `purrr::partial()` | Specs are transparent lists (`$type`, `$formula`, `$args`). `fit_model()` generic enables clean re-fitting per outer sim. No closure opacity, no `attr()` hacks. `purrr` dependency removed. |

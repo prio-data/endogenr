@@ -21,6 +21,18 @@
 #'
 #' @return An endogenmodel of class \code{c("spatial_lag", "endogenmodel")}.
 #' @export
+#' @exportS3Method
+fit_model.spatial_lag_spec <- function(spec, ctx = NULL, ...) {
+  island_default <- if (!is.null(spec$args$island_default)) spec$args$island_default else NA_real_
+  spatial_lag_model(
+    formula = spec$formula,
+    nb = spec$args$nb,
+    wt = spec$args$wt,
+    unit_ids = spec$args$unit_ids,
+    island_default = island_default
+  )
+}
+
 spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_real_) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {
     stop("Package 'sfdep' is required for spatial lag models. Install it with install.packages('sfdep').")

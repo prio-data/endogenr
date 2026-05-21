@@ -101,7 +101,7 @@ test_that("setup_simulator returns expected structure with linear model", {
 
   expect_type(result, "list")
   expect_true(all(c(
-    "simulation_data", "models", "fitted_models",
+    "simulation_data", "specs", "fitted_models",
     "test_start", "horizon", "execution_order",
     "groupvar", "timevar", "inner_sims", "ctx"
   ) %in% names(result)))

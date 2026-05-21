@@ -16,6 +16,16 @@
 #'
 #' @return A univariate_fable endogenmodel class.
 #' @export
+#' @exportS3Method
+fit_model.univariate_fable_spec <- function(spec, data = NULL, ctx = NULL, ...) {
+  method <- if (!is.null(spec$args$method)) spec$args$method else "arima"
+  extra_args <- spec$args[!names(spec$args) %in% "method"]
+  do.call(univariate_fable_model, c(
+    list(formula = spec$formula, data = data, method = method, ctx = ctx),
+    extra_args
+  ))
+}
+
 univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima", ctx = NULL, ...) {
   if (!requireNamespace("fable", quietly = TRUE) ||
       !requireNamespace("fabletools", quietly = TRUE) ||

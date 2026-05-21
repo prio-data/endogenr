@@ -30,6 +30,16 @@ bootstraplm <- function(formula, data, type){
 
 
 
+#' @exportS3Method
+fit_model.linear_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
+  linearmodel(
+    formula = spec$formula,
+    boot = spec$args$boot,
+    data = data, ctx = ctx, subset = subset,
+    outcome = spec$args$outcome
+  )
+}
+
 #' Linear model
 #'
 #' @param formula

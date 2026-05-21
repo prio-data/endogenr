@@ -37,8 +37,8 @@ plot_estimates <- function(
     base_size      = 9
 ) {
   # ── Extract coefficient estimates ──────────────────────────────────────
-  estimates <- purrr::map_dfr(names(models), function(ts) {
-    purrr::map_dfr(models[[ts]]$fitted_models, function(m) {
+  estimates <- do.call(rbind, lapply(names(models), function(ts) {
+    do.call(rbind, lapply(models[[ts]]$fitted_models, function(m) {
       if (!is.null(m$coefs)) {
         m$coefs |>
           dplyr::mutate(
@@ -47,8 +47,8 @@ plot_estimates <- function(
             .before    = 1
           )
       }
-    })
-  })
+    }))
+  }))
 
   estimates$est_low  <- estimates$estimate - 1.96 * estimates$std.error
   estimates$est_high <- estimates$estimate + 1.96 * estimates$std.error
@@ -99,8 +99,8 @@ plot_estimates <- function(
   if (!show_gof) return(p_coef)
 
   # ── Goodness-of-fit table ──────────────────────────────────────────────
-  fit_stats <- purrr::map_dfr(names(models), function(ts) {
-    purrr::map_dfr(models[[ts]]$fitted_models, function(m) {
+  fit_stats <- do.call(rbind, lapply(names(models), function(ts) {
+    do.call(rbind, lapply(models[[ts]]$fitted_models, function(m) {
       if (!is.null(m$gof)) {
         m$gof |>
           dplyr::select(dplyr::any_of(gof_stats)) |>
@@ -110,8 +110,8 @@ plot_estimates <- function(
             .before    = 1
           )
       }
-    })
-  })
+    }))
+  }))
 
   if (!is.null(outcome_labels)) {
     fit_stats$outcome <- dplyr::recode(fit_stats$outcome, !!!outcome_labels)
@@ -125,9 +125,10 @@ plot_estimates <- function(
     values_to = "value"
   )
 
-  fit_long$label <- purrr::map2_chr(
+  fit_long$label <- mapply(
+    function(s, v) sprintf(gof_formats[s], v),
     fit_long$stat, fit_long$value,
-    function(s, v) sprintf(gof_formats[s], v)
+    USE.NAMES = FALSE
   )
 
   stat_labels <- gof_labels[gof_stats]

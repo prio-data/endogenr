@@ -13,6 +13,13 @@
 #'
 #' @return An endogenmodel of class `exogen`.
 #' @export
+#' @exportS3Method
+fit_model.exogen_spec <- function(spec, newdata = NULL, ctx = NULL,
+                                  test_start = NULL, inner_sims = NULL, ...) {
+  exogenmodel(formula = spec$formula, impute_from = test_start,
+              newdata = newdata, inner_sims = inner_sims, ctx = ctx)
+}
+
 exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL,
                         inner_sims = NULL, ctx = NULL) {
   model <- new_endogenmodel(formula)

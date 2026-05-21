@@ -165,10 +165,11 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   train <- data[data[[timevar]] < test_start]
 
   # Extract model outcomes for validation
+  specs <- models
   independent_types <- get_independent_models()
-  model_outcomes <- vapply(models, function(m) {
-    f <- attr(m, "formula")
-    if (any(independent_types %in% class(m))) {
+  model_outcomes <- vapply(specs, function(spec) {
+    f <- spec$formula
+    if (spec$type %in% independent_types) {
       all.vars(f)
     } else {
       all.vars(rlang::f_lhs(f))
@@ -179,40 +180,27 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   validate_panel(data, ctx, test_start, model_outcomes)
 
   # Validate system closure (before fitting)
-  validate_system_closure(models, names(data))
+  validate_system_closure(specs, names(data))
 
-  # Partially apply model constructors with data
-  models <- lapply(models, function(x) {
-    model_types <- c("deterministic", "parametric_distribution", "linear", "glm",
-                     "exogen", "univariate_fable", "heterolm", "spatial_lag")
-    type <- model_types[model_types %in% class(x)]
-    if (!is.null(min_window) && type == "linear") type <- "linear_subset"
-    if (!is.null(min_window) && type == "glm") type <- "glm_subset"
-    if (!is.null(min_window) && type == "heterolm") type <- "heterolm_subset"
+  # Fit all models from specs
+  fit_one <- function(spec) {
+    type <- spec$type
+    subset <- if (!is.null(min_window) && type %in% c("linear", "glm", "heterolm"))
+      get_train_window(train_start, test_start, min_window) else NULL
 
-    f <- switch(type,
-      "deterministic" = purrr::partial(x, ctx = ctx),
-      "parametric_distribution" = purrr::partial(x, data = train, ctx = ctx),
-      "linear" = purrr::partial(x, data = train, ctx = ctx),
-      "linear_subset" = purrr::partial(x, data = train, ctx = ctx,
-                                       subset = get_train_window(train_start, test_start, min_window)),
-      "exogen" = purrr::partial(x, newdata = data, impute_from = test_start,
-                                inner_sims = inner_sims, ctx = ctx),
-      "univariate_fable" = purrr::partial(x, data = train, ctx = ctx),
-      "heterolm" = purrr::partial(x, data = train, ctx = ctx),
-      "heterolm_subset" = purrr::partial(x, data = train, ctx = ctx,
-                                         subset = get_train_window(train_start, test_start, min_window)),
-      "glm" = purrr::partial(x, data = train, ctx = ctx),
-      "glm_subset" = purrr::partial(x, data = train, ctx = ctx,
-                                    subset = get_train_window(train_start, test_start, min_window)),
-      "spatial_lag" = purrr::partial(x, ctx = ctx),
-      stop("Unknown model type: ", type)
+    switch(type,
+      "deterministic" = fit_model(spec, ctx = ctx),
+      "linear" =, "glm" =, "heterolm" =
+        fit_model(spec, data = train, ctx = ctx, subset = subset),
+      "exogen" = fit_model(spec, newdata = data, ctx = ctx,
+                           test_start = test_start, inner_sims = inner_sims),
+      "parametric_distribution" =, "univariate_fable" =
+        fit_model(spec, data = train, ctx = ctx),
+      "spatial_lag" = fit_model(spec, ctx = ctx),
+      stop("Unknown spec type: ", type)
     )
-    class(f) <- c(class(f), type)
-    return(f)
-  })
-
-  fitted_models <- lapply(models, function(x) x())
+  }
+  fitted_models <- lapply(specs, fit_one)
 
   # Build dependency graph
   dependency_graph <- igraph::make_empty_graph(directed = TRUE)
@@ -222,15 +210,13 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   execution_order <- get_execution_order(dependency_graph)
 
   # Create a simulation context WITH sim dimension
-  # IMPORTANT: don't mutate the original ctx — it's shared by model partials
-  # which need a ctx without sim for refitting on train data.
   sim_ctx <- panel_context(unit = groupvar, time = timevar, sim = "sim")
 
   simulation_data <- prepare_simulation_data(data, sim_ctx, train_start, test_start, horizon, inner_sims)
 
   return(list(
     "simulation_data" = simulation_data,
-    "models" = models,
+    "specs" = specs,
     "fitted_models" = fitted_models,
     "train_data" = train,
     "full_data" = data,
@@ -239,6 +225,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
     "horizon" = horizon,
     "execution_order" = execution_order,
     "ctx" = sim_ctx,
+    "fit_ctx" = ctx,
     "groupvar" = groupvar,
     "timevar" = timevar,
     "inner_sims" = inner_sims,
@@ -251,26 +238,33 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 #' The inner simulation loop
 #'
 #' @param i Simulation index.
+#' @param specs List of endogenr_spec objects.
+#' @param pre_fitted List of pre-fitted model objects.
+#' @param train_data A data.table with training data.
 #' @param simulation_data A data.table.
-#' @param models List of (partially applied) model closures.
-#' @param ctx A panel_context object.
+#' @param ctx A panel_context object (with sim dimension, for predict).
+#' @param fit_ctx A panel_context object (without sim, for fitting).
 #' @param test_start Integer.
 #' @param horizon Integer.
 #' @param execution_order Character vector.
 #' @param inner_sims Integer.
+#' @param min_window Integer or NULL.
+#' @param train_start Integer.
 #'
 #' @return A data.table with simulation results.
 #' @export
-inner_simulation <- function(i, simulation_data, models, ctx, test_start, horizon,
-                             execution_order, inner_sims) {
-  # Fit linear/glm/heterolm models every outer sim (random training window)
-  fitted_models <- lapply(models, function(x) {
-    linear_types <- c("linear", "linear_subset", "glm", "glm_subset",
-                      "heterolm", "heterolm_subset")
-    if (any(linear_types %in% class(x))) {
-      return(x())
+inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
+                             ctx, fit_ctx, test_start, horizon, execution_order,
+                             inner_sims, min_window, train_start) {
+  refit_types <- c("linear", "glm", "heterolm")
+
+  fitted_models <- lapply(seq_along(specs), function(j) {
+    spec <- specs[[j]]
+    if (spec$type %in% refit_types && !is.null(min_window)) {
+      subset <- get_train_window(train_start, test_start, min_window)
+      fit_model(spec, data = train_data, ctx = fit_ctx, subset = subset)
     } else {
-      return(x)
+      pre_fitted[[j]]
     }
   })
 
@@ -300,19 +294,6 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
     future::plan(future::sequential)
   }
 
-  ctx <- simulator_setup$ctx
-
-  # Pre-fit non-linear models (only need fitting once)
-  simulator_setup$models <- lapply(simulator_setup$models, function(x) {
-    linear_types <- c("linear", "linear_subset", "glm", "glm_subset",
-                      "heterolm", "heterolm_subset")
-    if (any(linear_types %in% class(x))) {
-      return(x)
-    } else {
-      return(x())
-    }
-  })
-
   # Build globals for future
   future_globals <- list(simulator_setup = simulator_setup)
   if (!is.null(simulator_setup$globals)) {
@@ -326,13 +307,18 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
     simulation_results[[i]] <- future::future({
       inner_simulation(
         i,
+        specs = simulator_setup$specs,
+        pre_fitted = simulator_setup$fitted_models,
+        train_data = simulator_setup$train_data,
         simulation_data = simulator_setup$simulation_data,
-        models = simulator_setup$models,
         ctx = simulator_setup$ctx,
+        fit_ctx = simulator_setup$fit_ctx,
         test_start = simulator_setup$test_start,
         horizon = simulator_setup$horizon,
         execution_order = simulator_setup$execution_order,
-        inner_sims = simulator_setup$inner_sims
+        inner_sims = simulator_setup$inner_sims,
+        min_window = simulator_setup$min_window,
+        train_start = simulator_setup$train_start
       )
     }, packages = c("endogenr", "data.table"), seed = TRUE, globals = future_globals)
   }

@@ -15,6 +15,16 @@
 #'
 #' @return An endogenmodel of class \code{heterolm}.
 #' @export
+#' @exportS3Method
+fit_model.heterolm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
+  extra_args <- spec$args[!names(spec$args) %in% "variance"]
+  do.call(heterolmmodel, c(
+    list(formula = spec$formula, variance = spec$args$variance,
+         data = data, ctx = ctx, subset = subset),
+    extra_args
+  ))
+}
+
 heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NULL, subset = NULL, ...) {
   if (!requireNamespace("heterolm", quietly = TRUE)) {
     stop("Package 'heterolm' is required for heterolm models. Install it from GitHub.")
