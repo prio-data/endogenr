@@ -6,23 +6,41 @@
 #' and [fable::ARIMA()] for how to write the function calls for these models. A simple exponential smoothing model can be set up using
 #' build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
 #'
+#' Requires packages `fable`, `fabletools`, and `tsibble` (in Suggests).
+#'
 #' @param formula An R-formula using the model specification in [fable::ARIMA()] or [fable::ETS()]
-#' @param data The training data used to fit the model. A tsibble.
+#' @param data A data.table, data.frame, or tsibble. Converted to tsibble internally for fable.
+#' @param method Character. Either "arima" or "ets".
+#' @param ctx A panel_context object.
 #' @param ... Other arguments from [fable::ARIMA()] or [fable::ETS()]
 #'
 #' @return A univariate_fable endogenmodel class.
 #' @export
-univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima", ...){
-  model <- new_endogenmodel(formula)
-
-  if(method == "arima"){
-    model$fitted <- data |> fabletools::model(fable::ARIMA(formula, ...))
-  } else if(method == "ets"){
-    model$fitted <- data |> fabletools::model(fable::ETS(formula, ...))
-  } else{
-    stop("Method not implemented.")
+univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima", ctx = NULL, ...) {
+  if (!requireNamespace("fable", quietly = TRUE) ||
+      !requireNamespace("fabletools", quietly = TRUE) ||
+      !requireNamespace("tsibble", quietly = TRUE)) {
+    stop("Packages 'fable', 'fabletools', and 'tsibble' are required for univariate_fable models.")
   }
 
+  model <- new_endogenmodel(formula)
+
+  # Convert to tsibble for fable fitting
+  grp <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  if (!inherits(data, "tbl_ts")) {
+    ts_data <- tsibble::as_tsibble(as.data.frame(data), key = grp, index = idx)
+  } else {
+    ts_data <- data
+  }
+
+  if (method == "arima") {
+    model$fitted <- ts_data |> fabletools::model(fable::ARIMA(formula, ...))
+  } else if (method == "ets") {
+    model$fitted <- ts_data |> fabletools::model(fable::ETS(formula, ...))
+  } else {
+    stop("Method not implemented.")
+  }
 
   class(model) <- c("univariate_fable", class(model))
   model$independent <- TRUE
@@ -37,28 +55,28 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
 #' separately, you should use fable directly!
 #'
 #' @param model a univariate_fable endogenmodel
+#' @param data A data.table (the simulation grid).
+#' @param ctx A panel_context object.
+#' @param test_start Integer. Not used directly (horizon determines forecast length).
 #' @param horizon the number of future steps to predict
-#' @param inner_sims the number of inner simulations. See [setup_simulator()].
-#' @param data the data used in forecasting (used to gain information about group and index variables)
+#' @param inner_sims the number of inner simulations.
+#' @param ...
 #'
-#' @return
+#' @return A data.table with columns: unit, sim, time, outcome.
 #' @export
-#'
-#' @examples
-predict.univariate_fable <- function(model, horizon, inner_sims, data, ...){
-  # Get index and key variables from tsibble
-  idx <- tsibble::index_var(data)
-  grp <- tsibble::key_vars(data)
-  grp <- grp[!grp %in% "sim"]
+predict.univariate_fable <- function(model, data, ctx, test_start, horizon, inner_sims, ...) {
+  grp <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
 
-  forecast <- model$fitted |> fabletools::forecast(h = paste(horizon, "years")) |>
+  forecast <- model$fitted |>
+    fabletools::forecast(h = paste(horizon, "years")) |>
     dplyr::mutate(samples = distributional::generate(!!rlang::sym(model$outcome), inner_sims)) |>
     dplyr::as_tibble() |>
     dplyr::select(dplyr::all_of(c(grp, idx, "samples"))) |>
     tidyr::unnest(samples) |>
-    dplyr::mutate(sim = rep(1:inner_sims, n()/inner_sims)) |>
-    dplyr::rename(!!rlang::sym(model$outcome) := "samples") |>
-    tsibble::tsibble(key = c(grp, "sim"), index = idx)
+    dplyr::mutate(sim = rep(1:inner_sims, dplyr::n() / inner_sims)) |>
+    dplyr::rename(!!rlang::sym(model$outcome) := "samples")
 
-  return(forecast)
+  # Return as data.table
+  data.table::as.data.table(forecast)
 }

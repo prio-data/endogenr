@@ -13,60 +13,36 @@ setup_simulator(
   groupvar,
   timevar,
   inner_sims,
-  min_window = NULL
+  min_window = NULL,
+  globals = NULL
 )
 }
 \arguments{
 \item{models}{A list of models created using \code{\link[=build_model]{build_model()}}}
 
-\item{data}{A data.frame. Must contain all variables in the model system, groupvar, timevar, and future exogenous data.}
+\item{data}{A data.frame, data.table, or tsibble. Must contain all variables referenced by
+model formulas, plus groupvar, timevar, and future exogenous data.}
 
-\item{train_start}{Integer. When to (at least) start training. The system will remove all data before this time.}
+\item{train_start}{Integer. The earliest training time to include.}
 
-\item{test_start}{Integer. When to start the forecast period. Forecast includes the test_start time.}
+\item{test_start}{Integer. When to start the forecast period.}
 
-\item{horizon}{Integer. How many time steps to forecast into.}
+\item{horizon}{Integer. How many time steps to forecast.}
 
-\item{groupvar}{A string. The variable denoting groups in the panel-data.}
+\item{groupvar}{Character. The column name identifying panel units.}
 
-\item{timevar}{A string. The variable denoting time in the panel-data.}
+\item{timevar}{Character. The column name identifying time periods.}
 
-\item{inner_sims}{Integer. The number of "inner simulations", i.e., simulations using the same estimated models. While a pure bootstrapping
-might only want outer simulations, it is much faster to calculate the inner ones, and exploring the uncertainty of any estimated model system
-that way.}
+\item{inner_sims}{Integer. Number of inner simulations per outer sim.}
 
-\item{min_window}{Integer. When using linear models (see \code{\link[=build_model]{build_model()}}), if min_window is not NULL, every outer simulation will provide
-a random subset time-window of training data as training data for the linear models. This can be useful to explore uncertainties in data-generating
-processes that are not stable across time.}
+\item{min_window}{Integer or NULL. If set, linear/glm/heterolm models get a random
+training window of at least this length per outer simulation.}
+
+\item{globals}{Named list of user functions to export to parallel workers.}
 }
 \value{
 A list of setup parameters for \code{\link[=simulate_endogenr]{simulate_endogenr()}}.
 }
 \description{
-Used as input to \code{\link[=simulate_endogenr]{simulate_endogenr()}}. The function will impute further parameters into the models defined in \code{\link[=build_model]{build_model()}}
-using \code{\link[purrr:partial]{purrr::partial()}}.
-}
-\examples{
-df <- endogenr::example_data |> tsibble::as_tsibble(key = "gwcode", index = "year")
-train <- df |> dplyr::filter(year>= 1970, year < 2010) # used for starting values in parametric distribution
-c1 <- yjbest ~ lag(zoo::rollsumr(yjbest, k = 5, fill = NA)) + lag(log(gdppc))
-model_system <- list(
-  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
-  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
-  build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "t_ls", start = list(df = 1, mu = mean(train$gdppc_grwt), sigma = sd(train$gdppc_grwt))),
-  build_model("linear", formula = c1, boot = "resid"),
-  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
-  build_model("exogen", formula = ~psecprop),
-  build_model("exogen", formula = ~population)
-)
-
-simulator_setup <- setup_simulator(models = model_system,
-                                  data = df,
-                                  train_start = 1970,
-                                  test_start = 2010,
-                                  horizon = 12,
-                                  groupvar = "gwcode",
-                                  timevar = "year",
-                                  inner_sims = 50,
-                                  min_window = 10)
+Sets up the endogenr simulator, including fitting the models
 }

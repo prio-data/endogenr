@@ -1,7 +1,7 @@
 Package: endogenr
 Title: A Dynamic Endogenous Simulator of Statistical Models
 Version: 0.1
-Authors@R: 
+Authors@R:
     person("Jonas", "Vestby", , "jonves@prio.org", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-3054-977X"))
 Description: This package allows you to dynamically simulate a set of statistical or mathematical models. The simulator schedules the simulation based on a network graph, and uses the R formula language as the main tool for defining models.
@@ -10,26 +10,34 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
+    broom,
     data.table,
+    future,
     ggh4x,
+    ggplot2,
+    igraph,
+    janitor,
     patchwork,
-    R6
+    purrr,
+    rlang,
+    scoringRules
 Suggests:
     testthat (>= 3.0.0),
     renv,
-    broom,
-    dplyr,
-    zoo,
-    conflicted,
     distributional,
+    dplyr,
+    fable,
     fabletools,
+    fitdistrplus,
     heterolm,
     progressr,
-    pbapply,
-    sfdep
+    sfdep,
+    tidyr,
+    tsibble,
+    zoo
 Remotes:
-	  kvelleby/poldat,
-	  vdeminstitute/vdemdata,
+    kvelleby/poldat,
+    vdeminstitute/vdemdata,
     prio-data/heterolm
 Depends:
     R (>= 3.5)

@@ -4,11 +4,27 @@
 \alias{predict.exogen}
 \title{Prediction function for exogenous models}
 \usage{
-\method{predict}{exogen}(model, data, ...)
+\method{predict}{exogen}(model, data, ctx, test_start, horizon, inner_sims, ...)
 }
 \arguments{
-\item{...}{}
+\item{model}{An \code{exogen} endogenmodel.}
+
+\item{data}{A data.table (the simulation grid, used to extract sim IDs).}
+
+\item{ctx}{A \code{panel_context} object.}
+
+\item{test_start}{Integer. Start of the forecast period.}
+
+\item{horizon}{Integer. Number of forecast steps.}
+
+\item{inner_sims}{Integer. Number of inner simulations.}
+
+\item{...}{Ignored.}
+}
+\value{
+A data.table with columns: unit, sim, time, and outcome variable(s).
 }
 \description{
-Prediction function for exogenous models
+Expands the stored source data across all simulation draws and returns a
+data.table keyed by (unit, sim, time).
 }

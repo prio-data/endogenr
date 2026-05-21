@@ -8,6 +8,7 @@ inner_simulation(
   i,
   simulation_data,
   models,
+  ctx,
   test_start,
   horizon,
   execution_order,
@@ -15,7 +16,24 @@ inner_simulation(
 )
 }
 \arguments{
-\item{inner_sims}{}
+\item{i}{Simulation index.}
+
+\item{simulation_data}{A data.table.}
+
+\item{models}{List of (partially applied) model closures.}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer.}
+
+\item{horizon}{Integer.}
+
+\item{execution_order}{Character vector.}
+
+\item{inner_sims}{Integer.}
+}
+\value{
+A data.table with simulation results.
 }
 \description{
 The inner simulation loop

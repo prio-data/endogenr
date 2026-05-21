@@ -8,12 +8,25 @@ parametric_distribution_model(
   formula = NULL,
   distribution = NULL,
   data = NULL,
+  ctx = NULL,
   ...
 )
 }
 \arguments{
-\item{...}{}
+\item{formula}{A one-sided formula (e.g. \code{~gdppc_grwt}).}
+
+\item{distribution}{Character. Distribution name compatible with fitdistrplus.}
+
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
+
+\item{...}{Additional arguments passed to fitdistrplus::fitdist().}
+}
+\value{
+An endogenmodel of class \code{parametric_distribution}.
 }
 \description{
-This model is static across time, and therefore independent/exogenous
+This model is static across time, and therefore independent/exogenous.
+Uses fitdistrplus::fitdist() to fit a distribution to the pooled training data.
 }

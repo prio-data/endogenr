@@ -4,12 +4,22 @@
 \alias{univariate_fable_model}
 \title{Univariate model from fable}
 \usage{
-univariate_fable_model(formula = NULL, data = NULL, method = "arima", ...)
+univariate_fable_model(
+  formula = NULL,
+  data = NULL,
+  method = "arima",
+  ctx = NULL,
+  ...
+)
 }
 \arguments{
 \item{formula}{An R-formula using the model specification in \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
 
-\item{data}{The training data used to fit the model. A tsibble.}
+\item{data}{A data.table, data.frame, or tsibble. Converted to tsibble internally for fable.}
+
+\item{method}{Character. Either "arima" or "ets".}
+
+\item{ctx}{A panel_context object.}
 
 \item{...}{Other arguments from \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
 }
@@ -22,4 +32,7 @@ details on these models. These models are estimated independently for each group
 independent of the rest of the system (the forecasts are populated in the simulation dataset before the dynamic simulation is calculated). See \code{\link[fable:ETS]{fable::ETS()}}
 and \code{\link[fable:ARIMA]{fable::ARIMA()}} for how to write the function calls for these models. A simple exponential smoothing model can be set up using
 build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
+}
+\details{
+Requires packages \code{fable}, \code{fabletools}, and \code{tsibble} (in Suggests).
 }

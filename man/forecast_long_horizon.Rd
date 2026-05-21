@@ -28,7 +28,7 @@ set; otherwise multiplied with \code{inner_sims} for total draws).}
 \item{inner_sims}{Integer. Number of inner draws per simulation.}
 }
 \value{
-A tibble with columns: \code{groupvar}, \code{test_start}, \code{horizon},
+A data.table with columns: \code{groupvar}, \code{test_start}, \code{horizon},
 \code{year_target}, \code{variant}, \code{.draws} (list-column of numeric vectors).
 }
 \description{

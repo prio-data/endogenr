@@ -9,12 +9,19 @@ glmmodel(
   family = stats::gaussian(),
   boot = NULL,
   data = NULL,
+  ctx = NULL,
   subset = NULL,
   ...
 )
 }
 \arguments{
 \item{family}{A family object (e.g. quasibinomial(), gaussian(), poisson())}
+
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
+
+\item{subset}{Optional list with start/end for training window.}
 
 \item{...}{}
 }

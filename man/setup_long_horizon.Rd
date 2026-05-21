@@ -15,15 +15,9 @@ setup_long_horizon(
 )
 }
 \arguments{
-\item{data}{A data.frame or tsibble.}
+\item{data}{A data.frame or data.table.}
 
-\item{formulas}{Named list of formulas, one per model variant. Example:
-
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{list(
-  baseline = asinh(gdppc) ~ lag(asinh(gdppc)),
-  full     = asinh(gdppc) ~ lag(asinh(gdppc)) + lag(yjbest) + lag(dem)
-)
-}\if{html}{\out{</div>}}}
+\item{formulas}{Named list of formulas, one per model variant.}
 
 \item{horizons}{Integer vector of forecast horizons (e.g. \code{1:12}).}
 

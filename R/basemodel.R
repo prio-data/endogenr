@@ -64,8 +64,8 @@ new_endogenmodel <- function(formula){
 #' @export
 #'
 #' @examples
-#' df <- endogenr::example_data |> tsibble::as_tsibble(key = "gwcode", index = "year")
-#' train <- df |> dplyr::filter(year>= 1970, year < 2010) # used for starting values in parametric distribution
+#' df <- endogenr::example_data
+#' train <- df[df$year >= 1970 & df$year < 2010, ] # used for starting values in parametric distribution
 #' c1 <- yjbest ~ lag(zoo::rollsumr(yjbest, k = 5, fill = NA)) + lag(log(gdppc))
 #' model_system <- list(
 #'   build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),

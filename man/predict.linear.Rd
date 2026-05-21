@@ -4,10 +4,21 @@
 \alias{predict.linear}
 \title{Predict function for a linear model}
 \usage{
-\method{predict}{linear}(model, data, t, what = "pi", ...)
+\method{predict}{linear}(model, data, t, ctx, what = "pi", ...)
 }
 \arguments{
+\item{data}{A data.table.}
+
+\item{t}{Time step to predict.}
+
+\item{ctx}{A panel_context object.}
+
+\item{what}{Either "pi" or "expectation".}
+
 \item{...}{}
+}
+\value{
+A data.table with key + index + outcome columns.
 }
 \description{
 Predict function for a linear model

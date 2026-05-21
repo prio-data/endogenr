@@ -10,7 +10,7 @@ fit_lh_model(formula, aligned_data, h, groupvar, timevar, boot = NULL)
 \item{formula}{Formula. Model specification; LHS is the transformed outcome,
 RHS uses baseline covariates (may include \code{lag()}, raw variables, etc.).}
 
-\item{aligned_data}{A tibble from \code{\link[=create_lh_data]{create_lh_data()}}.}
+\item{aligned_data}{A data.table from \code{\link[=create_lh_data]{create_lh_data()}}.}
 
 \item{h}{Integer. Forecast horizon (stored for bookkeeping).}
 

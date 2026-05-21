@@ -4,9 +4,22 @@
 \alias{linearmodel}
 \title{Linear model}
 \usage{
-linearmodel(formula = NULL, boot = NULL, data = NULL, subset = NULL, ...)
+linearmodel(
+  formula = NULL,
+  boot = NULL,
+  data = NULL,
+  ctx = NULL,
+  subset = NULL,
+  ...
+)
 }
 \arguments{
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
+
+\item{subset}{Optional list with start/end for training window.}
+
 \item{...}{}
 }
 \description{

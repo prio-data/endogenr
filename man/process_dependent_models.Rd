@@ -7,13 +7,27 @@
 process_dependent_models(
   simulation_data,
   models,
+  ctx,
   test_start,
   horizon,
   execution_order
 )
 }
 \arguments{
-\item{execution_order}{}
+\item{simulation_data}{A data.table.}
+
+\item{models}{List of fitted models.}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer.}
+
+\item{horizon}{Integer.}
+
+\item{execution_order}{Character vector of model outcomes in topological order.}
+}
+\value{
+The simulation_data data.table, updated by reference.
 }
 \description{
 Dynamic simulation of the time-dependent models

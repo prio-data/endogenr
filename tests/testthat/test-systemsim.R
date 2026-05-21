@@ -1,31 +1,32 @@
 # Tests for R/systemsim.R --------------------------------------------------
 
-# ── Helper: minimal tsibble ──────────────────────────────────────────────
+# ── Helper: minimal test data ──────────────────────────────────────────────
 
-make_tiny_tsibble <- function() {
+make_test_data <- function() {
   df <- expand.grid(gwcode = c(1, 2), year = 2000:2015)
   set.seed(1)
   df$x <- rnorm(nrow(df))
   df$y <- 0.5 * df$x + rnorm(nrow(df), sd = 0.2)
-  tsibble::tsibble(df, key = "gwcode", index = "year")
+  data.table::as.data.table(df)
 }
 
 # ── prepare_simulation_data ──────────────────────────────────────────────
 
-test_that("prepare_simulation_data returns a tsibble with correct dimensions", {
-  ts <- make_tiny_tsibble()
+test_that("prepare_simulation_data returns a data.table with correct dimensions", {
+  dt <- make_test_data()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  ctx$sim <- "sim"
 
   sim_data <- prepare_simulation_data(
-    data       = ts,
-    groupvar   = "gwcode",
-    timevar    = "year",
+    data       = dt,
+    ctx        = ctx,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 3,
     inner_sims  = 2
   )
 
-  expect_s3_class(sim_data, "tbl_ts")
+  expect_s3_class(sim_data, "data.table")
 
   # Should span 2000–2012 (train_start to test_start + horizon - 1)
   expect_equal(range(sim_data$year), c(2000, 2012))
@@ -34,20 +35,21 @@ test_that("prepare_simulation_data returns a tsibble with correct dimensions", {
   expect_equal(nrow(sim_data), 2 * 13 * 2)
 
   # Training rows should have non-NA y; forecast rows should be NA
-  train_rows <- sim_data[sim_data$year < 2010, ]
+  train_rows <- sim_data[sim_data$year < 2010]
   expect_false(all(is.na(train_rows$y)))
 
-  forecast_rows <- sim_data[sim_data$year >= 2010, ]
+  forecast_rows <- sim_data[sim_data$year >= 2010]
   expect_true(all(is.na(forecast_rows$y)))
 })
 
-test_that("prepare_simulation_data includes sim column as key", {
+test_that("prepare_simulation_data includes sim column", {
+  dt <- make_test_data()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  ctx$sim <- "sim"
 
-  ts <- make_tiny_tsibble()
   sim_data <- prepare_simulation_data(
-    data       = ts,
-    groupvar   = "gwcode",
-    timevar    = "year",
+    data       = dt,
+    ctx        = ctx,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 1,
@@ -56,21 +58,23 @@ test_that("prepare_simulation_data includes sim column as key", {
 
   expect_true("sim" %in% names(sim_data))
   expect_equal(sort(unique(sim_data$sim)), 1:5)
-  expect_true("sim" %in% tsibble::key_vars(sim_data))
 })
 
 # ── process_independent_models ───────────────────────────────────────────
 
 test_that("process_independent_models validates test_start", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  ctx$sim <- "sim"
+
   sim_data <- prepare_simulation_data(
-    data = ts, groupvar = "gwcode", timevar = "year",
+    data = dt, ctx = ctx,
     train_start = 2000, test_start = 2010, horizon = 1, inner_sims = 1
   )
 
   # Should error because test_start is character
   expect_error(
-    process_independent_models(sim_data, list(NULL), "2010", 1, 1),
+    process_independent_models(sim_data, list(NULL), ctx, "2010", 1, 1),
     "numeric"
   )
 })
@@ -78,7 +82,7 @@ test_that("process_independent_models validates test_start", {
 # ── setup_simulator (integration) ────────────────────────────────────────
 
 test_that("setup_simulator returns expected structure with linear model", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x))
@@ -86,7 +90,7 @@ test_that("setup_simulator returns expected structure with linear model", {
 
   result <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 3,
@@ -99,17 +103,18 @@ test_that("setup_simulator returns expected structure with linear model", {
   expect_true(all(c(
     "simulation_data", "models", "fitted_models",
     "test_start", "horizon", "execution_order",
-    "groupvar", "timevar", "inner_sims"
+    "groupvar", "timevar", "inner_sims", "ctx"
   ) %in% names(result)))
 
   expect_equal(result$test_start, 2010)
   expect_equal(result$horizon, 3)
   expect_equal(result$inner_sims, 2)
-  expect_s3_class(result$simulation_data, "tbl_ts")
+  expect_s3_class(result$simulation_data, "data.table")
+  expect_s3_class(result$ctx, "panel_context")
 })
 
 test_that("setup_simulator fitted_models have coefs and gof for linear", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x))
@@ -117,7 +122,7 @@ test_that("setup_simulator fitted_models have coefs and gof for linear", {
 
   result <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 1,
@@ -134,7 +139,7 @@ test_that("setup_simulator fitted_models have coefs and gof for linear", {
 })
 
 test_that("setup_simulator builds correct execution_order", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x))
@@ -142,7 +147,7 @@ test_that("setup_simulator builds correct execution_order", {
 
   result <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 1,
@@ -155,7 +160,7 @@ test_that("setup_simulator builds correct execution_order", {
 })
 
 test_that("setup_simulator works with deterministic model", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
 
   model_system <- list(
     build_model("deterministic", formula = y ~ I(x * 2))
@@ -163,7 +168,7 @@ test_that("setup_simulator works with deterministic model", {
 
   result <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 1,
@@ -182,7 +187,7 @@ test_that("setup_simulator handles multiple models with dependency ordering", {
   df$x <- rnorm(nrow(df))
   df$y <- 0.5 * df$x + rnorm(nrow(df), sd = 0.2)
   df$z <- 0.3 * df$y + rnorm(nrow(df), sd = 0.1)
-  ts <- tsibble::tsibble(df, key = "gwcode", index = "year")
+  dt <- data.table::as.data.table(df)
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x)),
@@ -191,7 +196,7 @@ test_that("setup_simulator handles multiple models with dependency ordering", {
 
   result <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2010,
     horizon     = 1,
@@ -205,10 +210,37 @@ test_that("setup_simulator handles multiple models with dependency ordering", {
   expect_true(which(ord == "y") < which(ord == "z"))
 })
 
+test_that("setup_simulator accepts tsibble input", {
+  skip_if_not_installed("tsibble")
+  df <- expand.grid(gwcode = c(1, 2), year = 2000:2015)
+  set.seed(1)
+  df$x <- rnorm(nrow(df))
+  df$y <- 0.5 * df$x + rnorm(nrow(df), sd = 0.2)
+  ts <- tsibble::tsibble(df, key = "gwcode", index = "year")
+
+  model_system <- list(
+    build_model("linear", formula = y ~ lag(x))
+  )
+
+  result <- setup_simulator(
+    models      = model_system,
+    data        = ts,
+    train_start = 2000,
+    test_start  = 2010,
+    horizon     = 1,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 1
+  )
+
+  # Should still work — tsibble is converted to data.table internally
+  expect_s3_class(result$simulation_data, "data.table")
+})
+
 # ── simulate_endogenr (minimal integration) ──────────────────────────────
 
 test_that("simulate_endogenr runs and returns expected output", {
-  ts <- make_tiny_tsibble()
+  dt <- make_test_data()
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x))
@@ -216,7 +248,7 @@ test_that("simulate_endogenr runs and returns expected output", {
 
   setup <- setup_simulator(
     models      = model_system,
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2013,
     horizon     = 2,
@@ -228,7 +260,7 @@ test_that("simulate_endogenr runs and returns expected output", {
   set.seed(42)
   res <- simulate_endogenr(nsim = 1, simulator_setup = setup, parallel = FALSE)
 
-  expect_s3_class(res, "tbl_df")
+  expect_s3_class(res, "data.table")
   expect_true(".sim" %in% names(res))
   expect_true("y" %in% names(res))
   expect_true("gwcode" %in% names(res))
@@ -240,12 +272,12 @@ test_that("simulate_endogenr runs and returns expected output", {
 
 # ── sim_to_dist ──────────────────────────────────────────────────────────
 
-test_that("sim_to_dist nests simulations into distributional objects", {
-  ts <- make_tiny_tsibble()
+test_that("sim_to_dist nests simulations into list-columns", {
+  dt <- make_test_data()
 
   setup <- setup_simulator(
     models      = list(build_model("linear", formula = y ~ lag(x))),
-    data        = ts,
+    data        = dt,
     train_start = 2000,
     test_start  = 2013,
     horizon     = 2,
@@ -256,12 +288,46 @@ test_that("sim_to_dist nests simulations into distributional objects", {
 
   set.seed(42)
   res <- simulate_endogenr(nsim = 1, simulator_setup = setup, parallel = FALSE)
-  res_ts <- tsibble::tsibble(res, key = c("gwcode", ".sim"), index = "year") |>
-    dplyr::filter(year >= 2013)
+  forecast_res <- res[res$year >= 2013]
 
-  dist_result <- sim_to_dist(res_ts, "y")
+  # Remove .sim from ctx for sim_to_dist (it groups by unit+time)
+  ctx <- setup$ctx
 
-  expect_s3_class(dist_result, "tbl_ts")
-  # y column should now be distributional
-  expect_true(inherits(dist_result$y[[1]], "distribution"))
+  dist_result <- sim_to_dist(forecast_res, "y", ctx)
+
+  expect_s3_class(dist_result, "data.table")
+  # y column should be a list-column of numeric vectors
+  expect_true(is.list(dist_result$y))
+  expect_true(is.numeric(dist_result$y[[1]]))
+})
+
+# ── get_accuracy ─────────────────────────────────────────────────────────
+
+test_that("get_accuracy computes CRPS, MAE, and Winkler scores", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 2, simulator_setup = setup, parallel = FALSE)
+  forecast_res <- res[res$year >= 2013]
+
+  ctx <- setup$ctx
+  truth <- dt[dt$year >= 2013 & dt$year <= 2014]
+
+  acc <- get_accuracy(forecast_res, "y", truth, ctx)
+
+  expect_s3_class(acc, "data.table")
+  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+  expect_true(all(acc$crps >= 0, na.rm = TRUE))
+  expect_true(all(acc$mae >= 0, na.rm = TRUE))
 })

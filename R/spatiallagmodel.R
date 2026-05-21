@@ -56,25 +56,26 @@ spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_rea
 #'
 #' @param model A \code{spatial_lag} model object.
 #' @param t The current time step.
-#' @param data A tsibble with the full simulation data.
+#' @param data A data.table with the full simulation data.
+#' @param ctx A panel_context object.
 #' @param ... Not used.
 #'
-#' @return A tsibble keyed by the group variables with the spatial lag values at
-#'   time \code{t}.
+#' @return A data.table with the spatial lag values at time \code{t}.
 #' @export
-predict.spatial_lag <- function(model, t, data, ...) {
-  grp <- tsibble::key_vars(data)
-  idx <- tsibble::index_var(data)
+predict.spatial_lag <- function(model, t, data, ctx, ...) {
+  geo_var <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  sim_var <- ctx_sim(ctx)
+  all_keys <- ctx_keys(ctx)
   outcome <- model$outcome
-
-  # Separate the geographic unit key from the simulation index key
-  geo_var <- setdiff(grp, "sim")
-  sim_var <- intersect(grp, "sim")
 
   t_source <- if (model$use_lag) t - 1L else t
 
-  source_data <- dplyr::as_tibble(data) |>
-    dplyr::filter(!!rlang::sym(idx) == t_source)
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+
+  source_data <- data[data[[idx]] == t_source]
 
   # Compute the spatial lag for one data.frame (single sim, all geo units at t_source)
   compute_sl <- function(df) {
@@ -116,22 +117,28 @@ predict.spatial_lag <- function(model, t, data, ...) {
     sl_mapped
   }
 
-  if (length(sim_var) > 0) {
+  if (!is.null(sim_var)) {
     sims <- unique(source_data[[sim_var]])
     result_list <- lapply(sims, function(s) {
-      df <- source_data[source_data[[sim_var]] == s, , drop = FALSE]
-      df[[outcome]] <- compute_sl(df)
-      df[[idx]] <- t  # assign result at time t (matters for the lagged variant)
-      df[, c(grp, idx, outcome), drop = FALSE]
+      df <- source_data[source_data[[sim_var]] == s]
+      sl_values <- compute_sl(df)
+      # Build result for this sim at time t
+      result_cols <- c(all_keys, idx)
+      out <- df[, ..result_cols]
+      data.table::set(out, j = idx, value = t)
+      data.table::set(out, j = outcome, value = sl_values)
+      out
     })
-    result <- do.call(rbind, result_list)
+    result <- data.table::rbindlist(result_list)
   } else {
-    source_data[[outcome]] <- compute_sl(source_data)
-    source_data[[idx]] <- t
-    result <- source_data[, c(grp, idx, outcome), drop = FALSE]
+    sl_values <- compute_sl(source_data)
+    result_cols <- c(all_keys, idx)
+    result <- source_data[, ..result_cols]
+    data.table::set(result, j = idx, value = t)
+    data.table::set(result, j = outcome, value = sl_values)
   }
 
-  tsibble::as_tsibble(result, key = grp, index = idx)
+  return(result)
 }
 
 

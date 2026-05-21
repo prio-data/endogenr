@@ -4,11 +4,26 @@
 \alias{predict.parametric_distribution}
 \title{Predict function for parametric_distribution models}
 \usage{
-\method{predict}{parametric_distribution}(model, data, test_start, ...)
+\method{predict}{parametric_distribution}(model, data, ctx, test_start, horizon, inner_sims, ...)
 }
 \arguments{
-\item{...}{}
+\item{model}{A parametric_distribution endogenmodel.}
+
+\item{data}{A data.table (the simulation grid).}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer. Start of the forecast period.}
+
+\item{horizon}{Integer. Number of forecast steps.}
+
+\item{inner_sims}{Integer. Number of inner simulations.}
+
+\item{...}{Ignored.}
+}
+\value{
+A data.table with columns: unit, sim, time, outcome.
 }
 \description{
-Predict function for parametric_distribution models
+Generates random samples from the fitted distribution for all forecast rows.
 }

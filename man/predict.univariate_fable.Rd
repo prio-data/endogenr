@@ -4,16 +4,25 @@
 \alias{predict.univariate_fable}
 \title{Predict univariate fable model}
 \usage{
-\method{predict}{univariate_fable}(model, horizon, inner_sims, data, ...)
+\method{predict}{univariate_fable}(model, data, ctx, test_start, horizon, inner_sims, ...)
 }
 \arguments{
 \item{model}{a univariate_fable endogenmodel}
 
+\item{data}{A data.table (the simulation grid).}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer. Not used directly (horizon determines forecast length).}
+
 \item{horizon}{the number of future steps to predict}
 
-\item{inner_sims}{the number of inner simulations. See \code{\link[=setup_simulator]{setup_simulator()}}.}
+\item{inner_sims}{the number of inner simulations.}
 
-\item{data}{the data used in forecasting (used to gain information about group and index variables)}
+\item{...}{}
+}
+\value{
+A data.table with columns: unit, sim, time, outcome.
 }
 \description{
 Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use

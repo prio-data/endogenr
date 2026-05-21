@@ -7,7 +7,16 @@
 dt_ls(x, df = 1, mu = 0, sigma = 1)
 }
 \arguments{
-\item{sigma}{}
+\item{x}{Numeric vector.}
+
+\item{df}{Degrees of freedom.}
+
+\item{mu}{Location parameter.}
+
+\item{sigma}{Scale parameter.}
+}
+\value{
+Numeric vector of density values.
 }
 \description{
 Student-t distribution density function

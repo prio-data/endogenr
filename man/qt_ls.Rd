@@ -7,7 +7,16 @@
 qt_ls(p, df = 1, mu = 0, sigma = 1)
 }
 \arguments{
-\item{sigma}{}
+\item{p}{Numeric vector of probabilities.}
+
+\item{df}{Degrees of freedom.}
+
+\item{mu}{Location parameter.}
+
+\item{sigma}{Scale parameter.}
+}
+\value{
+Numeric vector of quantiles.
 }
 \description{
 Student-t distribution quantile function

@@ -2,13 +2,21 @@
 % Please edit documentation in R/utilities.R
 \name{create_panel_frame}
 \alias{create_panel_frame}
-\title{Creates a panel data frame based on a formula and tsibble}
+\title{Creates a panel data frame based on a formula and data.table}
 \usage{
-create_panel_frame(formula, data)
+create_panel_frame(formula, data, ctx)
 }
 \arguments{
-\item{data}{}
+\item{formula}{An R formula.}
+
+\item{data}{A data.table (or data.frame/tsibble — will be coerced).}
+
+\item{ctx}{A \code{panel_context} object.}
+}
+\value{
+A list with \code{data} (data.table) and \code{naive_formula}.
 }
 \description{
-This correctly handles by-group functions in a formula, unlike stats::model.frame.
+Evaluates formula terms per group using \code{model.frame()} with positional lag
+injection. Returns materialized data and a naive formula for model fitting.
 }

@@ -4,21 +4,23 @@
 \alias{predict.heterolm}
 \title{Predict function for a heteroscedastic linear model}
 \usage{
-\method{predict}{heterolm}(model, data, t, what = "pi", ...)
+\method{predict}{heterolm}(model, data, t, ctx, what = "pi", ...)
 }
 \arguments{
 \item{model}{A heterolm model object.}
 
-\item{data}{A tsibble with simulation data.}
+\item{data}{A data.table.}
 
 \item{t}{The time point to predict for.}
+
+\item{ctx}{A panel_context object.}
 
 \item{what}{Either \code{"pi"} (prediction interval sample) or \code{"expectation"}.}
 
 \item{...}{Not used.}
 }
 \value{
-A tsibble with key + index + outcome column.
+A data.table with key + index + outcome columns.
 }
 \description{
 Samples from N(mu_i, sigma_i) per observation, where sigma_i comes from the

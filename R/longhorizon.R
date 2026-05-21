@@ -23,7 +23,7 @@
 #' that formula RHS terms (e.g. `lag(outcome)`) are evaluated at the baseline
 #' period t, not the target period t+h.
 #'
-#' @param data A data.frame or tsibble containing all variables.
+#' @param data A data.frame or data.table containing all variables.
 #' @param outcome Character. The raw outcome variable name (without transformation).
 #' @param h Integer. The forecast horizon.
 #' @param groupvar Character. The group variable name.
@@ -31,21 +31,22 @@
 #' @param train_end Numeric. Training cutoff; only rows where `t + h < train_end`
 #'   are included (strict inequality prevents outcome leakage).
 #'
-#' @return A tibble with all original columns plus a `.target` column holding
+#' @return A data.table with all original columns plus a `.target` column holding
 #'   the h-step-ahead value of the outcome.
 #' @export
 create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
-  outcome_sym <- rlang::sym(outcome)
-  group_sym   <- rlang::sym(groupvar)
-  time_sym    <- rlang::sym(timevar)
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+  dt <- data.table::copy(data)
+  data.table::setkeyv(dt, c(groupvar, timevar))
 
-  data |>
-    dplyr::as_tibble() |>
-    dplyr::group_by(!!group_sym) |>
-    dplyr::arrange(!!time_sym, .by_group = TRUE) |>
-    dplyr::mutate(.target = dplyr::lead(!!outcome_sym, n = h)) |>
-    dplyr::ungroup() |>
-    dplyr::filter(!!time_sym < (train_end - h), !is.na(.target))
+  # Add .target = lead(outcome, h) per group
+  dt[, .target := data.table::shift(get(outcome), n = h, type = "lead"), by = c(groupvar)]
+
+  # Filter to valid training rows
+  dt <- dt[dt[[timevar]] < (train_end - h) & !is.na(.target)]
+  return(dt)
 }
 
 
@@ -62,7 +63,7 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
 #'
 #' @param formula Formula. Model specification; LHS is the transformed outcome,
 #'   RHS uses baseline covariates (may include `lag()`, raw variables, etc.).
-#' @param aligned_data A tibble from [create_lh_data()].
+#' @param aligned_data A data.table from [create_lh_data()].
 #' @param h Integer. Forecast horizon (stored for bookkeeping).
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
@@ -74,6 +75,10 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
 #'   `df`, `fit_data`, `boot`.
 #' @export
 fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NULL) {
+  if (!data.table::is.data.table(aligned_data)) {
+    aligned_data <- data.table::as.data.table(as.data.frame(aligned_data))
+  }
+
   # Build aligned formula: replace outcome var in LHS with .target
   lhs_expr    <- rlang::f_lhs(formula)
   outcome_var <- all.vars(lhs_expr)[1L]
@@ -81,28 +86,29 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
   aligned_formula <- rlang::new_formula(new_lhs, rlang::f_rhs(formula),
                                         env = rlang::f_env(formula))
 
-  # Extend formula with timevar for row tracking inside group_modify
+  # Extend formula with timevar for row tracking
   aligned_formula_ext <- stats::update(aligned_formula,
                                        paste(". ~ . +", timevar))
 
-  # Evaluate formula terms per group (handles lag() correctly)
-  model_data <- aligned_data |>
-    dplyr::group_by(!!rlang::sym(groupvar)) |>
-    dplyr::group_modify(~ {
-      mf <- tryCatch(
-        stats::model.frame(aligned_formula_ext, data = ., na.action = NULL),
-        error = function(e) NULL
-      )
-      if (is.null(mf)) return(tibble::tibble())
-      mm <- stats::model.matrix(stats::terms(mf), data = mf,
-                                na.action = stats::na.pass)
-      mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
-      resp <- stats::setNames(data.frame(mf[[1L]], stringsAsFactors = FALSE),
-                              names(mf)[1L])
-      tibble::as_tibble(cbind(resp, as.data.frame(mm)))
-    }) |>
-    dplyr::ungroup() |>
-    janitor::clean_names()
+  # Inject positional lag for per-group evaluation
+  aligned_formula_ext <- inject_positional_lag(aligned_formula_ext)
+
+  # Evaluate formula terms per group using data.table
+  model_data <- aligned_data[, {
+    mf <- tryCatch(
+      stats::model.frame(aligned_formula_ext, data = .SD, na.action = NULL),
+      error = function(e) NULL
+    )
+    if (is.null(mf)) return(data.table::data.table())
+    mm <- stats::model.matrix(stats::terms(mf), data = mf,
+                              na.action = stats::na.pass)
+    mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
+    resp <- stats::setNames(data.frame(mf[[1L]], stringsAsFactors = FALSE),
+                            names(mf)[1L])
+    data.table::as.data.table(cbind(resp, as.data.frame(mm)))
+  }, by = c(groupvar)]
+
+  model_data <- janitor::clean_names(model_data)
 
   # Identify columns to use for fitting (drop groupvar and timevar)
   grp_clean  <- .clean_name(groupvar)
@@ -110,7 +116,7 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
   all_vars   <- names(model_data)
   fit_vars   <- all_vars[!all_vars %in% c(grp_clean, time_clean)]
 
-  fit_data <- stats::na.omit(model_data[, fit_vars, drop = FALSE])
+  fit_data <- stats::na.omit(model_data[, ..fit_vars])
 
   # Naive formula over cleaned column names
   naive_formula <- stats::as.formula(
@@ -143,14 +149,8 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 #' and [fit_lh_model()] to produce a complete set of fitted models. No dynamic
 #' loop is needed — models are independent across time and estimated once.
 #'
-#' @param data A data.frame or tsibble.
-#' @param formulas Named list of formulas, one per model variant. Example:
-#'   ```r
-#'   list(
-#'     baseline = asinh(gdppc) ~ lag(asinh(gdppc)),
-#'     full     = asinh(gdppc) ~ lag(asinh(gdppc)) + lag(yjbest) + lag(dem)
-#'   )
-#'   ```
+#' @param data A data.frame or data.table.
+#' @param formulas Named list of formulas, one per model variant.
 #' @param horizons Integer vector of forecast horizons (e.g. `1:12`).
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
@@ -189,9 +189,13 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 
 
 # Internal helper: draw predictive samples for one (lh_model, test_start) pair.
-# Returns a tibble with columns: groupvar, .draws (list of numeric vectors).
+# Returns a data.table with columns: groupvar, .draws (list of numeric vectors).
 .predict_lh <- function(lh_model, data, groupvar, timevar, test_start,
                         nsim, inner_sims) {
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+
   formula <- lh_model$formula
   boot    <- lh_model$boot
 
@@ -199,50 +203,48 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   rhs_str         <- deparse(rlang::f_rhs(formula), width.cutoff = 500L)
   rhs_formula_ext <- stats::as.formula(paste("~", rhs_str, "+", timevar))
 
+  # Inject positional lag
+  rhs_formula_ext <- inject_positional_lag(rhs_formula_ext)
+
   # Include enough history for lag() computation.
-  # Covariates are observed at test_start - 1 (last training year), so that
-  # horizon h=1 targets test_start, matching the dynamic simulation convention.
   origin <- test_start - 1L
-  recent <- data |>
-    dplyr::as_tibble() |>
-    dplyr::group_by(!!rlang::sym(groupvar)) |>
-    dplyr::filter(!!rlang::sym(timevar) <= origin) |>
-    dplyr::arrange(!!rlang::sym(timevar)) |>
-    dplyr::slice_tail(n = 20L) |>
-    dplyr::ungroup()
+  recent <- data[data[[timevar]] <= origin]
+  data.table::setkeyv(recent, c(groupvar, timevar))
+  recent <- recent[, utils::tail(.SD, 20L), by = c(groupvar)]
 
   # Evaluate RHS formula per group
-  rhs_data <- recent |>
-    dplyr::group_by(!!rlang::sym(groupvar)) |>
-    dplyr::group_modify(~ {
-      mf <- tryCatch(
-        stats::model.frame(rhs_formula_ext, data = ., na.action = NULL),
-        error = function(e) NULL
-      )
-      if (is.null(mf)) return(tibble::tibble())
-      mm <- stats::model.matrix(stats::terms(mf), data = mf,
-                                na.action = stats::na.pass)
-      mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
-      tibble::as_tibble(as.data.frame(mm))
-    }) |>
-    dplyr::ungroup() |>
-    janitor::clean_names()
+  rhs_data <- recent[, {
+    mf <- tryCatch(
+      stats::model.frame(rhs_formula_ext, data = .SD, na.action = NULL),
+      error = function(e) NULL
+    )
+    if (is.null(mf)) return(data.table::data.table())
+    mm <- stats::model.matrix(stats::terms(mf), data = mf,
+                              na.action = stats::na.pass)
+    mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
+    data.table::as.data.table(as.data.frame(mm))
+  }, by = c(groupvar)]
+
+  rhs_data <- janitor::clean_names(rhs_data)
 
   grp_clean  <- .clean_name(groupvar)
   time_clean <- .clean_name(timevar)
 
-  rhs_at_t <- rhs_data |>
-    dplyr::filter(!!rlang::sym(time_clean) == origin) |>
-    dplyr::filter(dplyr::if_all(dplyr::everything(), ~ !is.na(.)))
+  rhs_at_t <- rhs_data[rhs_data[[time_clean]] == origin]
+  # Remove rows with any NA
+  complete <- stats::complete.cases(rhs_at_t)
+  rhs_at_t <- rhs_at_t[complete]
 
   if (nrow(rhs_at_t) == 0L) {
-    return(tibble::tibble(!!rlang::sym(groupvar) := character(0L),
-                          .draws = list()))
+    return(data.table::data.table(
+      placeholder_group = character(0L),
+      .draws = list()
+    ))
   }
 
   groups    <- rhs_at_t[[grp_clean]]
-  pred_data <- rhs_at_t[, !names(rhs_at_t) %in% c(grp_clean, time_clean),
-                        drop = FALSE]
+  pred_cols <- setdiff(names(rhs_at_t), c(grp_clean, time_clean))
+  pred_data <- rhs_at_t[, ..pred_cols]
   n_total   <- nsim * inner_sims
 
   if (is.null(boot)) {
@@ -268,10 +270,12 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 
   draws_list <- lapply(seq_len(nrow(draws_mat)), function(i) draws_mat[i, ])
 
-  tibble::tibble(
-    !!rlang::sym(groupvar) := groups,
+  result <- data.table::data.table(
+    placeholder_group = groups,
     .draws = draws_list
   )
+  data.table::setnames(result, "placeholder_group", groupvar)
+  result
 }
 
 
@@ -291,7 +295,7 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #'   set; otherwise multiplied with `inner_sims` for total draws).
 #' @param inner_sims Integer. Number of inner draws per simulation.
 #'
-#' @return A tibble with columns: `groupvar`, `test_start`, `horizon`,
+#' @return A data.table with columns: `groupvar`, `test_start`, `horizon`,
 #'   `year_target`, `variant`, `.draws` (list-column of numeric vectors).
 #' @export
 forecast_long_horizon <- function(lh_setup, data, test_start,
@@ -306,80 +310,66 @@ forecast_long_horizon <- function(lh_setup, data, test_start,
       lh_model <- lh_setup$models[[variant]][[h_char]]
       h        <- lh_model$h
 
-      pred_df <- .predict_lh(lh_model, data, groupvar, timevar, test_start,
+      pred_dt <- .predict_lh(lh_model, data, groupvar, timevar, test_start,
                              nsim, inner_sims)
 
-      results[[paste(variant, h_char, sep = "_")]] <- pred_df |>
-        dplyr::mutate(
-          test_start  = test_start,
-          horizon     = h,
-          year_target = test_start + h - 1L,
-          variant     = variant
-        )
+      pred_dt[, `:=`(test_start = test_start,
+                     horizon = h,
+                     year_target = test_start + h - 1L,
+                     variant = variant)]
+      results[[paste(variant, h_char, sep = "_")]] <- pred_dt
     }
   }
 
-  dplyr::bind_rows(results)
+  data.table::rbindlist(results)
 }
 
 
 #' Compute CRPS and MAE accuracy scores for long-horizon forecasts
 #'
-#' Wraps draw samples in [distributional::dist_sample()], creates a fable, and
-#' uses [fabletools::accuracy()] — mirroring the pattern in [get_accuracy()].
+#' Uses [scoringRules::crps_sample()] for CRPS and manual MAE from median of draws.
 #' Output format is compatible with [get_accuracy()] results (after aggregating
 #' by horizon) for cross-approach comparison via [compare_approaches()].
 #'
 #' @param lh_forecasts Output from [forecast_long_horizon()] or [cv_long_horizon()].
-#' @param truth A tsibble with `groupvar` as key, `timevar` as index, and the
-#'   outcome column in the same scale as the forecast draws.
-#' @param outcome Character. Name of the outcome column in `truth`; must match
-#'   the scale of the forecast draws (e.g. if draws are `asinh(gdppc)`, pass a
-#'   truth tsibble that also has an `asinh(gdppc)` column under this name).
+#' @param truth A data.frame or data.table with the outcome column in the same
+#'   scale as the forecast draws.
+#' @param outcome Character. Name of the outcome column in `truth`.
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
 #'
-#' @return A tibble with columns: `variant`, `horizon`, `crps`, `mae`.
+#' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`.
 #' @export
 get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
-  results <- list()
-
-  for (v in unique(lh_forecasts$variant)) {
-    for (h in unique(lh_forecasts$horizon)) {
-      sub <- lh_forecasts |>
-        dplyr::filter(variant == v, horizon == h)
-
-      dist_tsbl <- sub |>
-        dplyr::select(dplyr::all_of(c(groupvar, "year_target", ".draws"))) |>
-        dplyr::mutate(
-          !!rlang::sym(outcome) := distributional::dist_sample(.draws),
-          !!rlang::sym(timevar) := year_target
-        ) |>
-        dplyr::select(-`.draws`, -year_target) |>
-        tsibble::as_tsibble(key = groupvar, index = timevar)
-
-      fbl <- fabletools::fable(dist_tsbl,
-                               key    = groupvar,
-                               index  = timevar,
-                               response     = outcome,
-                               distribution = outcome)
-
-      metrics <- list(crps = fabletools::CRPS, mae = fabletools::MAE)
-      acc     <- fabletools::accuracy(fbl, truth, metrics)
-
-      results[[paste(v, h, sep = "_")]] <- dplyr::mutate(acc,
-                                                          variant = v,
-                                                          horizon = h)
-    }
+  if (!data.table::is.data.table(lh_forecasts)) {
+    lh_forecasts <- data.table::as.data.table(lh_forecasts)
+  }
+  if (!data.table::is.data.table(truth)) {
+    truth <- data.table::as.data.table(as.data.frame(truth))
   }
 
-  dplyr::bind_rows(results) |>
-    dplyr::group_by(variant, horizon) |>
-    dplyr::summarise(
-      crps = mean(crps, na.rm = TRUE),
-      mae  = mean(mae,  na.rm = TRUE),
-      .groups = "drop"
-    )
+  # Merge forecasts with truth on (groupvar, year_target)
+  truth_cols <- c(groupvar, timevar, outcome)
+  truth_sub <- truth[, ..truth_cols]
+  data.table::setnames(truth_sub, c(timevar, outcome), c("year_target", ".truth"))
+
+  scored <- merge(lh_forecasts, truth_sub, by = c(groupvar, "year_target"), all.x = TRUE)
+
+  # Compute per-row CRPS and MAE
+  scored[, `:=`(
+    crps = vapply(seq_len(.N), function(i) {
+      scoringRules::crps_sample(y = .truth[i], dat = .draws[[i]])
+    }, numeric(1)),
+    mae = vapply(seq_len(.N), function(i) {
+      abs(stats::median(.draws[[i]]) - .truth[i])
+    }, numeric(1))
+  )]
+
+  # Aggregate by (variant, horizon)
+  result <- scored[, .(crps = mean(crps, na.rm = TRUE),
+                       mae = mean(mae, na.rm = TRUE)),
+                   by = .(variant, horizon)]
+  return(result)
 }
 
 
@@ -389,20 +379,17 @@ get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
 #' for each training window defined by `test_starts`, stacks all forecasts, and
 #' returns aggregated accuracy scores.
 #'
-#' @param data A data.frame or tsibble.
+#' @param data A data.frame or data.table.
 #' @param formulas Named list of formulas (see [setup_long_horizon()]).
 #' @param horizons Integer vector of forecast horizons.
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
-#' @param test_starts Numeric vector of first forecast years (same convention as
-#'   [simulate_endogenr()]), e.g. `c(2000, 2005, 2010)`. Each value is used as
-#'   both `train_end` and `test_start`: covariates are observed at `ts - 1` and
-#'   the forecast covers `ts` through `ts + max(horizons) - 1`.
+#' @param test_starts Numeric vector of first forecast years.
 #' @param boot Character or NULL. Bootstrap type.
 #' @param nsim Integer. Number of outer simulations.
 #' @param inner_sims Integer. Number of inner draws per simulation.
 #'
-#' @return A tibble with columns: `variant`, `horizon`, `crps`, `mae`, averaged
+#' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`, averaged
 #'   across all folds, units, and horizons.
 #' @export
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
@@ -418,13 +405,14 @@ cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
     all_forecasts[[as.character(ts)]] <- forecasts
   }
 
-  combined    <- dplyr::bind_rows(all_forecasts)
+  combined    <- data.table::rbindlist(all_forecasts)
   outcome_var <- all.vars(rlang::f_lhs(formulas[[1L]]))[1L]
 
-  truth <- data |>
-    dplyr::as_tibble() |>
-    dplyr::select(dplyr::all_of(c(groupvar, timevar, outcome_var))) |>
-    tsibble::as_tsibble(key = groupvar, index = timevar)
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+  truth_cols <- c(groupvar, timevar, outcome_var)
+  truth <- data[, ..truth_cols]
 
   get_lh_accuracy(combined, truth, outcome_var, groupvar, timevar)
 }
@@ -435,20 +423,25 @@ cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #' Combines the output of [get_lh_accuracy()] / [cv_long_horizon()] with
 #' simulation accuracy aggregated by horizon, adding an `approach` column.
 #'
-#' @param lh_accuracy A tibble from [get_lh_accuracy()] or [cv_long_horizon()].
-#' @param sim_accuracy A tibble from [get_accuracy()] after summarising by horizon.
+#' @param lh_accuracy A data.table from [get_lh_accuracy()] or [cv_long_horizon()].
+#' @param sim_accuracy A data.table from [get_accuracy()] after summarising by horizon.
 #'   Must contain at least `horizon`, `crps`, and `mae` columns.
 #'
-#' @return A tidy tibble with columns: `approach`, `variant` (NA for simulation),
-#'   `horizon`, `crps`, `mae`.
+#' @return A data.table with columns: `approach`, `variant`, `horizon`, `crps`, `mae`.
 #' @export
 compare_approaches <- function(lh_accuracy, sim_accuracy) {
-  lh_tbl <- lh_accuracy |>
-    dplyr::mutate(approach = "long_horizon")
+  if (!data.table::is.data.table(lh_accuracy)) {
+    lh_accuracy <- data.table::as.data.table(lh_accuracy)
+  }
+  if (!data.table::is.data.table(sim_accuracy)) {
+    sim_accuracy <- data.table::as.data.table(sim_accuracy)
+  }
 
-  sim_tbl <- sim_accuracy |>
-    dplyr::mutate(approach = "simulation",
-                  variant  = NA_character_)
+  lh_tbl <- data.table::copy(lh_accuracy)
+  lh_tbl[, approach := "long_horizon"]
 
-  dplyr::bind_rows(lh_tbl, sim_tbl)
+  sim_tbl <- data.table::copy(sim_accuracy)
+  sim_tbl[, `:=`(approach = "simulation", variant = NA_character_)]
+
+  data.table::rbindlist(list(lh_tbl, sim_tbl), fill = TRUE)
 }

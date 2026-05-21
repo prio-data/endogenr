@@ -8,12 +8,27 @@ exogenmodel(
   formula = NULL,
   impute_from = NULL,
   newdata = NULL,
-  inner_sims = NULL
+  inner_sims = NULL,
+  ctx = NULL
 )
 }
 \arguments{
-\item{inner_sims}{}
+\item{formula}{A one-sided formula with the exogenous variable (e.g. \code{~population}).}
+
+\item{impute_from}{Integer. The time from which to take values (typically \code{test_start}).}
+
+\item{newdata}{A data.frame or data.table containing the exogenous variable for
+the full forecast period.}
+
+\item{inner_sims}{Integer. Number of inner simulations.}
+
+\item{ctx}{A \code{panel_context} object.}
+}
+\value{
+An endogenmodel of class \code{exogen}.
 }
 \description{
-This just pastes in an already established quantitative trajectory into the prediction model.
+Creates a model that copies pre-existing data (e.g. population projections)
+into the simulation grid. The exogenous variable must already be present in
+the data passed to \code{\link[=setup_simulator]{setup_simulator()}}.
 }

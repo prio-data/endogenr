@@ -25,61 +25,65 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
   return(list("start" = earliest_train_start+start_increment, "end" = test_start - stop_decrement))
 }
 
-#' Creates a panel data frame based on a formula and tsibble
+#' Inject a positional lag function into a formula's environment
 #'
-#' This correctly handles by-group functions in a formula, unlike stats::model.frame.
+#' Replaces `lag()` in the formula's evaluation environment with a positional
+#' shift function: `c(rep(NA, n), head(x, -n))`. This ensures `lag()` in model
+#' formulas performs a within-group positional shift rather than `stats::lag()`.
 #'
-#' @param formula
-#' @param data
-#'
-#' @return
+#' @param formula An R formula.
+#' @return The formula with modified environment.
 #' @export
-#'
-#' @examples
-create_panel_frame <- function(formula, data) {
-  get_naive_formula <- function(data) {
-    # Get key and index variables from tsibble
-    grp <- tsibble::key_vars(data)
-    idx <- tsibble::index_var(data)
-
-    # Get all variable names excluding key and index
-    varnames <- names(data)
-    varnames <- varnames[!varnames %in% c(grp, idx)]
-
-    # Create new formula
-    new_formula <- paste(varnames[1], "~", paste(varnames[2:length(varnames)], collapse = "+")) |>
-      stats::formula()
-
-    return(new_formula)
+inject_positional_lag <- function(formula) {
+  .positional_lag <- function(x, n = 1L) {
+    c(rep(NA_real_, n), utils::head(x, -n))
   }
+  formula_env <- new.env(parent = environment(formula))
+  formula_env$lag <- .positional_lag
+  environment(formula) <- formula_env
+  formula
+}
 
-  # Get key and index variables from tsibble
-  grp <- tsibble::key_vars(data)
-  idx <- tsibble::index_var(data)
+#' Creates a panel data frame based on a formula and data.table
+#'
+#' Evaluates formula terms per group using `model.frame()` with positional lag
+#' injection. Returns materialized data and a naive formula for model fitting.
+#'
+#' @param formula An R formula.
+#' @param data A data.table (or data.frame/tsibble — will be coerced).
+#' @param ctx A `panel_context` object.
+#'
+#' @return A list with `data` (data.table) and `naive_formula`.
+#' @export
+create_panel_frame <- function(formula, data, ctx) {
+  grp <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  sim <- ctx_sim(ctx)
+  all_keys <- ctx_keys(ctx)
+
+  # Coerce to data.table if needed
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
 
   # Update formula to include index variable
   formula <- stats::update(formula, paste(c(". ~ .", idx), collapse = "+"))
 
-  # Create model frame by group
-  result <- data |>
-    dplyr::group_by(!!!rlang::syms(grp)) |>
-    dplyr::group_modify(~ {
-      mf <- stats::model.frame(formula, data = ., na.action = NULL)
-      tibble::as_tibble(mf)
-    }) |>
-    dplyr::ungroup()
+  # Inject positional lag
+  formula <- inject_positional_lag(formula)
+
+  # Per-group model.frame
+  result <- data[, {
+    mf <- stats::model.frame(formula, data = .SD, na.action = stats::na.pass)
+    data.table::as.data.table(mf)
+  }, by = all_keys]
 
   # Clean names
-  result <- result |>
-    janitor::clean_names() |>
-    # Ensure tsibble structure is maintained
-    tsibble::as_tsibble(
-      key = grp,
-      index = idx
-    )
+  result <- janitor::clean_names(result)
 
-  # Get naive formula for the cleaned result
-  naive_formula <- get_naive_formula(result)
+  # Derive naive formula: first non-key column is outcome, rest are RHS
+  varnames <- setdiff(names(result), c(all_keys, idx))
+  naive_formula <- stats::reformulate(varnames[-1], response = varnames[1])
 
   return(list(
     "data" = result,

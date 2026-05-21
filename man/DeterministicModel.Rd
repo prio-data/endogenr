@@ -4,10 +4,10 @@
 \alias{deterministicmodel}
 \title{Deterministic model}
 \usage{
-deterministicmodel(formula = NULL)
+deterministicmodel(formula = NULL, ctx = NULL)
 }
 \arguments{
-\item{formula}{}
+\item{ctx}{A panel_context object (unused but accepted for consistency).}
 }
 \description{
 This calculates a deterministic outcome based on an R formula.

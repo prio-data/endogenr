@@ -4,10 +4,19 @@
 \alias{predict.deterministic}
 \title{Predict function for a deterministic model}
 \usage{
-\method{predict}{deterministic}(model, t, data, ...)
+\method{predict}{deterministic}(model, t, data, ctx, ...)
 }
 \arguments{
+\item{t}{Time step to predict.}
+
+\item{data}{A data.table.}
+
+\item{ctx}{A panel_context object.}
+
 \item{...}{}
+}
+\value{
+A data.table with key + index + outcome columns.
 }
 \description{
 Predict function for a deterministic model

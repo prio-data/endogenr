@@ -8,13 +8,14 @@
 #' @param formula A two-sided formula for the mean equation (e.g. \code{y ~ lag(x1) + lag(x2)}).
 #' @param variance A one-sided formula for the log-variance equation (e.g. \code{~ lag(z1) + lag(z2)}).
 #'   Defaults to \code{~ 1} (homoscedastic).
-#' @param data A tsibble.
+#' @param data A data.table or data.frame.
+#' @param ctx A panel_context object.
 #' @param subset Optional list with \code{start} and \code{end} for subsetting training data.
 #' @param ... Additional arguments passed to [heterolm::hetero()].
 #'
 #' @return An endogenmodel of class \code{heterolm}.
 #' @export
-heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset = NULL, ...) {
+heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NULL, subset = NULL, ...) {
   if (!requireNamespace("heterolm", quietly = TRUE)) {
     stop("Package 'heterolm' is required for heterolm models. Install it from GitHub.")
   }
@@ -24,9 +25,10 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
   model$variance_formula <- if (is.null(variance)) ~ 1 else variance
   model$fit_args <- rlang::list2(...)
 
-  # Get tsibble metadata
-  grp <- tsibble::key_vars(data)
-  idx <- tsibble::index_var(data)
+  # Get panel metadata from context
+  grp <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  all_keys <- ctx_keys(ctx)
   model$timevar <- idx
   model$subset <- subset
 
@@ -41,13 +43,13 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
   model$combined_formula <- combined_formula
 
   # Run create_panel_frame on combined formula for the full data
-  combined_cpf <- create_panel_frame(combined_formula, data)
+  combined_cpf <- create_panel_frame(combined_formula, data, ctx)
 
   # Run create_panel_frame on mean-only formula to identify mean columns
-  mean_cpf <- create_panel_frame(formula, data)
+  mean_cpf <- create_panel_frame(formula, data, ctx)
 
   # Determine naive column names for mean and variance
-  mean_naive_names <- setdiff(names(mean_cpf$data), c(grp, idx, outcome_name))
+  mean_naive_names <- setdiff(names(mean_cpf$data), c(all_keys, idx, outcome_name))
   var_naive_names <- setdiff(names(combined_cpf$data), names(mean_cpf$data))
 
   # If variance is intercept-only, use "1"
@@ -73,7 +75,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
   # Apply subset if provided
   fit_data <- model$data
   if (!is.null(subset)) {
-    fit_data <- fit_data |> dplyr::filter(!!rlang::sym(idx) >= subset$start, !!rlang::sym(idx) <= subset$end)
+    fit_data <- fit_data[fit_data[[idx]] >= subset$start & fit_data[[idx]] <= subset$end]
   }
 
   # Fit the model
@@ -99,50 +101,40 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
 #' heterolm variance model.
 #'
 #' @param model A heterolm model object.
-#' @param data A tsibble with simulation data.
+#' @param data A data.table.
 #' @param t The time point to predict for.
+#' @param ctx A panel_context object.
 #' @param what Either \code{"pi"} (prediction interval sample) or \code{"expectation"}.
 #' @param ... Not used.
 #'
-#' @return A tsibble with key + index + outcome column.
+#' @return A data.table with key + index + outcome columns.
 #' @export
-predict.heterolm <- function(model, data, t, what = "pi", ...) {
-  # Get index and key variables
-  idx <- tsibble::index_var(data)
-  grp <- tsibble::key_vars(data)
-
+predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
+  idx <- ctx_time(ctx)
+  all_keys <- ctx_keys(ctx)
   max_history <- model$max_history
 
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t - max_history - 1))
+  # Subset to relevant history window
+  data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
 
   # Create panel frame using the combined formula
-  data <- create_panel_frame(model$combined_formula, data)$data
+  data <- create_panel_frame(model$combined_formula, data, ctx)$data
 
   # Filter for specific time point
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) == t)
+  data <- data[data[[idx]] == t]
 
-  # Make predictions using heterolm (returns data.table with mu and sigma)
+  # Make predictions using heterolm (returns list with mu and sigma)
   pred <- predict(model$fitted, newdata = as.data.frame(data), type = "response")
 
-  # Create result tsibble with only necessary columns
-  result <- data |>
-    dplyr::select(!!!rlang::syms(c(grp, idx, model$outcome))) |>
-    tsibble::as_tsibble(
-      key = grp,
-      index = idx
-    )
+  # Build result data.table with only necessary columns
+  result_cols <- c(all_keys, idx, model$outcome)
+  result <- data[, ..result_cols]
 
   # Update outcome column based on prediction type
   if (what == "expectation") {
-    result <- result |>
-      dplyr::mutate(!!rlang::sym(model$outcome) := pred$mu)
+    data.table::set(result, j = model$outcome, value = pred$mu)
   } else if (what == "pi") {
-    result <- result |>
-      dplyr::mutate(
-        !!rlang::sym(model$outcome) := stats::rnorm(dplyr::n(), pred$mu, pred$sigma)
-      )
+    data.table::set(result, j = model$outcome, value = stats::rnorm(nrow(result), pred$mu, pred$sigma))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

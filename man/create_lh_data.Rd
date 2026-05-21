@@ -7,7 +7,7 @@
 create_lh_data(data, outcome, h, groupvar, timevar, train_end)
 }
 \arguments{
-\item{data}{A data.frame or tsibble containing all variables.}
+\item{data}{A data.frame or data.table containing all variables.}
 
 \item{outcome}{Character. The raw outcome variable name (without transformation).}
 
@@ -21,7 +21,7 @@ create_lh_data(data, outcome, h, groupvar, timevar, train_end)
 are included (strict inequality prevents outcome leakage).}
 }
 \value{
-A tibble with all original columns plus a \code{.target} column holding
+A data.table with all original columns plus a \code{.target} column holding
 the h-step-ahead value of the outcome.
 }
 \description{

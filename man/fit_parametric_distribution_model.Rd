@@ -7,7 +7,12 @@
 fit_parametric_distribution_model(model, data)
 }
 \arguments{
-\item{data}{}
+\item{model}{An endogenmodel with \verb{$outcome}, \verb{$distribution}, and optional \verb{$fit_args}.}
+
+\item{data}{A data.frame or data.table containing the outcome column.}
+}
+\value{
+A fitdist object.
 }
 \description{
 Fits a parametric distribution using fitdistrplus::fitdist

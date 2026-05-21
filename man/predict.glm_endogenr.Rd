@@ -4,10 +4,21 @@
 \alias{predict.glm_endogenr}
 \title{Predict function for a GLM model}
 \usage{
-\method{predict}{glm_endogenr}(model, data, t, what = "pi", ...)
+\method{predict}{glm_endogenr}(model, data, t, ctx, what = "pi", ...)
 }
 \arguments{
+\item{data}{A data.table.}
+
+\item{t}{Time step to predict.}
+
+\item{ctx}{A panel_context object.}
+
+\item{what}{Either "pi" or "expectation".}
+
 \item{...}{}
+}
+\value{
+A data.table with key + index + outcome columns.
 }
 \description{
 Predict function for a GLM model

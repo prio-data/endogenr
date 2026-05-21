@@ -2,13 +2,23 @@
 % Please edit documentation in R/systemsim.R
 \name{sim_to_dist}
 \alias{sim_to_dist}
-\title{Nest simulation results into distributional::dist_sample}
+\title{Nest simulation draws into list-columns}
 \usage{
-sim_to_dist(simulation_results, outputs, sim_var = ".sim")
+sim_to_dist(simulation_results, outputs, ctx, sim_var = ".sim")
 }
 \arguments{
-\item{sim_var}{}
+\item{simulation_results}{A data.table from \code{\link[=simulate_endogenr]{simulate_endogenr()}}.}
+
+\item{outputs}{Character vector of column names to nest.}
+
+\item{ctx}{A panel_context object.}
+
+\item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
+}
+\value{
+A data.table with one row per (unit, time), output columns as list-columns.
 }
 \description{
-Nest simulation results into distributional::dist_sample
+Groups simulation results by (unit, time) and collapses each output variable
+into a list of draws per cell.
 }

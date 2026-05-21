@@ -9,23 +9,20 @@ get_lh_accuracy(lh_forecasts, truth, outcome, groupvar, timevar)
 \arguments{
 \item{lh_forecasts}{Output from \code{\link[=forecast_long_horizon]{forecast_long_horizon()}} or \code{\link[=cv_long_horizon]{cv_long_horizon()}}.}
 
-\item{truth}{A tsibble with \code{groupvar} as key, \code{timevar} as index, and the
-outcome column in the same scale as the forecast draws.}
+\item{truth}{A data.frame or data.table with the outcome column in the same
+scale as the forecast draws.}
 
-\item{outcome}{Character. Name of the outcome column in \code{truth}; must match
-the scale of the forecast draws (e.g. if draws are \code{asinh(gdppc)}, pass a
-truth tsibble that also has an \code{asinh(gdppc)} column under this name).}
+\item{outcome}{Character. Name of the outcome column in \code{truth}.}
 
 \item{groupvar}{Character. Group variable name.}
 
 \item{timevar}{Character. Time variable name.}
 }
 \value{
-A tibble with columns: \code{variant}, \code{horizon}, \code{crps}, \code{mae}.
+A data.table with columns: \code{variant}, \code{horizon}, \code{crps}, \code{mae}.
 }
 \description{
-Wraps draw samples in \code{\link[distributional:dist_sample]{distributional::dist_sample()}}, creates a fable, and
-uses \code{\link[fabletools:reexports]{fabletools::accuracy()}} — mirroring the pattern in \code{\link[=get_accuracy]{get_accuracy()}}.
+Uses \code{\link[scoringRules:scores_sample_univ]{scoringRules::crps_sample()}} for CRPS and manual MAE from median of draws.
 Output format is compatible with \code{\link[=get_accuracy]{get_accuracy()}} results (after aggregating
 by horizon) for cross-approach comparison via \code{\link[=compare_approaches]{compare_approaches()}}.
 }

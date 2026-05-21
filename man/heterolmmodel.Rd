@@ -4,7 +4,14 @@
 \alias{heterolmmodel}
 \title{Heteroscedastic linear model}
 \usage{
-heterolmmodel(formula = NULL, variance = NULL, data = NULL, subset = NULL, ...)
+heterolmmodel(
+  formula = NULL,
+  variance = NULL,
+  data = NULL,
+  ctx = NULL,
+  subset = NULL,
+  ...
+)
 }
 \arguments{
 \item{formula}{A two-sided formula for the mean equation (e.g. \code{y ~ lag(x1) + lag(x2)}).}
@@ -12,7 +19,9 @@ heterolmmodel(formula = NULL, variance = NULL, data = NULL, subset = NULL, ...)
 \item{variance}{A one-sided formula for the log-variance equation (e.g. \code{~ lag(z1) + lag(z2)}).
 Defaults to \code{~ 1} (homoscedastic).}
 
-\item{data}{A tsibble.}
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
 
 \item{subset}{Optional list with \code{start} and \code{end} for subsetting training data.}
 
