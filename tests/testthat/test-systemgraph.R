@@ -1,5 +1,28 @@
 # Tests for R/systemgraph.R ------------------------------------------------
 
+# ── .max_lag_depth ───────────────────────────────────────────────────────
+
+test_that(".max_lag_depth returns 1 for plain lag()", {
+  expect_equal(.max_lag_depth(y ~ lag(x)), 1L)
+})
+
+test_that(".max_lag_depth extracts n from lag(x, n)", {
+  expect_equal(.max_lag_depth(y ~ lag(x, 3) + lag(z)), 3L)
+})
+
+test_that(".max_lag_depth returns 0 when no lag or rolling calls", {
+  expect_equal(.max_lag_depth(y ~ x + I(100)), 0L)
+})
+
+test_that(".max_lag_depth handles rolling functions", {
+  expect_equal(.max_lag_depth(y ~ lag(zoo::rollsumr(x, 5))), 5L)
+})
+
+test_that(".max_lag_depth handles nested lag with rolling", {
+  # lag(rollsumr(x, k=5), 2) -> lag depth 2, rolling depth 5 -> max is 5
+  expect_equal(.max_lag_depth(y ~ lag(zoo::rollsumr(x, 5), 2)), 5L)
+})
+
 # ── get_independent_models ───────────────────────────────────────────────
 
 test_that("get_independent_models returns expected types", {
@@ -64,6 +87,41 @@ test_that("parse_formula handles formula with no lags", {
   expect_true("b" %in% result$edges$`in`)
   # No lag_ prefixes
   expect_false(any(grepl("^lag_", result$edges$`in`)))
+})
+
+test_that("parse_formula handles variable appearing both lagged and unlagged", {
+  m <- new_endogenmodel(y ~ lag(x) + x)
+  class(m) <- c("linear", class(m))
+
+  result <- parse_formula(m)
+  expect_equal(result$outcome, "y")
+  # Must produce BOTH edges: lag_x -> y AND x -> y
+  expect_true("lag_x" %in% result$edges$in.)
+  expect_true("x" %in% result$edges$in.)
+  expect_equal(nrow(result$edges), 2)
+})
+
+test_that("parse_formula handles three terms with mixed lag/unlagged", {
+  m <- new_endogenmodel(y ~ z + lag(x) + x)
+  class(m) <- c("linear", class(m))
+
+  result <- parse_formula(m)
+  in_vars <- result$edges$in.
+  expect_true("z" %in% in_vars)
+  expect_true("lag_x" %in% in_vars)
+  expect_true("x" %in% in_vars)
+  expect_equal(nrow(result$edges), 3)
+})
+
+test_that("parse_formula handles I() terms with multiple variables", {
+  m <- new_endogenmodel(y ~ I(a * b) + lag(z))
+  class(m) <- c("deterministic", class(m))
+
+  result <- parse_formula(m)
+  in_vars <- result$edges$in.
+  expect_true("a" %in% in_vars)
+  expect_true("b" %in% in_vars)
+  expect_true("lag_z" %in% in_vars)
 })
 
 # ── parse_formula (independent models) ───────────────────────────────────

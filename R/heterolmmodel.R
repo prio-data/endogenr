@@ -84,6 +84,9 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
   model$fitted <- do.call(heterolm::hetero, fit_args)
 
   model$outcome <- outcome_name
+  model$max_history <- max(.max_lag_depth(model$formula),
+                           .max_lag_depth(model$variance_formula))
+  if (model$max_history < 1L) model$max_history <- 1L
 
   class(model) <- c("heterolm", class(model))
   return(model)
@@ -108,12 +111,7 @@ predict.heterolm <- function(model, data, t, what = "pi", ...) {
   idx <- tsibble::index_var(data)
   grp <- tsibble::key_vars(data)
 
-  # Find max_history from both formulas
-  mean_nums <- stringr::str_extract_all(as.character(model$formula)[[3]], "[0-9]+")[[1]] |> as.numeric()
-  var_char <- as.character(model$variance_formula)
-  var_nums <- stringr::str_extract_all(var_char[length(var_char)], "[0-9]+")[[1]] |> as.numeric()
-  all_nums <- c(mean_nums, var_nums)
-  max_history <- if (length(all_nums) > 0) max(all_nums) else 1
+  max_history <- model$max_history
 
   data <- data |>
     dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t - max_history - 1))

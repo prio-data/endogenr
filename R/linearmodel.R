@@ -72,6 +72,8 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, subset = NULL,
   model$gof <- broom::glance(model$fitted)
 
   model$outcome <- parse_formula(model)$outcome
+  model$max_history <- .max_lag_depth(model$formula)
+  if (model$max_history < 1L) model$max_history <- 1L
 
   return(model)
 }
@@ -142,10 +144,7 @@ predict.linear <- function(model, data, t, what = "pi", ...) {
   idx <- tsibble::index_var(data)
   grp <- tsibble::key_vars(data)
 
-  # Find any numbers in the RHS and use that as the max number of past time periods to include.
-  # Default to 1 when the RHS contains no numeric literals (e.g. plain lag() calls).
-  nums <- stringr::str_extract_all(model$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric()
-  max_history <- if (length(nums) > 0) max(nums) else 1L
+  max_history <- model$max_history
 
   data <- data |>
     dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t-max_history-1))
