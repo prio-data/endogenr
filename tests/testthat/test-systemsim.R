@@ -258,7 +258,7 @@ test_that("simulate_endogenr runs and returns expected output", {
   )
 
   set.seed(42)
-  res <- simulate_endogenr(nsim = 1, simulator_setup = setup, parallel = FALSE)
+  res <- simulate_endogenr(nsim = 1, simulator_setup = setup)
 
   expect_s3_class(res, "data.table")
   expect_true(".sim" %in% names(res))
@@ -287,7 +287,7 @@ test_that("sim_to_dist nests simulations into list-columns", {
   )
 
   set.seed(42)
-  res <- simulate_endogenr(nsim = 1, simulator_setup = setup, parallel = FALSE)
+  res <- simulate_endogenr(nsim = 1, simulator_setup = setup)
   forecast_res <- res[res$year >= 2013]
 
   # Remove .sim from ctx for sim_to_dist (it groups by unit+time)
@@ -318,7 +318,7 @@ test_that("get_accuracy computes CRPS, MAE, and Winkler scores", {
   )
 
   set.seed(42)
-  res <- simulate_endogenr(nsim = 2, simulator_setup = setup, parallel = FALSE)
+  res <- simulate_endogenr(nsim = 2, simulator_setup = setup)
   forecast_res <- res[res$year >= 2013]
 
   ctx <- setup$ctx

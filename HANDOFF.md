@@ -98,20 +98,31 @@ Files changed (all uncommitted):
 
 ---
 
-## What remains (Phases 4-6)
+#### Phase 4: Performance — Pre-materialize (committed as `db40790`)
 
-### Phase 4: Performance (Pre-materialize)
+| File | What changed |
+|------|-------------|
+| `R/utilities.R` | Split `create_panel_frame()` into `materialize_formula()` (pure data transform with optional cached formula + column mapping) and `derive_naive_formula()` (explicit outcome arg). `create_panel_frame()` kept as thin wrapper. Added `.build_mat_cache()` to pre-compute prepared formula and raw→clean column name mapping. |
+| `R/linearmodel.R` | `linearmodel()` caches `mat_formula` + `col_mapping` via `.build_mat_cache()`. `predict.linear()` passes cached values to `materialize_formula()`, skipping `update()`/`inject_positional_lag()`/`clean_names()` per call. |
+| `R/glmmodel.R` | Same caching pattern as linear. |
+| `R/heterolmmodel.R` | Same caching pattern, using `combined_formula`. |
+| `NAMESPACE` | Added `materialize_formula`, `derive_naive_formula` exports. |
 
-- Split `create_panel_frame()` into `materialize_formula()` (pure data transform) and `derive_naive_formula()` (explicit outcome arg).
-- Pre-materialize formulas before the step loop in `process_dependent_models()`. In the step loop, only update lag columns and slice rows — don't re-call `create_panel_frame()`. This eliminates `create_panel_frame()` from the O(H * M) hot loop.
-- Cache naive formulas at model construction time.
+#### Phase 5: Parallelism Fix (committed as `pending`)
 
-### Phase 5: Parallelism Fix
+| File | What changed |
+|------|-------------|
+| `R/systemsim.R` | `simulate_endogenr()`: replaced manual `future::future()` + `future::value()` loop with `future.apply::future_lapply()`. Removed internal `future::plan()` management — users set their own plan. Deprecated `parallel`/`ncores` args with message. Added `progressr` support via `progressr::progressor()`. |
+| `DESCRIPTION` | Added `future.apply` to Imports. |
+| `tests/testthat/test-systemsim.R` | Removed deprecated `parallel = FALSE` from test calls. |
 
-- Remove internal `future::plan()` management — let users set their own plan.
-- Replace the manual `future::future()` loop with `future.apply::future_lapply()`.
-- Add `progressr` support.
-- Deprecate `parallel`/`ncores` args with message pointing to `future::plan()`.
+### Gotchas discovered during Phase 5
+
+1. **`progressr` stays in Suggests.** The `progressr::progressor()` call is guarded by `requireNamespace()`. Users opt in via `progressr::with_progress({ simulate_endogenr(...) })`.
+
+2. **`future` stays in Imports.** Still needed for `future::nbrOfWorkers()` (chunk size calculation) and the deprecated backward-compat `future::plan()` path.
+
+## What remains (Phase 6)
 
 ### Phase 6: NAMESPACE Cleanup + Contracts
 
@@ -123,7 +134,7 @@ Files changed (all uncommitted):
 ### Phase dependency chain
 
 ```
-Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 (done) -> Phase 4 -> Phase 5 -> Phase 6
+Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 (done) -> Phase 4 (done) -> Phase 5 (done) -> Phase 6
 ```
 
 Each phase should keep tests green. After Phase 3 (spec/fit separation), the package API is stable and Phases 4-6 are internal optimizations/cleanup.
@@ -132,9 +143,7 @@ Each phase should keep tests green. After Phase 3 (spec/fit separation), the pac
 
 ## How to continue
 
-1. **Pick up Phase 4** (pre-materialize performance). Split `create_panel_frame()` into `materialize_formula()` and `derive_naive_formula()`. Pre-materialize before the step loop in `process_dependent_models()`.
-
-2. **Phases 5-6** (parallelism fix + NAMESPACE cleanup) are incremental improvements. Phase 5 replaces the manual future loop with `future.apply::future_lapply()`. Phase 6 marks internal functions with `@keywords internal`.
+1. **Pick up Phase 6** (NAMESPACE cleanup + contracts). Mark internal functions with `@keywords internal`, update `CONTRACTS.md`, regenerate NAMESPACE.
 
 ---
 
@@ -150,3 +159,5 @@ Each phase should keep tests green. After Phase 3 (spec/fit separation), the pac
 | `.sample_from_fitdist()` replaces distributional | Direct `r*()` calls from fitdistrplus results. No distributional dependency for parametric models |
 | `split()/lapply()` in `create_panel_frame()` | Avoids `model.frame()` + data.table `[, by]` scoping issues from package namespace. Simpler, equally fast for typical panel sizes |
 | Spec/fit separation over `purrr::partial()` | Specs are transparent lists (`$type`, `$formula`, `$args`). `fit_model()` generic enables clean re-fitting per outer sim. No closure opacity, no `attr()` hacks. `purrr` dependency removed. |
+| `materialize_formula()` + `.build_mat_cache()` | Predict methods skip `update()`/`inject_positional_lag()`/`clean_names()` per call by using cached prepared formula and column mapping. Eliminates O(H*M) string processing overhead. |
+| `future.apply::future_lapply()` over manual loop | Cleaner, handles chunking and seed propagation. Users set `future::plan()` externally — no internal plan management. `progressr` support for opt-in progress bars. |

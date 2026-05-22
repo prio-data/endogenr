@@ -13,6 +13,7 @@ Imports:
     broom,
     data.table,
     future,
+    future.apply,
     ggh4x,
     ggplot2,
     igraph,

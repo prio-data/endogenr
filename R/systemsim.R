@@ -287,14 +287,24 @@ inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
 #' @return A data.table with all original columns plus `.sim` (integer 1..nsim*inner_sims).
 #' @export
 simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6) {
-  old_plan <- future::plan()
-  if (parallel) {
-    future::plan(future::multisession, workers = ncores, gc = TRUE)
-  } else {
-    future::plan(future::sequential)
+  if (!missing(parallel) || !missing(ncores)) {
+    .Deprecated(
+      msg = paste0(
+        "The `parallel` and `ncores` arguments are deprecated.\n",
+        "Set your own plan before calling simulate_endogenr(), e.g.:\n",
+        "  future::plan(future::multisession, workers = 6)\n",
+        "  result <- simulate_endogenr(nsim, setup)\n",
+        "  future::plan(future::sequential)"
+      )
+    )
+    if (parallel) {
+      old_plan <- future::plan()
+      on.exit(future::plan(old_plan), add = TRUE)
+      future::plan(future::multisession, workers = ncores, gc = TRUE)
+    }
   }
 
-  # Build globals for future
+  # Build globals for future workers
   future_globals <- list(simulator_setup = simulator_setup)
   if (!is.null(simulator_setup$globals)) {
     for (fn_name in names(simulator_setup$globals)) {
@@ -302,10 +312,17 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
     }
   }
 
-  simulation_results <- vector("list", nsim)
-  for (i in seq_len(nsim)) {
-    simulation_results[[i]] <- future::future({
-      inner_simulation(
+  # progressr support: users opt in via progressr::with_progress()
+  p <- if (requireNamespace("progressr", quietly = TRUE)) {
+    progressr::progressor(steps = nsim)
+  } else {
+    function(...) invisible(NULL)
+  }
+
+  simulation_results <- future.apply::future_lapply(
+    seq_len(nsim),
+    function(i) {
+      result <- inner_simulation(
         i,
         specs = simulator_setup$specs,
         pre_fitted = simulator_setup$fitted_models,
@@ -320,10 +337,14 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
         min_window = simulator_setup$min_window,
         train_start = simulator_setup$train_start
       )
-    }, packages = c("endogenr", "data.table"), seed = TRUE, globals = future_globals)
-  }
-  simulation_results <- lapply(simulation_results, FUN = future::value)
-  future::plan(old_plan)
+      p()
+      result
+    },
+    future.seed = TRUE,
+    future.globals = future_globals,
+    future.packages = c("endogenr", "data.table"),
+    future.chunk.size = max(1L, ceiling(nsim / future::nbrOfWorkers()))
+  )
 
   # Bind results and create .sim ID
   results <- data.table::rbindlist(simulation_results, idcol = ".id")
