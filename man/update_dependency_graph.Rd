@@ -12,3 +12,4 @@ update_dependency_graph(model, dependency_graph)
 \description{
 Updates the dependency graph based on a new model
 }
+\keyword{internal}

@@ -5,7 +5,7 @@
 #' @param formula
 #'
 #' @return A list with class endogenmodel
-#' @export
+#' @keywords internal
 new_endogenmodel <- function(formula){
   structure(
     list(

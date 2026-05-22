@@ -25,7 +25,7 @@ fit_model.heterolm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL
   ))
 }
 
-#' @export
+#' @keywords internal
 heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NULL, subset = NULL, ...) {
   if (!requireNamespace("heterolm", quietly = TRUE)) {
     stop("Package 'heterolm' is required for heterolm models. Install it from GitHub.")

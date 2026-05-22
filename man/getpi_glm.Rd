@@ -19,3 +19,4 @@ getpi_glm(glmpred, family, df, nsamples = 1)
 Samples nsamples points from the predictive distribution on the response scale.
 Sampling is done on the link scale and then transformed via the inverse link function.
 }
+\keyword{internal}

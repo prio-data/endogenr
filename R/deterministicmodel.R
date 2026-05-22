@@ -12,7 +12,7 @@ fit_model.deterministic_spec <- function(spec, ctx = NULL, ...) {
 #' @param ctx A panel_context object (unused but accepted for consistency).
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 deterministicmodel <- function(formula = NULL, ctx = NULL){

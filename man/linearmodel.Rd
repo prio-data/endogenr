@@ -25,3 +25,4 @@ linearmodel(
 \description{
 Linear model
 }
+\keyword{internal}

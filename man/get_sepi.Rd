@@ -12,3 +12,4 @@ get_sepi(lmpred)
 \description{
 Get the standard error for prediction
 }
+\keyword{internal}

@@ -32,3 +32,4 @@ A data.table with CJ grid of (unit, time, sim) filled with training data.
 \description{
 Prepares simulation data (subset data, expand simulations, include future horizon)
 }
+\keyword{internal}

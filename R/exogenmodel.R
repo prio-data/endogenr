@@ -20,7 +20,7 @@ fit_model.exogen_spec <- function(spec, newdata = NULL, ctx = NULL,
               newdata = newdata, inner_sims = inner_sims, ctx = ctx)
 }
 
-#' @export
+#' @keywords internal
 exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL,
                         inner_sims = NULL, ctx = NULL) {
   model <- new_endogenmodel(formula)

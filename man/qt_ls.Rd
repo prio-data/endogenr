@@ -21,3 +21,4 @@ Numeric vector of quantiles.
 \description{
 Student-t distribution quantile function
 }
+\keyword{internal}

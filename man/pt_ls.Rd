@@ -21,3 +21,4 @@ Numeric vector of probabilities.
 \description{
 Student-t distribution distribution function
 }
+\keyword{internal}

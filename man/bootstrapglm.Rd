@@ -12,3 +12,4 @@ bootstrapglm(formula, data, family, type)
 \description{
 Supports residual based bootstrapping and wild bootstrapping on the link scale.
 }
+\keyword{internal}

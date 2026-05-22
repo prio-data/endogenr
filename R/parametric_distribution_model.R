@@ -6,7 +6,7 @@
 #' @param sigma Scale parameter.
 #'
 #' @return Numeric vector of density values.
-#' @export
+#' @keywords internal
 dt_ls <- function(x, df = 1, mu = 0, sigma = 1) {
   1 / sigma * stats::dt((x - mu) / sigma, df)
 }
@@ -19,7 +19,7 @@ dt_ls <- function(x, df = 1, mu = 0, sigma = 1) {
 #' @param sigma Scale parameter.
 #'
 #' @return Numeric vector of probabilities.
-#' @export
+#' @keywords internal
 pt_ls <- function(q, df = 1, mu = 0, sigma = 1) {
   stats::pt((q - mu) / sigma, df)
 }
@@ -32,7 +32,7 @@ pt_ls <- function(q, df = 1, mu = 0, sigma = 1) {
 #' @param sigma Scale parameter.
 #'
 #' @return Numeric vector of quantiles.
-#' @export
+#' @keywords internal
 qt_ls <- function(p, df = 1, mu = 0, sigma = 1) {
   stats::qt(p, df) * sigma + mu
 }
@@ -45,7 +45,7 @@ qt_ls <- function(p, df = 1, mu = 0, sigma = 1) {
 #' @param sigma Scale parameter.
 #'
 #' @return Numeric vector of random deviates.
-#' @export
+#' @keywords internal
 rt_ls <- function(n, df = 1, mu = 0, sigma = 1) {
   stats::rt(n, df) * sigma + mu
 }
@@ -95,7 +95,7 @@ rt_ls <- function(n, df = 1, mu = 0, sigma = 1) {
 #' @param data A data.frame or data.table containing the outcome column.
 #'
 #' @return A fitdist object.
-#' @export
+#' @keywords internal
 fit_parametric_distribution_model <- function(model, data) {
   if (is.null(model$fit_args)) {
     fitted <- fitdistrplus::fitdist(data[[model$outcome]], model$distribution)
@@ -132,7 +132,7 @@ fit_model.parametric_distribution_spec <- function(spec, data = NULL, ctx = NULL
   ))
 }
 
-#' @export
+#' @keywords internal
 parametric_distribution_model <- function(formula = NULL, distribution = NULL, data = NULL, ctx = NULL, ...) {
   model <- new_endogenmodel(formula)
   model$distribution <- distribution

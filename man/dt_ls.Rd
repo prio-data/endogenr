@@ -21,3 +21,4 @@ Numeric vector of density values.
 \description{
 Student-t distribution density function
 }
+\keyword{internal}

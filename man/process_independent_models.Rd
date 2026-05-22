@@ -32,3 +32,4 @@ The simulation_data data.table, updated by reference.
 \description{
 Imputes the time-independent forecasts
 }
+\keyword{internal}

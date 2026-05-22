@@ -138,7 +138,7 @@ derive_naive_formula <- function(data, outcome = NULL, ctx) {
 #' @param ctx A `panel_context` object.
 #'
 #' @return A list with `data` (data.table) and `naive_formula`.
-#' @export
+#' @keywords internal
 create_panel_frame <- function(formula, data, ctx) {
   materialized <- materialize_formula(formula, data, ctx)
   naive_formula <- derive_naive_formula(materialized, ctx = ctx)

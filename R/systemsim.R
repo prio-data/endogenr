@@ -9,7 +9,7 @@
 #' @param inner_sims Integer.
 #'
 #' @return A data.table with CJ grid of (unit, time, sim) filled with training data.
-#' @export
+#' @keywords internal
 prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon, inner_sims) {
   unit_col <- ctx_unit(ctx)
   time_col <- ctx_time(ctx)
@@ -59,7 +59,7 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
 #' @param inner_sims Integer.
 #'
 #' @return The simulation_data data.table, updated by reference.
-#' @export
+#' @keywords internal
 process_independent_models <- function(simulation_data, models, ctx, test_start, horizon, inner_sims) {
   if (!is.numeric(test_start)) {
     stop("`test_start` must be numeric")
@@ -101,7 +101,7 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
 #' @param execution_order Character vector of model outcomes in topological order.
 #'
 #' @return The simulation_data data.table, updated by reference.
-#' @export
+#' @keywords internal
 process_dependent_models <- function(simulation_data, models, ctx, test_start, horizon, execution_order) {
   dependent_models <- models[vapply(models, function(x) !x$independent, logical(1))]
   outcomes <- vapply(dependent_models, function(x) parse_formula(x)$outcome, character(1))
@@ -252,7 +252,7 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 #' @param train_start Integer.
 #'
 #' @return A data.table with simulation results.
-#' @export
+#' @keywords internal
 inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
                              ctx, fit_ctx, test_start, horizon, execution_order,
                              inner_sims, min_window, train_start) {

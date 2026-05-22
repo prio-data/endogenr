@@ -122,28 +122,20 @@ Files changed (all uncommitted):
 
 2. **`future` stays in Imports.** Still needed for `future::nbrOfWorkers()` (chunk size calculation) and the deprecated backward-compat `future::plan()` path.
 
-## What remains (Phase 6)
+#### Phase 6: NAMESPACE Cleanup (committed as `pending`)
 
-### Phase 6: NAMESPACE Cleanup + Contracts
-
-- Mark internal functions with `@keywords internal`, remove `@export`.
-- Keep exported: `build_model`, `setup_simulator`, `simulate_endogenr`, `fit_model`, `sim_to_dist`, `get_accuracy`, `plotsim`, `plot_estimates`, `get_execution_order`, `get_train_window`, long-horizon functions, helper functions (`decay_since_event`, etc.).
-- Update `CONTRACTS.md` to reflect all changes.
-- Run `devtools::document()` to regenerate NAMESPACE from roxygen.
+| File | What changed |
+|------|-------------|
+| All `R/*.R` files | Replaced `@export` with `@keywords internal` on internal functions: `new_endogenmodel`, `func_in_term`, `parse_formula`, `update_dependency_graph`, `get_independent_models`, `bootstraplm`, `bootstrapglm`, `get_sepi`, `getpi`, `getpi_glm`, `select_col_per_row`, `dt_ls`, `pt_ls`, `qt_ls`, `rt_ls`, `fit_parametric_distribution_model`, `create_panel_frame`, `prepare_simulation_data`, `process_independent_models`, `process_dependent_models`, `inner_simulation`, and all individual model constructors (`linearmodel`, `glmmodel`, `heterolmmodel`, `deterministicmodel`, `exogenmodel`, `parametric_distribution_model`, `spatial_lag_model`, `univariate_fable_model`). |
+| `NAMESPACE` | Reduced from ~62 exports to 31. All S3 methods remain registered via `@exportS3Method`. |
 
 ### Phase dependency chain
 
 ```
-Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 (done) -> Phase 4 (done) -> Phase 5 (done) -> Phase 6
+Phase 0 (done) -> Phase 1 (done) -> Phase 2 (done) -> Phase 3 (done) -> Phase 4 (done) -> Phase 5 (done) -> Phase 6 (done)
 ```
 
-Each phase should keep tests green. After Phase 3 (spec/fit separation), the package API is stable and Phases 4-6 are internal optimizations/cleanup.
-
----
-
-## How to continue
-
-1. **Pick up Phase 6** (NAMESPACE cleanup + contracts). Mark internal functions with `@keywords internal`, update `CONTRACTS.md`, regenerate NAMESPACE.
+All phases complete. Tests: 135 passing, 0 failures.
 
 ---
 

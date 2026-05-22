@@ -21,3 +21,4 @@ Numeric vector of random deviates.
 \description{
 Student-t distribution random generation
 }
+\keyword{internal}

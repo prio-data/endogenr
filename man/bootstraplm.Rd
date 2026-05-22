@@ -12,3 +12,4 @@ bootstraplm(formula, data, type)
 \description{
 Supports residual based bootstrapping and wild bootstrapping.
 }
+\keyword{internal}

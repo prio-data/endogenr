@@ -31,7 +31,7 @@ get_execution_order = function(dependency_graph) {
 #' @param func A string
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 func_in_term <- function(formula, func = "lag") {
@@ -72,7 +72,7 @@ func_in_term <- function(formula, func = "lag") {
 #' @param model
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 parse_formula <- function(model){
@@ -110,7 +110,7 @@ parse_formula <- function(model){
 #' @param dependency_graph
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 update_dependency_graph <- function(model, dependency_graph) {
@@ -201,7 +201,7 @@ update_dependency_graph <- function(model, dependency_graph) {
 #' Gives you the independent model types
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 get_independent_models <- function(){

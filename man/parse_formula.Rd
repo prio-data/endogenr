@@ -12,3 +12,4 @@ parse_formula(model)
 \description{
 Parse a model formula to correctly anticipate the input and output variables
 }
+\keyword{internal}

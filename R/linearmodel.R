@@ -7,7 +7,7 @@
 #' @param type
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 bootstraplm <- function(formula, data, type){
@@ -50,7 +50,7 @@ fit_model.linear_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, 
 #' @param ...
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, subset = NULL, ...){
@@ -101,7 +101,7 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, su
 #' @param lmpred
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 get_sepi <- function(lmpred){
@@ -116,7 +116,7 @@ get_sepi <- function(lmpred){
 #' @param column_ids
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 select_col_per_row <- function(mat, column_ids){
@@ -132,7 +132,7 @@ select_col_per_row <- function(mat, column_ids){
 #' @param nsamples
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 getpi <- function(lmpred, nsamples = 1){

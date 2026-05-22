@@ -9,3 +9,4 @@ get_independent_models()
 \description{
 Gives you the independent model types
 }
+\keyword{internal}

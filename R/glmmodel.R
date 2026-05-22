@@ -8,7 +8,7 @@
 #' @param type
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 bootstrapglm <- function(formula, data, family, type){
@@ -55,7 +55,7 @@ fit_model.glm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...
 #' @param ...
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, data = NULL, ctx = NULL, subset = NULL, ...){
@@ -113,7 +113,7 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, da
 #' @param nsamples
 #'
 #' @return
-#' @export
+#' @keywords internal
 #'
 #' @examples
 getpi_glm <- function(glmpred, family, df, nsamples = 1){

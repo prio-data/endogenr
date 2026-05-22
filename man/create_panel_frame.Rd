@@ -21,3 +21,4 @@ Convenience wrapper that calls \code{\link[=materialize_formula]{materialize_for
 \code{\link[=derive_naive_formula]{derive_naive_formula()}}. Returns both the materialized data and the
 naive formula.
 }
+\keyword{internal}

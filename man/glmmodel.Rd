@@ -28,3 +28,4 @@ glmmodel(
 \description{
 GLM model
 }
+\keyword{internal}

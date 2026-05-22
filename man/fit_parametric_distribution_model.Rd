@@ -17,3 +17,4 @@ A fitdist object.
 \description{
 Fits a parametric distribution using fitdistrplus::fitdist
 }
+\keyword{internal}

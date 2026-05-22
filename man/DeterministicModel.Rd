@@ -12,3 +12,4 @@ deterministicmodel(formula = NULL, ctx = NULL)
 \description{
 This calculates a deterministic outcome based on an R formula.
 }
+\keyword{internal}

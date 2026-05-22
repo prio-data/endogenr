@@ -53,3 +53,4 @@ A data.table with simulation results.
 \description{
 The inner simulation loop
 }
+\keyword{internal}

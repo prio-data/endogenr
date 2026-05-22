@@ -12,3 +12,4 @@ func_in_term(formula, func = "lag")
 \description{
 Test if a certain function is in each term in a formula
 }
+\keyword{internal}

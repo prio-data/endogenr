@@ -15,3 +15,4 @@ A list with class endogenmodel
 \description{
 Do not use directly.
 }
+\keyword{internal}

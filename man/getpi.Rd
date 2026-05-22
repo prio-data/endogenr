@@ -12,3 +12,4 @@ getpi(lmpred, nsamples = 1)
 \description{
 Samples nsamples points from the predictive distribution.
 }
+\keyword{internal}
