@@ -33,7 +33,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
 
   model <- new_endogenmodel(formula)
   model$independent <- FALSE
-  model$variance_formula <- if (is.null(variance)) ~ 1 else variance
+  model$variance_formula <- if (is.null(variance)) 1 else variance
   model$fit_args <- rlang::list2(...)
 
   # Get panel metadata from context
