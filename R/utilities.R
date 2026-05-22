@@ -44,10 +44,94 @@ inject_positional_lag <- function(formula) {
   formula
 }
 
-#' Creates a panel data frame based on a formula and data.table
+#' Materialize formula terms into a data.table
 #'
 #' Evaluates formula terms per group using `model.frame()` with positional lag
-#' injection. Returns materialized data and a naive formula for model fitting.
+#' injection. Returns the materialized data.table with cleaned column names.
+#'
+#' For repeated calls with the same formula (e.g. inside a simulation loop),
+#' pass `.mat_formula` and `.col_mapping` (cached from a prior call) to skip
+#' the `update()` / `inject_positional_lag()` / `clean_names()` overhead.
+#'
+#' @param formula An R formula.
+#' @param data A data.table (or data.frame/tsibble — will be coerced).
+#' @param ctx A `panel_context` object.
+#' @param .mat_formula Optional. A pre-prepared formula (already has index var
+#'   appended and positional lag injected). When provided, `formula` is ignored
+#'   for evaluation and used only as documentation.
+#' @param .col_mapping Optional named character vector. Maps raw `model.frame()`
+#'   column names to clean names. When provided, `janitor::clean_names()` is
+#'   skipped and `setnames()` is used instead.
+#'
+#' @return A data.table with cleaned column names.
+#' @export
+materialize_formula <- function(formula, data, ctx,
+                                .mat_formula = NULL, .col_mapping = NULL) {
+  all_keys <- ctx_keys(ctx)
+
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+
+  if (is.null(.mat_formula)) {
+    idx <- ctx_time(ctx)
+    .mat_formula <- stats::update(formula, paste(c(". ~ .", idx), collapse = "+"))
+    .mat_formula <- inject_positional_lag(.mat_formula)
+  }
+
+  eval_formula <- .mat_formula
+  result <- data[, {
+    mf <- stats::model.frame(eval_formula, data = .SD, na.action = stats::na.pass)
+    data.table::as.data.table(mf)
+  }, by = all_keys]
+
+  if (!is.null(.col_mapping)) {
+    old <- intersect(names(.col_mapping), names(result))
+    if (length(old) > 0L) {
+      data.table::setnames(result, old, .col_mapping[old])
+    }
+  } else {
+    result <- janitor::clean_names(result)
+  }
+
+  result
+}
+
+#' Derive a naive formula from materialized column names
+#'
+#' Given a materialized data.table (or its column names), determines the outcome
+#' and predictor columns by excluding key and index columns, and returns a
+#' formula suitable for `lm()` / `glm()`.
+#'
+#' @param data A data.table, or a character vector of column names.
+#' @param outcome Character. Explicit outcome column name. If `NULL`, the first
+#'   non-key column is used (positional convention from `model.frame()`).
+#' @param ctx A `panel_context` object.
+#'
+#' @return An R formula.
+#' @export
+derive_naive_formula <- function(data, outcome = NULL, ctx) {
+  idx <- ctx_time(ctx)
+  all_keys <- ctx_keys(ctx)
+
+  col_names <- if (is.character(data)) data else names(data)
+  varnames <- setdiff(col_names, c(all_keys, idx))
+
+  if (is.null(outcome)) {
+    outcome <- varnames[1]
+    predictors <- varnames[-1]
+  } else {
+    predictors <- setdiff(varnames, outcome)
+  }
+
+  stats::reformulate(predictors, response = outcome)
+}
+
+#' Creates a panel data frame based on a formula and data.table
+#'
+#' Convenience wrapper that calls [materialize_formula()] followed by
+#' [derive_naive_formula()]. Returns both the materialized data and the
+#' naive formula.
 #'
 #' @param formula An R formula.
 #' @param data A data.table (or data.frame/tsibble — will be coerced).
@@ -56,37 +140,47 @@ inject_positional_lag <- function(formula) {
 #' @return A list with `data` (data.table) and `naive_formula`.
 #' @export
 create_panel_frame <- function(formula, data, ctx) {
-  grp <- ctx_unit(ctx)
+  materialized <- materialize_formula(formula, data, ctx)
+  naive_formula <- derive_naive_formula(materialized, ctx = ctx)
+  list(data = materialized, naive_formula = naive_formula)
+}
+
+#' Build a prepared formula and column-name mapping for fast materialization
+#'
+#' Pre-computes the formula (with index appended + positional lag injected) and
+#' the raw → clean column name mapping. These can be passed to
+#' [materialize_formula()] via `.mat_formula` and `.col_mapping` to skip
+#' per-call overhead.
+#'
+#' @param formula An R formula.
+#' @param data A data.table with at least a few rows (used to discover column
+#'   names from `model.frame()`).
+#' @param ctx A `panel_context` object.
+#'
+#' @return A list with `mat_formula` and `col_mapping`.
+#' @keywords internal
+.build_mat_cache <- function(formula, data, ctx) {
   idx <- ctx_time(ctx)
-  sim <- ctx_sim(ctx)
   all_keys <- ctx_keys(ctx)
 
-  # Coerce to data.table if needed
-  if (!data.table::is.data.table(data)) {
-    data <- data.table::as.data.table(as.data.frame(data))
-  }
+  mat_formula <- stats::update(formula, paste(c(". ~ .", idx), collapse = "+"))
+  mat_formula <- inject_positional_lag(mat_formula)
 
-  # Update formula to include index variable
-  formula <- stats::update(formula, paste(c(". ~ .", idx), collapse = "+"))
+  # Run model.frame on a small per-group sample to discover raw column names
+  sample_dt <- data[, utils::head(.SD, 2L), by = all_keys]
 
-  # Inject positional lag
-  formula <- inject_positional_lag(formula)
-
-  # Per-group model.frame
-  result <- data[, {
-    mf <- stats::model.frame(formula, data = .SD, na.action = stats::na.pass)
+  raw <- sample_dt[, {
+    mf <- stats::model.frame(mat_formula, data = .SD, na.action = stats::na.pass)
     data.table::as.data.table(mf)
   }, by = all_keys]
 
-  # Clean names
-  result <- janitor::clean_names(result)
+  raw_names <- names(raw)
+  cleaned <- janitor::clean_names(raw)
+  clean_names <- names(cleaned)
 
-  # Derive naive formula: first non-key column is outcome, rest are RHS
-  varnames <- setdiff(names(result), c(all_keys, idx))
-  naive_formula <- stats::reformulate(varnames[-1], response = varnames[1])
+  # Only map names that actually changed
+  changed <- raw_names != clean_names
+  col_mapping <- stats::setNames(clean_names[changed], raw_names[changed])
 
-  return(list(
-    "data" = result,
-    "naive_formula" = naive_formula
-  ))
+  list(mat_formula = mat_formula, col_mapping = col_mapping)
 }

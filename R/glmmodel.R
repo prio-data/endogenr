@@ -70,6 +70,12 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, da
   model$data <- panel_frame$data
   model$timevar <- ctx_time(ctx)
   model$subset <- subset
+
+  # Cache materialization helpers for fast predict
+  mat_cache <- .build_mat_cache(model$formula, data, ctx)
+  model$mat_formula <- mat_cache$mat_formula
+  model$col_mapping <- mat_cache$col_mapping
+
   class(model) <- c("glm_endogenr", class(model))
 
   model$fit <- function(formula, data, family, boot, subset, timevar){
@@ -142,8 +148,10 @@ predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # Subset to relevant history window
   data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
 
-  # Create panel frame
-  data <- create_panel_frame(model$formula, data, ctx)$data
+  # Materialize formula (use cached helpers to skip update/inject/clean_names)
+  data <- materialize_formula(model$formula, data, ctx,
+                              .mat_formula = model$mat_formula,
+                              .col_mapping = model$col_mapping)
 
   # Filter for specific time point
   data <- data[data[[idx]] == t]

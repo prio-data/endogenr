@@ -26,6 +26,7 @@ fit_model.univariate_fable_spec <- function(spec, data = NULL, ctx = NULL, ...) 
   ))
 }
 
+#' @export
 univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima", ctx = NULL, ...) {
   if (!requireNamespace("fable", quietly = TRUE) ||
       !requireNamespace("fabletools", quietly = TRUE) ||

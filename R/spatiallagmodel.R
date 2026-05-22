@@ -33,6 +33,7 @@ fit_model.spatial_lag_spec <- function(spec, ctx = NULL, ...) {
   )
 }
 
+#' @export
 spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_real_) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {
     stop("Package 'sfdep' is required for spatial lag models. Install it with install.packages('sfdep').")

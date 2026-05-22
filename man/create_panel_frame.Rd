@@ -17,6 +17,7 @@ create_panel_frame(formula, data, ctx)
 A list with \code{data} (data.table) and \code{naive_formula}.
 }
 \description{
-Evaluates formula terms per group using \code{model.frame()} with positional lag
-injection. Returns materialized data and a naive formula for model fitting.
+Convenience wrapper that calls \code{\link[=materialize_formula]{materialize_formula()}} followed by
+\code{\link[=derive_naive_formula]{derive_naive_formula()}}. Returns both the materialized data and the
+naive formula.
 }

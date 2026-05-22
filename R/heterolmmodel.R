@@ -25,6 +25,7 @@ fit_model.heterolm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL
   ))
 }
 
+#' @export
 heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NULL, subset = NULL, ...) {
   if (!requireNamespace("heterolm", quietly = TRUE)) {
     stop("Package 'heterolm' is required for heterolm models. Install it from GitHub.")
@@ -82,6 +83,11 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
   # Store data
   model$data <- combined_cpf$data
 
+  # Cache materialization helpers for fast predict (using combined formula)
+  mat_cache <- .build_mat_cache(combined_formula, data, ctx)
+  model$mat_formula <- mat_cache$mat_formula
+  model$col_mapping <- mat_cache$col_mapping
+
   # Apply subset if provided
   fit_data <- model$data
   if (!is.null(subset)) {
@@ -127,8 +133,10 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   # Subset to relevant history window
   data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
 
-  # Create panel frame using the combined formula
-  data <- create_panel_frame(model$combined_formula, data, ctx)$data
+  # Materialize combined formula (use cached helpers to skip update/inject/clean_names)
+  data <- materialize_formula(model$combined_formula, data, ctx,
+                              .mat_formula = model$mat_formula,
+                              .col_mapping = model$col_mapping)
 
   # Filter for specific time point
   data <- data[data[[idx]] == t]

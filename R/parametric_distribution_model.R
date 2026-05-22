@@ -132,6 +132,7 @@ fit_model.parametric_distribution_spec <- function(spec, data = NULL, ctx = NULL
   ))
 }
 
+#' @export
 parametric_distribution_model <- function(formula = NULL, distribution = NULL, data = NULL, ctx = NULL, ...) {
   model <- new_endogenmodel(formula)
   model$distribution <- distribution
