@@ -137,11 +137,15 @@ select_col_per_row <- function(mat, column_ids){
 #' @examples
 getpi <- function(lmpred, nsamples = 1){
   sepi <- get_sepi(lmpred)
-  pi <- lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
-  if(nsamples == 1){
-    pi <- as.vector(pi)
+  if (nsamples == 1) {
+    # Row-expansion architecture: each row is already one sim instance, so draw
+    # one independent t-value per row (length(sepi) draws).
+    as.vector(lmpred$fit + sepi * stats::rt(length(sepi), lmpred$df))
+  } else {
+    # Multi-sample path (e.g. longhorizon): one row per unit, nsamples draws
+    # each — outer() produces an n x nsamples matrix.
+    lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
   }
-  return(pi)
 }
 
 #' Predict function for a linear model
