@@ -107,7 +107,7 @@ test_that("validate_system_closure errors on missing RHS variable", {
   )
   expect_error(
     validate_system_closure(models, c("gwcode", "year", "x", "y")),
-    "not closed.*z"
+    "missing from the input data.*z"
   )
 })
 
@@ -127,8 +127,28 @@ test_that("validate_system_closure accepts RHS var provided by another model", {
     build_model("linear", formula = y ~ lag(x)),
     build_model("linear", formula = z ~ lag(y))
   )
-  # y is an outcome of model 1, so z ~ lag(y) should be fine even if y isn't in data_columns
-  expect_true(validate_system_closure(models, c("gwcode", "year", "x")))
+  # y is an outcome of model 1; closure is fine. y/z must still exist as data columns.
+  expect_true(validate_system_closure(models, c("gwcode", "year", "x", "y", "z")))
+})
+
+test_that("validate_system_closure errors when an outcome column is missing from data", {
+  models <- list(
+    build_model("deterministic", formula = gdp ~ I(abs(gdppc * population)))
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "gdppc", "population")),
+    "missing from the input data.*gdp"
+  )
+})
+
+test_that("validate_system_closure errors when an exogen variable is missing from data", {
+  models <- list(
+    build_model("exogen", formula = ~population)
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year")),
+    "missing from the input data.*population"
+  )
 })
 
 test_that("validate_system_closure handles independent models", {
@@ -136,7 +156,7 @@ test_that("validate_system_closure handles independent models", {
     build_model("exogen", formula = ~x),
     build_model("linear", formula = y ~ lag(x))
   )
-  expect_true(validate_system_closure(models, c("gwcode", "year", "x")))
+  expect_true(validate_system_closure(models, c("gwcode", "year", "x", "y")))
 })
 
 # ── Integration: setup_simulator with bad input ────────────────────────────
@@ -164,6 +184,6 @@ test_that("setup_simulator catches unclosed system", {
       train_start = 2000, test_start = 2008, horizon = 2,
       groupvar = "gwcode", timevar = "year", inner_sims = 1
     ),
-    "not closed.*missing_var"
+    "missing from the input data.*missing_var"
   )
 })
