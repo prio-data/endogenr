@@ -331,3 +331,140 @@ test_that("get_accuracy computes CRPS, MAE, and Winkler scores", {
   expect_true(all(acc$crps >= 0, na.rm = TRUE))
   expect_true(all(acc$mae >= 0, na.rm = TRUE))
 })
+# ── ctx inference from panel attributes ──────────────────────────────────
+
+test_that("simulate_endogenr stamps panel_unit and panel_time attributes", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 1
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 1, simulator_setup = setup)
+
+  expect_identical(attr(res, "panel_unit"), "gwcode")
+  expect_identical(attr(res, "panel_time"), "year")
+})
+
+test_that("get_accuracy infers ctx from simulation_results attributes", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 2, simulator_setup = setup)
+  forecast_res <- res[res$year >= 2013]
+  truth <- dt[dt$year >= 2013 & dt$year <= 2014]
+
+  # No ctx supplied — should infer from res attributes
+  acc <- get_accuracy(forecast_res, "y", truth)
+
+  expect_s3_class(acc, "data.table")
+  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+})
+
+test_that("get_accuracy infers ctx from truth attributes when results lack them", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 2, simulator_setup = setup)
+  forecast_res <- res[res$year >= 2013]
+
+  # Strip attributes from simulation results
+  data.table::setattr(forecast_res, "panel_unit", NULL)
+  data.table::setattr(forecast_res, "panel_time", NULL)
+
+  # Stamp attributes on truth (mimicking paneltools::as_panel)
+  truth <- dt[dt$year >= 2013 & dt$year <= 2014]
+  data.table::setattr(truth, "panel_unit", "gwcode")
+  data.table::setattr(truth, "panel_time", "year")
+
+  acc <- get_accuracy(forecast_res, "y", truth)
+
+  expect_s3_class(acc, "data.table")
+  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+})
+
+test_that("plotsim infers ctx from attributes", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 1, simulator_setup = setup)
+
+  p <- plotsim(res, "y", units = c(1, 2), true_data = dt)
+  expect_s3_class(p, "ggplot")
+})
+
+test_that("sim_to_dist infers ctx from simulation_results attributes", {
+  dt <- make_test_data()
+
+  setup <- setup_simulator(
+    models      = list(build_model("linear", formula = y ~ lag(x))),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+
+  set.seed(42)
+  res <- simulate_endogenr(nsim = 1, simulator_setup = setup)
+  forecast_res <- res[res$year >= 2013]
+
+  dist_result <- sim_to_dist(forecast_res, "y")
+
+  expect_s3_class(dist_result, "data.table")
+  expect_true(is.list(dist_result$y))
+})
+
+test_that("get_accuracy errors helpfully when ctx cannot be inferred", {
+  # Plain data.frames with no panel attributes
+  sim <- data.table::data.table(gwcode = 1, year = 2013, y = 1.0, .sim = 1L)
+  truth <- data.table::data.table(gwcode = 1, year = 2013, y = 1.0)
+
+  expect_error(
+    get_accuracy(sim, "y", truth),
+    "Could not infer panel context"
+  )
+})

@@ -4,7 +4,14 @@
 \alias{plotsim}
 \title{Plot simulations for selected outcome and units}
 \usage{
-plotsim(simulation_results, outcome, units, true_data, ctx, sim_var = ".sim")
+plotsim(
+  simulation_results,
+  outcome,
+  units,
+  true_data,
+  ctx = NULL,
+  sim_var = ".sim"
+)
 }
 \arguments{
 \item{simulation_results}{A data.table from \code{\link[=simulate_endogenr]{simulate_endogenr()}}, filtered to
@@ -16,7 +23,10 @@ the forecast period.}
 
 \item{true_data}{A data.frame/data.table with observed historical data.}
 
-\item{ctx}{A panel_context object.}
+\item{ctx}{A \code{panel_context} object. Optional; inferred from
+\code{simulation_results} first, then \code{true_data}, if either carries
+\code{panel_unit} / \code{panel_time} attributes (e.g. produced by
+\code{\link[=simulate_endogenr]{simulate_endogenr()}} or \code{paneltools::as_panel()}).}
 
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 }

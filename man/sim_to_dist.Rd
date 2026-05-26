@@ -4,14 +4,16 @@
 \alias{sim_to_dist}
 \title{Nest simulation draws into list-columns}
 \usage{
-sim_to_dist(simulation_results, outputs, ctx, sim_var = ".sim")
+sim_to_dist(simulation_results, outputs, ctx = NULL, sim_var = ".sim")
 }
 \arguments{
 \item{simulation_results}{A data.table from \code{\link[=simulate_endogenr]{simulate_endogenr()}}.}
 
 \item{outputs}{Character vector of column names to nest.}
 
-\item{ctx}{A panel_context object.}
+\item{ctx}{A \code{panel_context} object. Optional; inferred from
+\code{simulation_results} if it carries \code{panel_unit} / \code{panel_time} attributes
+(e.g. produced by \code{\link[=simulate_endogenr]{simulate_endogenr()}} or \code{paneltools::as_panel()}).}
 
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 }

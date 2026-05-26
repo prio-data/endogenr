@@ -355,6 +355,12 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
   results <- merge(results, ids, by = c(".id", "sim"))
   results[, c(".id", "sim") := NULL]
 
+  # Stamp panel attributes (paneltools::as_panel convention) so downstream
+  # helpers can infer the panel context without the user passing it.
+  data.table::setattr(results, "panel_unit", ctx_unit(simulator_setup$ctx))
+  data.table::setattr(results, "panel_time", ctx_time(simulator_setup$ctx))
+  results[]
+
   return(results)
 }
 
@@ -365,12 +371,24 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
 #'
 #' @param simulation_results A data.table from [simulate_endogenr()].
 #' @param outputs Character vector of column names to nest.
-#' @param ctx A panel_context object.
+#' @param ctx A `panel_context` object. Optional; inferred from
+#'   `simulation_results` if it carries `panel_unit` / `panel_time` attributes
+#'   (e.g. produced by [simulate_endogenr()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A data.table with one row per (unit, time), output columns as list-columns.
 #' @export
-sim_to_dist <- function(simulation_results, outputs, ctx, sim_var = ".sim") {
+sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim") {
+  if (is.null(ctx)) {
+    ctx <- .infer_ctx(simulation_results)
+    if (is.null(ctx)) {
+      stop(
+        "Could not infer panel context. Pass `ctx = panel_context(unit, time)` ",
+        "or supply a `paneltools::as_panel()` data object.",
+        call. = FALSE
+      )
+    }
+  }
   keys <- c(ctx_unit(ctx), ctx_time(ctx))
   dt <- data.table::as.data.table(simulation_results)
   dt[, lapply(.SD, list), by = keys, .SDcols = outputs]
@@ -386,13 +404,26 @@ sim_to_dist <- function(simulation_results, outputs, ctx, sim_var = ".sim") {
 #' @param outcome Character. Name of the outcome variable to score.
 #' @param truth A data.frame/data.table with observed values. Must contain the
 #'   groupvar, timevar, and outcome columns.
-#' @param ctx A panel_context object.
+#' @param ctx A `panel_context` object. Optional; inferred from
+#'   `simulation_results` first, then `truth`, if either carries
+#'   `panel_unit` / `panel_time` attributes (e.g. produced by
+#'   [simulate_endogenr()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #'
 #' @return A data.table with one row per unit, columns: unit, crps, mae, winkler.
 #' @export
-get_accuracy <- function(simulation_results, outcome, truth, ctx, sim_var = ".sim", level = 50) {
+get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var = ".sim", level = 50) {
+  if (is.null(ctx)) {
+    ctx <- .infer_ctx(simulation_results, truth)
+    if (is.null(ctx)) {
+      stop(
+        "Could not infer panel context. Pass `ctx = panel_context(unit, time)` ",
+        "or supply a `paneltools::as_panel()` data object.",
+        call. = FALSE
+      )
+    }
+  }
   unit_col <- ctx_unit(ctx)
   time_col <- ctx_time(ctx)
 
@@ -454,12 +485,25 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx, sim_var = ".si
 #' @param outcome Character. Name of the outcome variable to plot.
 #' @param units Vector of unit IDs to include.
 #' @param true_data A data.frame/data.table with observed historical data.
-#' @param ctx A panel_context object.
+#' @param ctx A `panel_context` object. Optional; inferred from
+#'   `simulation_results` first, then `true_data`, if either carries
+#'   `panel_unit` / `panel_time` attributes (e.g. produced by
+#'   [simulate_endogenr()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A ggplot object.
 #' @export
-plotsim <- function(simulation_results, outcome, units, true_data, ctx, sim_var = ".sim") {
+plotsim <- function(simulation_results, outcome, units, true_data, ctx = NULL, sim_var = ".sim") {
+  if (is.null(ctx)) {
+    ctx <- .infer_ctx(simulation_results, true_data)
+    if (is.null(ctx)) {
+      stop(
+        "Could not infer panel context. Pass `ctx = panel_context(unit, time)` ",
+        "or supply a `paneltools::as_panel()` data object.",
+        call. = FALSE
+      )
+    }
+  }
   unit_col <- ctx_unit(ctx)
   time_col <- ctx_time(ctx)
 

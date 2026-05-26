@@ -8,7 +8,7 @@ get_accuracy(
   simulation_results,
   outcome,
   truth,
-  ctx,
+  ctx = NULL,
   sim_var = ".sim",
   level = 50
 )
@@ -22,7 +22,10 @@ the forecast period.}
 \item{truth}{A data.frame/data.table with observed values. Must contain the
 groupvar, timevar, and outcome columns.}
 
-\item{ctx}{A panel_context object.}
+\item{ctx}{A \code{panel_context} object. Optional; inferred from
+\code{simulation_results} first, then \code{truth}, if either carries
+\code{panel_unit} / \code{panel_time} attributes (e.g. produced by
+\code{\link[=simulate_endogenr]{simulate_endogenr()}} or \code{paneltools::as_panel()}).}
 
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 
@@ -33,5 +36,5 @@ A data.table with one row per unit, columns: unit, crps, mae, winkler.
 }
 \description{
 Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
-observed truth. Uses \code{\link[scoringRules:scores_sample_univ]{scoringRules::crps_sample()}} for CRPS computation.
+observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS computation.
 }
