@@ -110,6 +110,7 @@ validate_system_closure <- function(models, data_columns) {
   independent_types <- get_independent_models()
   outcomes <- character(0)
   all_rhs_vars <- character(0)
+  all_formula_vars <- character(0)
 
   for (i in seq_along(models)) {
     model <- models[[i]]
@@ -128,17 +129,21 @@ validate_system_closure <- function(models, data_columns) {
 
     if (is_independent) {
       outcome <- all.vars(formula)
+      all_formula_vars <- c(all_formula_vars, outcome)
     } else {
       outcome <- all.vars(rlang::f_lhs(formula))
       rhs_vars <- all.vars(rlang::f_rhs(formula))
       all_rhs_vars <- c(all_rhs_vars, rhs_vars)
+      all_formula_vars <- c(all_formula_vars, outcome, rhs_vars)
 
       # Also check variance formula for heterolm
       var_formula <- if (!is.null(model$args)) model$args$variance else model$variance_formula
       is_heterolm <- (!is.null(model$type) && model$type == "heterolm") ||
                      ("heterolm" %in% class(model))
       if (is_heterolm && !is.null(var_formula)) {
-        all_rhs_vars <- c(all_rhs_vars, all.vars(rlang::f_rhs(var_formula)))
+        var_rhs <- all.vars(rlang::f_rhs(var_formula))
+        all_rhs_vars <- c(all_rhs_vars, var_rhs)
+        all_formula_vars <- c(all_formula_vars, var_rhs)
       }
     }
 
@@ -150,6 +155,18 @@ validate_system_closure <- function(models, data_columns) {
   if (length(dup_outcomes) > 0) {
     stop("Duplicate model outcomes: ", paste(unique(dup_outcomes), collapse = ", "),
          ". Each outcome variable must be modelled by exactly one model.",
+         call. = FALSE)
+  }
+
+  # Every formula-referenced variable (LHS, RHS, variance) must exist as a data column.
+  # Outcomes are produced at simulation time, but the column must already be present
+  # so predict-time model.frame() and update-joins have somewhere to write.
+  all_formula_vars <- unique(all_formula_vars)
+  missing_in_data <- setdiff(all_formula_vars, data_columns)
+  if (length(missing_in_data) > 0) {
+    stop("The following variables are referenced by model formulas but missing ",
+         "from the input data: ", paste(missing_in_data, collapse = ", "),
+         ". Add them as columns (use NA for purely derived outputs).",
          call. = FALSE)
   }
 
