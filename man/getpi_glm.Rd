@@ -12,8 +12,6 @@ getpi_glm(glmpred, family, df, nsamples = 1)
 \item{family}{a family object}
 
 \item{df}{residual degrees of freedom}
-
-\item{nsamples}{}
 }
 \description{
 Samples nsamples points from the predictive distribution on the response scale.

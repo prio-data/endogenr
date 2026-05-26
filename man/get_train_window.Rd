@@ -6,9 +6,6 @@
 \usage{
 get_train_window(earliest_train_start, test_start, min_window = NULL)
 }
-\arguments{
-\item{min_window}{}
-}
 \description{
 Draw a random time-window
 }

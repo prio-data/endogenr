@@ -6,9 +6,6 @@
 \usage{
 update_dependency_graph(model, dependency_graph)
 }
-\arguments{
-\item{dependency_graph}{}
-}
 \description{
 Updates the dependency graph based on a new model
 }

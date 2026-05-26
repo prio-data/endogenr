@@ -12,8 +12,6 @@
 \item{data}{A data.table.}
 
 \item{ctx}{A panel_context object.}
-
-\item{...}{}
 }
 \value{
 A data.table with key + index + outcome columns.

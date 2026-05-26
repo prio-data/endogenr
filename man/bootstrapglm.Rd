@@ -6,9 +6,6 @@
 \usage{
 bootstrapglm(formula, data, family, type)
 }
-\arguments{
-\item{type}{}
-}
 \description{
 Supports residual based bootstrapping and wild bootstrapping on the link scale.
 }

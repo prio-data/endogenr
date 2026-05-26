@@ -22,7 +22,7 @@ scale as the forecast draws.}
 A data.table with columns: \code{variant}, \code{horizon}, \code{crps}, \code{mae}.
 }
 \description{
-Uses \code{\link[scoringRules:scores_sample_univ]{scoringRules::crps_sample()}} for CRPS and manual MAE from median of draws.
+Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS and manual MAE from median of draws.
 Output format is compatible with \code{\link[=get_accuracy]{get_accuracy()}} results (after aggregating
 by horizon) for cross-approach comparison via \code{\link[=compare_approaches]{compare_approaches()}}.
 }

@@ -6,9 +6,6 @@
 \usage{
 select_col_per_row(mat, column_ids)
 }
-\arguments{
-\item{column_ids}{}
-}
 \description{
 Selects a column per row in a matrix
 }

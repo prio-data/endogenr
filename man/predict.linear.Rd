@@ -14,8 +14,6 @@
 \item{ctx}{A panel_context object.}
 
 \item{what}{Either "pi" or "expectation".}
-
-\item{...}{}
 }
 \value{
 A data.table with key + index + outcome columns.

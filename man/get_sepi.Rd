@@ -6,9 +6,6 @@
 \usage{
 get_sepi(lmpred)
 }
-\arguments{
-\item{lmpred}{}
-}
 \description{
 Get the standard error for prediction
 }

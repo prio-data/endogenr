@@ -6,9 +6,6 @@
 \usage{
 getpi(lmpred, nsamples = 1)
 }
-\arguments{
-\item{nsamples}{}
-}
 \description{
 Samples nsamples points from the predictive distribution.
 }

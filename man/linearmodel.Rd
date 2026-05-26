@@ -19,8 +19,6 @@ linearmodel(
 \item{ctx}{A panel_context object.}
 
 \item{subset}{Optional list with start/end for training window.}
-
-\item{...}{}
 }
 \description{
 Linear model

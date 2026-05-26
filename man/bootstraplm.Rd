@@ -6,9 +6,6 @@
 \usage{
 bootstraplm(formula, data, type)
 }
-\arguments{
-\item{type}{}
-}
 \description{
 Supports residual based bootstrapping and wild bootstrapping.
 }

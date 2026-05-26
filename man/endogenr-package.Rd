@@ -11,5 +11,10 @@ This package allows you to dynamically simulate a set of statistical or mathemat
 \author{
 \strong{Maintainer}: Jonas Vestby \email{jonves@prio.org} (\href{https://orcid.org/0000-0002-3054-977X}{ORCID})
 
+Authors:
+\itemize{
+  \item Jonas Vestby \email{jonves@prio.org} (\href{https://orcid.org/0000-0002-3054-977X}{ORCID})
+}
+
 }
 \keyword{internal}

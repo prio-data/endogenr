@@ -18,8 +18,6 @@
 \item{horizon}{the number of future steps to predict}
 
 \item{inner_sims}{the number of inner simulations.}
-
-\item{...}{}
 }
 \value{
 A data.table with columns: unit, sim, time, outcome.

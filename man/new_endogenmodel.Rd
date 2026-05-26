@@ -6,9 +6,6 @@
 \usage{
 new_endogenmodel(formula)
 }
-\arguments{
-\item{formula}{}
-}
 \value{
 A list with class endogenmodel
 }

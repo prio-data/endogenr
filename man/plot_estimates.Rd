@@ -28,7 +28,7 @@ names are used.}
 \item{show_gof}{Logical. If \code{TRUE} (default), a goodness-of-fit table
 (R-squared and N) is appended to the right of the coefficient plot.}
 
-\item{gof_stats}{Character vector of columns from \code{\link[broom:reexports]{broom::glance()}} to
+\item{gof_stats}{Character vector of columns from \code{\link[broom:glance]{broom::glance()}} to
 display. Defaults to \code{c("r.squared", "nobs")}.}
 
 \item{gof_labels}{Named character vector of display labels for \code{gof_stats}.
@@ -40,7 +40,7 @@ Defaults to \code{c(r.squared = "R\\u00b2", nobs = "N")}.}
 \item{widths}{Numeric vector of length 2 controlling the relative widths of
 the coefficient plot and the goodness-of-fit table. Default \code{c(7, 1)}.}
 
-\item{base_size}{Numeric. Base font size passed to \code{\link[ggplot2:ggtheme]{ggplot2::theme_bw()}}.
+\item{base_size}{Numeric. Base font size passed to \code{\link[ggplot2:theme_bw]{ggplot2::theme_bw()}}.
 Default \code{9}.}
 }
 \value{

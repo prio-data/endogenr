@@ -6,9 +6,6 @@
 \usage{
 parse_formula(model)
 }
-\arguments{
-\item{model}{}
-}
 \description{
 Parse a model formula to correctly anticipate the input and output variables
 }

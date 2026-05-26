@@ -6,9 +6,6 @@
 \usage{
 get_execution_order(dependency_graph)
 }
-\arguments{
-\item{dependency_graph}{}
-}
 \description{
 Get the order of calculation from the dependency graph of a model system
 }
