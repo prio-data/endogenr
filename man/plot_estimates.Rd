@@ -51,3 +51,10 @@ Creates a coefficient plot with pointranges for all fitted linear models
 in a cross-validated simulation setup, optionally appended with a table
 of goodness-of-fit statistics (R-squared and N).
 }
+\seealso{
+Other postprocess:
+\code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=plotsim]{plotsim()}},
+\code{\link[=sim_to_dist]{sim_to_dist()}}
+}
+\concept{postprocess}

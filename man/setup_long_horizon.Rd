@@ -38,3 +38,13 @@ For each combination of horizon and named formula, calls \code{\link[=create_lh_
 and \code{\link[=fit_lh_model]{fit_lh_model()}} to produce a complete set of fitted models. No dynamic
 loop is needed — models are independent across time and estimated once.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}}
+}
+\concept{long_horizon}

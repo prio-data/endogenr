@@ -7,25 +7,43 @@
 \method{fit_model}{heterolm_spec}(spec, data = NULL, ctx = NULL, subset = NULL, ...)
 }
 \arguments{
+\item{spec}{A \code{heterolm_spec} object from \code{\link[=build_model]{build_model()}}.}
+
 \item{data}{A data.table or data.frame.}
 
 \item{ctx}{A panel_context object.}
 
 \item{subset}{Optional list with \code{start} and \code{end} for subsetting training data.}
 
-\item{...}{Additional arguments passed to \code{\link[heterolm:hetero]{heterolm::hetero()}}.}
-
-\item{formula}{A two-sided formula for the mean equation (e.g. \code{y ~ lag(x1) + lag(x2)}).}
-
-\item{variance}{A one-sided formula for the log-variance equation (e.g. \code{~ lag(z1) + lag(z2)}).
-Defaults to \code{~ 1} (homoscedastic).}
+\item{...}{Additional arguments forwarded to \code{\link[heterolm:hetero]{heterolm::hetero()}}.}
 }
 \value{
 An endogenmodel of class \code{heterolm}.
 }
 \description{
-Fits a heteroscedastic linear model using \code{\link[heterolm:hetero]{heterolm::hetero()}}, where both the mean
-and variance are modeled as functions of covariates. The variance model uses a
-log-link, so observation-specific prediction intervals are wider where predicted
-variance is higher.
+Fits a heteroscedastic linear model using \code{\link[heterolm:hetero]{heterolm::hetero()}}, where both
+the mean and variance are modelled as functions of covariates. The variance
+model uses a log-link, so observation-specific prediction intervals are
+wider where predicted variance is higher.
 }
+\details{
+Use \code{\link[=build_model]{build_model()}} with \code{type = "heterolm"}. Pass the mean equation as the
+main \code{formula}, and the (one-sided) log-variance equation through \code{variance}
+(defaults to \code{~ 1}).
+}
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

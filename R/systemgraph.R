@@ -1,11 +1,25 @@
-#' Get the order of calculation from the dependency graph of a model system
+#' Determine the order of calculation from a model-system dependency graph
 #'
-#' @param dependency_graph
+#' Given the directed dependency graph built by [update_dependency_graph()],
+#' returns a character vector ordering the model outcomes so that every
+#' dependency is computed before any model that requires it. The order is:
+#' lagged inputs are stripped, exogenous variables (isolated after the strip)
+#' come first, then the remaining endogenous outcomes are topologically sorted
+#' along their `in → out` edges.
 #'
-#' @return
+#' @param dependency_graph A directed `igraph` graph whose vertices are
+#'   variable names (with `lag_` prefix for lagged inputs) and whose edges
+#'   point from input to outcome.
+#'
+#' @return Character vector. Variable names in execution order.
+#' @family build
 #' @export
 #'
 #' @examples
+#' g <- igraph::make_empty_graph(directed = TRUE) |>
+#'   igraph::add_vertices(3, name = c("lag_x", "x", "y")) |>
+#'   igraph::add_edges(c("lag_x", "y"))
+#' get_execution_order(g)
 get_execution_order = function(dependency_graph) {
   outputs <- igraph::V(dependency_graph)$name
 
@@ -27,13 +41,12 @@ get_execution_order = function(dependency_graph) {
 
 #' Test if a certain function is in each term in a formula
 #'
-#' @param formula
-#' @param func A string
+#' @param formula An R formula.
+#' @param func Character. Function name to look for inside each term.
 #'
-#' @return
+#' @return Logical vector, one entry per RHS term, indicating whether the
+#'   given function appears anywhere inside that term.
 #' @keywords internal
-#'
-#' @examples
 func_in_term <- function(formula, func = "lag") {
   res <- formula |>
     terms() |>
@@ -69,12 +82,11 @@ func_in_term <- function(formula, func = "lag") {
 
 #' Parse a model formula to correctly anticipate the input and output variables
 #'
-#' @param model
+#' @param model An endogenmodel with `$formula` and `class()` set.
 #'
-#' @return
+#' @return A list with `edges` (data.frame of in/out edges), `vertices`
+#'   (character vector), and `outcome` (the LHS variable name).
 #' @keywords internal
-#'
-#' @examples
 parse_formula <- function(model){
   independent_models <- get_independent_models()
   formula <- model$formula
@@ -106,13 +118,12 @@ parse_formula <- function(model){
 
 #' Updates the dependency graph based on a new model
 #'
-#' @param model
-#' @param dependency_graph
+#' @param model An endogenmodel produced by `fit_model()`.
+#' @param dependency_graph A directed `igraph` graph (possibly empty).
 #'
-#' @return
+#' @return The updated `igraph` graph with vertices and edges from `model`
+#'   merged into it.
 #' @keywords internal
-#'
-#' @examples
 update_dependency_graph <- function(model, dependency_graph) {
   edges_vertices_outcome <- parse_formula(model)
   edges <- edges_vertices_outcome$edges
@@ -200,10 +211,9 @@ update_dependency_graph <- function(model, dependency_graph) {
 
 #' Gives you the independent model types
 #'
-#' @return
+#' @return Character vector of model-type names that are independent of the
+#'   dynamic execution loop (their outputs are populated up front).
 #' @keywords internal
-#'
-#' @examples
 get_independent_models <- function(){
   c("exogen", "parametric_distribution", "univariate_fable")
 }

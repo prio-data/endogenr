@@ -29,3 +29,12 @@ evt <- c(0, 1, 0, 0, 1, 0)
 fat <- c(0, 100, 0, 0, 500, 0)
 intensity_decay(evt, fat, lambda = 0.3)
 }
+\seealso{
+Other formula_helpers:
+\code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=inject_positional_lag]{inject_positional_lag()}},
+\code{\link[=materialize_formula]{materialize_formula()}},
+\code{\link[=time_since_event]{time_since_event()}}
+}
+\concept{formula_helpers}

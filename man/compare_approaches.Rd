@@ -19,3 +19,13 @@ A data.table with columns: \code{approach}, \code{variant}, \code{horizon}, \cod
 Combines the output of \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} / \code{\link[=cv_long_horizon]{cv_long_horizon()}} with
 simulation accuracy aggregated by horizon, adding an \code{approach} column.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

@@ -1,13 +1,28 @@
-#' Draw a random time-window
+#' Draw a random training window
 #'
-#' @param earliest_train_start
-#' @param test_start
-#' @param min_window
+#' Used by `setup_simulator()` (and the inner refit loop in
+#' `simulate_endogenr()`) to draw a random training window for `linear`,
+#' `glm`, and `heterolm` models when `min_window` is set. The window is
+#' anchored inside `[earliest_train_start, test_start - 1]`, with random
+#' (possibly zero) padding on either side, and is guaranteed to be at
+#' least `min_window` time steps long.
 #'
-#' @return
+#' @param earliest_train_start Integer. The earliest time step that may
+#'   appear in the training window.
+#' @param test_start Integer. The first time step in the forecast period;
+#'   the training window always ends at `test_start - 1` or earlier.
+#' @param min_window Integer or `NULL`. Minimum window length. When `NULL`
+#'   the full range `[earliest_train_start, test_start - 1]` is returned
+#'   unchanged.
+#'
+#' @return A list with `start`, `end`, and `window` (the latter `NULL`
+#'   when `min_window` is `NULL`).
+#' @family build
 #' @export
 #'
 #' @examples
+#' set.seed(1)
+#' get_train_window(1970, 2010, min_window = 10)
 get_train_window <- function(earliest_train_start, test_start, min_window = NULL){
   if(is.null(min_window)){
     return(list("start" = earliest_train_start, "end" = test_start -1, "window" = NULL))
@@ -33,6 +48,7 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
 #'
 #' @param formula An R formula.
 #' @return The formula with modified environment.
+#' @family formula_helpers
 #' @export
 inject_positional_lag <- function(formula) {
   .positional_lag <- function(x, n = 1L) {
@@ -64,6 +80,7 @@ inject_positional_lag <- function(formula) {
 #'   skipped and `setnames()` is used instead.
 #'
 #' @return A data.table with cleaned column names.
+#' @family formula_helpers
 #' @export
 materialize_formula <- function(formula, data, ctx,
                                 .mat_formula = NULL, .col_mapping = NULL) {
@@ -109,6 +126,7 @@ materialize_formula <- function(formula, data, ctx,
 #' @param ctx A `panel_context` object.
 #'
 #' @return An R formula.
+#' @family formula_helpers
 #' @export
 derive_naive_formula <- function(data, outcome = NULL, ctx) {
   idx <- ctx_time(ctx)

@@ -30,3 +30,9 @@ A convenience helper that computes contiguity-based neighbor and weight lists
 from an sf data.frame. The returned list can be passed directly to
 \code{build_model("spatial_lag", ...)}.
 }
+\seealso{
+Other spatial:
+\code{\link[=fit_model.spatial_lag_spec]{fit_model.spatial_lag_spec()}},
+\code{\link[=predict.spatial_lag]{predict.spatial_lag()}}
+}
+\concept{spatial}

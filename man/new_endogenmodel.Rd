@@ -6,6 +6,9 @@
 \usage{
 new_endogenmodel(formula)
 }
+\arguments{
+\item{formula}{A two-sided R formula stored on the model spec.}
+}
 \value{
 A list with class endogenmodel
 }

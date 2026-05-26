@@ -6,6 +6,18 @@
 \usage{
 bootstrapglm(formula, data, family, type)
 }
+\arguments{
+\item{formula}{A two-sided R formula.}
+
+\item{data}{A data.frame or data.table.}
+
+\item{family}{A \code{family} object (e.g. \code{stats::gaussian()}).}
+
+\item{type}{Bootstrap type: \code{"resid"} or \code{"wild"}.}
+}
+\value{
+A fitted \code{glm} object.
+}
 \description{
 Supports residual based bootstrapping and wild bootstrapping on the link scale.
 }

@@ -1,25 +1,27 @@
 
 #' Spatial Lag Model
 #'
-#' Computes a spatially-lagged variable (W·y) as a weighted average of a variable
-#' across neighboring geographic units at each time step. No model fitting is
-#' required — it is a pure cross-sectional transformation applied at every \code{t}.
+#' Computes a spatially-lagged variable (W·y) as a weighted average of a
+#' variable across neighbouring geographic units at each time step. No model
+#' fitting is required — it is a pure cross-sectional transformation applied
+#' at every \code{t}.
 #'
-#' Use \code{lag()} on the RHS to reference t-1 values (always available during
-#' simulation). Without \code{lag()}, the source variable is read at the current
-#' time \code{t} (valid when the source variable is already computed at \code{t}
-#' by an earlier model in the topological execution order).
+#' Use [build_model()] with `type = "spatial_lag"` and a formula of the form
+#' \code{sl_y ~ lag(y)} or \code{sl_y ~ y}. The LHS names the new spatial-lag
+#' column; the RHS names the source variable. Use `lag()` on the RHS to
+#' reference t-1 values (always available during simulation); without
+#' `lag()`, the source variable is read at the current time \code{t} (valid
+#' when that variable is already computed at \code{t} by an earlier model in
+#' the topological execution order).
 #'
-#' @param formula Formula of the form \code{sl_y ~ lag(y)} or \code{sl_y ~ y}.
-#'   The LHS names the new spatial-lag column; the RHS names the source variable.
-#' @param nb Neighbor list (e.g., from \code{sfdep::st_contiguity()}).
-#' @param wt Weights list (e.g., from \code{sfdep::st_weights()}).
-#' @param unit_ids Ordered vector of geographic unit IDs matching the positional
-#'   indexing of \code{nb} and \code{wt}.
-#' @param island_default Value assigned to units with no neighbors. Defaults to
-#'   \code{NA_real_}. Supply \code{0} or a global mean if preferred.
+#' @param spec A `spatial_lag_spec` object from [build_model()]. Must carry
+#'   `nb`, `wt`, and `unit_ids` in `spec$args`; `island_default` is
+#'   optional and defaults to \code{NA_real_}.
+#' @param ctx A [panel_context()] object (accepted for consistency; not used).
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return An endogenmodel of class \code{c("spatial_lag", "endogenmodel")}.
+#' @family spatial
 #' @export
 #' @exportS3Method
 fit_model.spatial_lag_spec <- function(spec, ctx = NULL, ...) {
@@ -74,6 +76,7 @@ spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_rea
 #' @param ... Not used.
 #'
 #' @return A data.table with the spatial lag values at time \code{t}.
+#' @family spatial
 #' @export
 predict.spatial_lag <- function(model, t, data, ctx, ...) {
   geo_var <- ctx_unit(ctx)
@@ -169,6 +172,7 @@ predict.spatial_lag <- function(model, t, data, ctx, ...) {
 #'   \code{\link[sfdep]{st_weights}} (e.g., \code{list(style = "W")}).
 #'
 #' @return A list with elements \code{nb}, \code{wt}, and \code{unit_ids}.
+#' @family spatial
 #' @export
 st_weights_from_sf <- function(sf_data, id_col, contiguity_args = list(), weights_args = list()) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {

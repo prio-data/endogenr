@@ -25,3 +25,8 @@ Checks that the input data meets the structural requirements for the endogenr
 simulation system: integer time steps, contiguous series, balanced panel,
 complete initial state, and correct sort order.
 }
+\seealso{
+Other validate:
+\code{\link[=validate_system_closure]{validate_system_closure()}}
+}
+\concept{validate}

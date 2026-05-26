@@ -2,14 +2,12 @@
 #'
 #' Supports residual based bootstrapping and wild bootstrapping.
 #'
-#' @param formula
-#' @param data
-#' @param type
+#' @param formula A two-sided R formula.
+#' @param data A data.frame or data.table.
+#' @param type Bootstrap type: `"resid"` or `"wild"`.
 #'
-#' @return
+#' @return A fitted `lm` object.
 #' @keywords internal
-#'
-#' @examples
 bootstraplm <- function(formula, data, type){
   data <- na.omit(data)
   fitted <- stats::lm(formula, data)
@@ -42,17 +40,15 @@ fit_model.linear_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, 
 
 #' Linear model
 #'
-#' @param formula
-#' @param boot
+#' @param formula A two-sided R formula.
+#' @param boot Optional bootstrap type: `"resid"`, `"wild"`, or `NULL`.
 #' @param data A data.table or data.frame.
 #' @param ctx A panel_context object.
 #' @param subset Optional list with start/end for training window.
-#' @param ...
+#' @param ... Additional arguments stored on the model spec.
 #'
-#' @return
+#' @return An endogenmodel of class `linear`.
 #' @keywords internal
-#'
-#' @examples
 linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, subset = NULL, ...){
   model <- new_endogenmodel(formula)
   model$boot <- boot
@@ -98,12 +94,10 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, su
 
 #' Get the standard error for prediction
 #'
-#' @param lmpred
+#' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
 #'
-#' @return
+#' @return Numeric vector. Per-row standard error including residual scale.
 #' @keywords internal
-#'
-#' @examples
 get_sepi <- function(lmpred){
   se <- lmpred$se.fit
   scale <- lmpred$residual.scale
@@ -112,13 +106,11 @@ get_sepi <- function(lmpred){
 
 #' Selects a column per row in a matrix
 #'
-#' @param mat
-#' @param column_ids
+#' @param mat A numeric matrix.
+#' @param column_ids Integer vector. One column index per row of `mat`.
 #'
-#' @return
+#' @return A numeric vector with one value per row.
 #' @keywords internal
-#'
-#' @examples
 select_col_per_row <- function(mat, column_ids){
   cidx <- cbind(1:nrow(mat), column_ids)
   mat[cidx]
@@ -128,13 +120,11 @@ select_col_per_row <- function(mat, column_ids){
 #'
 #' Samples nsamples points from the predictive distribution.
 #'
-#' @param lmpred
-#' @param nsamples
+#' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
+#' @param nsamples Integer. Number of draws (1 for row-expansion path).
 #'
-#' @return
+#' @return Numeric vector (or matrix if `nsamples > 1`) of predictive draws.
 #' @keywords internal
-#'
-#' @examples
 getpi <- function(lmpred, nsamples = 1){
   sepi <- get_sepi(lmpred)
   if (nsamples == 1) {
@@ -150,14 +140,15 @@ getpi <- function(lmpred, nsamples = 1){
 
 #' Predict function for a linear model
 #'
-#' @param model
+#' @param model A `linear` endogenmodel.
 #' @param data A data.table.
 #' @param t Time step to predict.
 #' @param ctx A panel_context object.
 #' @param what Either "pi" or "expectation".
-#' @param ...
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
 predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)

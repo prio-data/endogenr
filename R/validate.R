@@ -12,6 +12,7 @@
 #'   last pre-forecast time step.
 #'
 #' @return Invisible TRUE if all checks pass. Throws informative errors otherwise.
+#' @family validate
 #' @export
 validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
   unit_col <- ctx_unit(ctx)
@@ -104,6 +105,7 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
 #' @param data_columns Character vector. Column names available in the data.
 #'
 #' @return Invisible TRUE if valid. Throws informative errors otherwise.
+#' @family validate
 #' @export
 validate_system_closure <- function(models, data_columns) {
   # Collect all model outcomes

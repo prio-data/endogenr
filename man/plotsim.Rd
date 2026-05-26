@@ -37,3 +37,10 @@ A ggplot object.
 Computes quantile ribbons from simulation draws and plots them alongside
 observed truth data.
 }
+\seealso{
+Other postprocess:
+\code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=plot_estimates]{plot_estimates()}},
+\code{\link[=sim_to_dist]{sim_to_dist()}}
+}
+\concept{postprocess}

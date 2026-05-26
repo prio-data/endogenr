@@ -7,7 +7,13 @@
 func_in_term(formula, func = "lag")
 }
 \arguments{
-\item{func}{A string}
+\item{formula}{An R formula.}
+
+\item{func}{Character. Function name to look for inside each term.}
+}
+\value{
+Logical vector, one entry per RHS term, indicating whether the
+given function appears anywhere inside that term.
 }
 \description{
 Test if a certain function is in each term in a formula

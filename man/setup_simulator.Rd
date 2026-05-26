@@ -2,7 +2,7 @@
 % Please edit documentation in R/systemsim.R
 \name{setup_simulator}
 \alias{setup_simulator}
-\title{Sets up the endogenr simulator, including fitting the models}
+\title{Set up an endogenr simulator}
 \usage{
 setup_simulator(
   models,
@@ -18,25 +18,27 @@ setup_simulator(
 )
 }
 \arguments{
-\item{models}{A list of models created using \code{\link[=build_model]{build_model()}}}
+\item{models}{A list of model specs created by \code{\link[=build_model]{build_model()}}.}
 
-\item{data}{A data.frame, data.table, or tsibble. Must contain all variables referenced by
-model formulas, plus groupvar, timevar, and future exogenous data.}
+\item{data}{A data.frame, data.table, or tsibble. Must contain all
+variables referenced by model formulas, plus \code{groupvar}, \code{timevar}, and
+future exogenous data through \code{test_start + horizon - 1}.}
 
-\item{train_start}{Integer. The earliest training time to include.}
+\item{train_start}{Integer. Earliest training time to include.}
 
-\item{test_start}{Integer. When to start the forecast period.}
+\item{test_start}{Integer. First time step in the forecast period.}
 
-\item{horizon}{Integer. How many time steps to forecast.}
+\item{horizon}{Integer. Number of forecast time steps.}
 
-\item{groupvar}{Character. The column name identifying panel units.}
+\item{groupvar}{Character. Column name identifying panel units.}
 
-\item{timevar}{Character. The column name identifying time periods.}
+\item{timevar}{Character. Column name identifying time periods.}
 
 \item{inner_sims}{Integer. Number of inner simulations per outer sim.}
 
-\item{min_window}{Integer or NULL. If set, linear/glm/heterolm models get a random
-training window of at least this length per outer simulation.}
+\item{min_window}{Integer or \code{NULL}. If set, \code{linear}/\code{glm}/\code{heterolm}
+models are refit on a random training window of at least this length
+per outer simulation.}
 
 \item{globals}{Named list of user functions to export to parallel workers.}
 }
@@ -44,5 +46,75 @@ training window of at least this length per outer simulation.}
 A list of setup parameters for \code{\link[=simulate_endogenr]{simulate_endogenr()}}.
 }
 \description{
-Sets up the endogenr simulator, including fitting the models
+Validates the input panel, validates that the model system is closed, fits
+all model specs once on the training window, builds the dependency graph,
+and prepares the simulation grid. The returned setup object is the input
+to \code{\link[=simulate_endogenr]{simulate_endogenr()}}.
 }
+\details{
+During setup the following happens, in order:
+\enumerate{
+\item The panel is coerced to a \code{data.table}, sorted by
+\verb{(groupvar, timevar)}, and filtered to
+\verb{[train_start, test_start + horizon - 1]}.
+\item \code{\link[=validate_panel]{validate_panel()}} checks contiguous integer time, balanced units,
+correct sort order, and complete initial state at \code{test_start - 1}.
+\item \code{\link[=validate_system_closure]{validate_system_closure()}} checks that every RHS variable is
+produced either by another model or by a data column, that all
+formula-referenced columns exist in \code{data}, and that no two models
+share an outcome.
+\item Each spec is fit via \code{\link[=fit_model]{fit_model()}} once (or with a randomly drawn
+window from \code{\link[=get_train_window]{get_train_window()}} for \code{linear}/\code{glm}/\code{heterolm} when
+\code{min_window} is set).
+\item The dependency graph is built and a topological execution order is
+computed via \code{\link[=get_execution_order]{get_execution_order()}}.
+\item The cross-join simulation grid is created via
+\code{prepare_simulation_data()}.
+}
+
+The returned list carries two contexts: \code{ctx} (with \code{sim = "sim"}, used at
+predict time) and \code{fit_ctx} (without \code{sim}, used by inner refits). Both
+are produced by \code{\link[=panel_context]{panel_context()}}.
+
+\code{min_window} triggers a random training window per outer simulation for
+the parametric regression families. Leave it \code{NULL} for a fixed window
+\verb{[train_start, test_start - 1]}.
+
+\code{globals} is forwarded as-is to \code{future.apply::future_lapply()} so that
+user-defined functions referenced by formulas (e.g. closure helpers) are
+visible on parallel workers.
+}
+\examples{
+\dontrun{
+df <- endogenr::example_data
+system <- list(
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
+  build_model("parametric_distribution",
+              formula = ~gdppc_grwt, distribution = "norm"),
+  build_model("exogen", formula = ~population)
+)
+setup <- setup_simulator(system, df,
+  train_start = 1970, test_start = 2010, horizon = 5,
+  groupvar = "gwcode", timevar = "year", inner_sims = 2)
+}
+}
+\seealso{
+\code{\link[=build_model]{build_model()}}, \code{\link[=simulate_endogenr]{simulate_endogenr()}}, \code{\link[=validate_panel]{validate_panel()}},
+\code{\link[=validate_system_closure]{validate_system_closure()}}
+
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

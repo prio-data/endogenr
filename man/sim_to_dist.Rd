@@ -24,3 +24,10 @@ A data.table with one row per (unit, time), output columns as list-columns.
 Groups simulation results by (unit, time) and collapses each output variable
 into a list of draws per cell.
 }
+\seealso{
+Other postprocess:
+\code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=plot_estimates]{plot_estimates()}},
+\code{\link[=plotsim]{plotsim()}}
+}
+\concept{postprocess}

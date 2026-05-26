@@ -1,19 +1,22 @@
 #' Heteroscedastic linear model
 #'
-#' Fits a heteroscedastic linear model using [heterolm::hetero()], where both the mean
-#' and variance are modeled as functions of covariates. The variance model uses a
-#' log-link, so observation-specific prediction intervals are wider where predicted
-#' variance is higher.
+#' Fits a heteroscedastic linear model using [heterolm::hetero()], where both
+#' the mean and variance are modelled as functions of covariates. The variance
+#' model uses a log-link, so observation-specific prediction intervals are
+#' wider where predicted variance is higher.
 #'
-#' @param formula A two-sided formula for the mean equation (e.g. \code{y ~ lag(x1) + lag(x2)}).
-#' @param variance A one-sided formula for the log-variance equation (e.g. \code{~ lag(z1) + lag(z2)}).
-#'   Defaults to \code{~ 1} (homoscedastic).
+#' Use [build_model()] with `type = "heterolm"`. Pass the mean equation as the
+#' main `formula`, and the (one-sided) log-variance equation through `variance`
+#' (defaults to `~ 1`).
+#'
+#' @param spec A `heterolm_spec` object from [build_model()].
 #' @param data A data.table or data.frame.
 #' @param ctx A panel_context object.
 #' @param subset Optional list with \code{start} and \code{end} for subsetting training data.
-#' @param ... Additional arguments passed to [heterolm::hetero()].
+#' @param ... Additional arguments forwarded to [heterolm::hetero()].
 #'
 #' @return An endogenmodel of class \code{heterolm}.
+#' @family simulation
 #' @export
 #' @exportS3Method
 fit_model.heterolm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
@@ -124,6 +127,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
 #' @param ... Not used.
 #'
 #' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
 predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)

@@ -20,3 +20,8 @@ Checks that every RHS variable referenced by model formulas is available
 either as another model's outcome or as a column in the data. Also checks
 for duplicate outcomes across models.
 }
+\seealso{
+Other validate:
+\code{\link[=validate_panel]{validate_panel()}}
+}
+\concept{validate}

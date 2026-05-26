@@ -30,3 +30,13 @@ in a new \code{.target} column. The original outcome column is left untouched so
 that formula RHS terms (e.g. \code{lag(outcome)}) are evaluated at the baseline
 period t, not the target period t+h.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

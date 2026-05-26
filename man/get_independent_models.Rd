@@ -6,6 +6,10 @@
 \usage{
 get_independent_models()
 }
+\value{
+Character vector of model-type names that are independent of the
+dynamic execution loop (their outputs are populated up front).
+}
 \description{
 Gives you the independent model types
 }

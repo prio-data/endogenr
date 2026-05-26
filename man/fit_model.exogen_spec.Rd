@@ -14,16 +14,20 @@
 )
 }
 \arguments{
-\item{newdata}{A data.frame or data.table containing the exogenous variable for
-the full forecast period.}
+\item{spec}{An \code{exogen_spec} object from \code{\link[=build_model]{build_model()}}. The formula
+(e.g. \code{~population}) names the exogenous variable.}
 
-\item{ctx}{A \code{panel_context} object.}
+\item{newdata}{A data.frame or data.table containing the exogenous variable
+for the full forecast period.}
+
+\item{ctx}{A \code{\link[=panel_context]{panel_context()}} object.}
+
+\item{test_start}{Integer. The time from which to take values (typically
+the forecast start).}
 
 \item{inner_sims}{Integer. Number of inner simulations.}
 
-\item{formula}{A one-sided formula with the exogenous variable (e.g. \code{~population}).}
-
-\item{impute_from}{Integer. The time from which to take values (typically \code{test_start}).}
+\item{...}{Ignored, accepted for S3 generic consistency.}
 }
 \value{
 An endogenmodel of class \code{exogen}.
@@ -33,3 +37,23 @@ Creates a model that copies pre-existing data (e.g. population projections)
 into the simulation grid. The exogenous variable must already be present in
 the data passed to \code{\link[=setup_simulator]{setup_simulator()}}.
 }
+\details{
+Use \code{\link[=build_model]{build_model()}} with \code{type = "exogen"} and a one-sided formula such as
+\code{~population}. Required arguments are forwarded by \code{\link[=setup_simulator]{setup_simulator()}}.
+}
+\seealso{
+Other simulation:
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

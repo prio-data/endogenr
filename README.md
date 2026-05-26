@@ -7,22 +7,19 @@
 
 <!-- badges: end -->
 
-The goal of endogenr is to make it easy to simulate dynamic systems from
-regression models, mathematical equations, and exogenous inputs (either
-based on a stochastic distribution, or given by some data). We assume a
-panel-data structure, with two variables denoting the time and the space
-dimensions.
+The goal of `endogenr` is to make it easy to simulate dynamic systems
+from regression models, mathematical equations, and exogenous inputs
+(either based on a stochastic distribution, or given by some data). It
+assumes a panel-data structure with two columns identifying the time and
+the unit dimensions.
 
-The simulator works by identifying the dependency graph of the models
-added to the system, and deriving the order of calculation based on this
-graph.
-
-It works with parallel simulation using the future::multisession
-approach.
+The simulator identifies the dependency graph of the models added to the
+system and derives the order of calculation from that graph. Parallel
+execution is opt-in via the `future` package.
 
 ## Installation
 
-You can install the development version of endogenr from
+You can install the development version of `endogenr` from
 [GitHub](https://github.com/) with:
 
 ``` r
@@ -32,15 +29,18 @@ pak::pak("prio-data/endogenr")
 renv::install("prio-data/endogenr")
 ```
 
-You can also clone (download) the repository, open it as a project in
-RStudio, find the “Build” tab, and press “Install”.
+You can also clone the repository, open it as a project in RStudio, find
+the “Build” tab, and press “Install”.
 
 ## Example
 
+`setup_simulator()` accepts a plain `data.frame` or `data.table` — no
+`tsibble` conversion is required. Formula RHS terms can use `lag()`,
+`zoo::rollmean()`, or any function you define yourself (pass user
+functions through the `globals` argument).
+
 ``` r
 library(endogenr)
-library(fable)
-#> Loading required package: fabletools
 library(dplyr)
 #> 
 #> Attaching package: 'dplyr'
@@ -51,113 +51,143 @@ library(dplyr)
 #> 
 #>     intersect, setdiff, setequal, union
 df <- endogenr::example_data
-df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
-e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) + lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
-c1 <- yjbest ~ lag(yjbest) + lag(log(gdppc)) + lag(log(population)) + lag(psecprop) + lag(dem) + lag(gdppc_grwt) + lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
-d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) + lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+# Drop units with any NA in modelled outcomes over the training window 1970–2009.
+required <- c("gdppc", "gdppc_grwt", "best", "v2x_polyarchy", "psecprop", "population")
+train_window <- df[df$year >= 1970 & df$year <= 2009, ]
+ok <- aggregate(train_window[, required],
+                by = list(gwcode = train_window$gwcode),
+                FUN = function(x) all(!is.na(x)))
+keep <- ok$gwcode[apply(ok[, required], 1, all)]
+df   <- df[df$gwcode %in% keep, ]
+df$gdp <- df$gdppc * df$population  # derived outcome; pre-computed so the initial state is non-NA
+
+c1 <- best ~ lag(best) + lag(log(gdppc)) + lag(log(population)) +
+  lag(psecprop) + lag(v2x_polyarchy) + lag(gdppc_grwt) +
+  lag(zoo::rollmean(best, k = 5, fill = NA, align = "right"))
 
 model_system <- list(
-  build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
-  build_model("deterministic", formula = gdp ~ I(abs(gdppc*population))),
+  build_model("deterministic", formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
+  build_model("deterministic", formula = gdp ~ I(abs(gdppc * population))),
   build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
   build_model("linear", formula = c1, boot = "resid"),
-  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets"),
+  build_model("univariate_fable",
+              formula = v2x_polyarchy ~ error("A") + trend("N") + season("N"),
+              method = "ets"),
   build_model("exogen", formula = ~psecprop),
   build_model("exogen", formula = ~population)
 )
-
-simulator_setup <- setup_simulator(models = model_system,
-                                   data = df,
-                                   train_start = 1970,
-                                   test_start = 2010,
-                                   horizon = 12,
-                                   groupvar = "gwcode",
-                                   timevar = "year",
-                                   inner_sims = 2,
-                                   min_window = 10)
-
-set.seed(42)
-res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = F)
-
-# Example that you can back-transform variables you have simulated as transformed variables
-scaled_logit <- function(x, lower=0, upper=1){
-  log((x-lower)/(upper-x))
-}
-inv_scaled_logit <- function(x, lower=0, upper=1){
-  (upper-lower)*exp(x)/(1+exp(x)) + lower
-}
-my_scaled_logit <- fabletools::new_transformation(scaled_logit, inv_scaled_logit)
-
-yj <- scales::transform_yj(p = 0.4) # This was transformed using lambda 0.4 when creating the data.
-# Back-transform
-res <- res |> dplyr::mutate(v2x_libdem = inv_scaled_logit(dem),
-                            best = yj$inverse(yjbest))
-
-res <- tsibble::tsibble(res, key = c(simulator_setup$groupvar, ".sim"), index = simulator_setup$timevar) |>
-  dplyr::filter(year >= simulator_setup$test_start)
-
-acc <- get_accuracy(res, "gdppc_grwt", df)
-#> Warning: The dimnames of the fable's distribution are missing and have been set
-#> to match the response variables.
-acc |> summarize(across(crps:winkler, ~ mean(.x))) |> arrange(crps) |> knitr::kable()
 ```
 
-|     crps |       mae |  winkler |
-|---------:|----------:|---------:|
-| 0.034463 | 0.0430068 | 0.149843 |
+### Validation
+
+`setup_simulator()` runs `validate_panel()` and
+`validate_system_closure()` on your inputs before fitting anything.
+These check that the panel is balanced, time is contiguous and
+integer-valued, the initial state at `test_start - 1` has no NAs in any
+modelled outcome, and every variable referenced by a formula is either
+modelled or supplied as a column. See `?validate_panel` and
+`?validate_system_closure` if you want to run them ad-hoc on a candidate
+panel.
+
+``` r
+simulator_setup <- setup_simulator(
+  models      = model_system,
+  data        = df,
+  train_start = 1970,
+  test_start  = 2010,
+  horizon     = 12,
+  groupvar    = "gwcode",
+  timevar     = "year",
+  inner_sims  = 2,
+  min_window  = 10
+)
+```
+
+### Parallel execution and progress
+
+The simulator no longer manages a `future` plan internally. Set one
+yourself before calling `simulate_endogenr()`, and wrap the call in
+`progressr::with_progress()` if you want a progress bar:
+
+``` r
+future::plan(future::multisession, workers = 2)
+
+set.seed(42)
+progressr::with_progress({
+  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+})
+
+future::plan(future::sequential)
+```
+
+### Scoring and plotting
+
+`simulate_endogenr()` stamps `panel_unit` / `panel_time` attributes on
+the result so `get_accuracy()` and `plotsim()` can infer the panel
+context without any further configuration. Filter to the forecast window
+using a plain `data.table` predicate.
+
+``` r
+res <- res[res$year >= simulator_setup$test_start, ]
+
+acc <- get_accuracy(res, "gdppc_grwt", df)
+acc |>
+  dplyr::summarize(dplyr::across(crps:winkler, ~ mean(.x))) |>
+  dplyr::arrange(crps) |>
+  knitr::kable()
+```
+
+|      crps |       mae |   winkler |
+|----------:|----------:|----------:|
+| 0.0348409 | 0.0435349 | 0.1434817 |
 
 ``` r
 
 plotsim(res, "gdppc", c(2, 20, 530), df)
+#> Warning: Removed 4 rows containing missing values or values outside the scale range
+#> (`geom_line()`).
 ```
 
-<img src="man/figures/README-example-1.png" alt="" width="100%" />
+<img src="man/figures/README-postprocess-1.png" alt="" width="100%" />
 
 ``` r
 plotsim(res, "gdppc_grwt", c(2, 20, 530), df)
+#> Warning: Removed 7 rows containing missing values or values outside the scale range
+#> (`geom_line()`).
 ```
 
-<img src="man/figures/README-example-2.png" alt="" width="100%" />
+<img src="man/figures/README-postprocess-2.png" alt="" width="100%" />
 
 ``` r
-plotsim(res, "v2x_libdem", c(2, 20, 530), df)
+plotsim(res, "v2x_polyarchy", c(2, 20, 530), df)
 ```
 
-<img src="man/figures/README-example-3.png" alt="" width="100%" />
+<img src="man/figures/README-postprocess-3.png" alt="" width="100%" />
 
-``` r
-plotsim(res, "best", c(2, 20, 530), df)
-```
+## Spatial lag
 
-<img src="man/figures/README-example-4.png" alt="" width="100%" />
+`endogenr` supports spatial-lag variables in the simulation. The setup
+is two steps: (1) compute the spatial lag for the historical data, and
+(2) register a `spatial_lag` model in the system so the lag is
+recomputed at each simulated time step.
 
-## Spatial Lag
+### Step 1: prepare spatial weights and the historical lag
 
-`endogenr` supports spatial lag variables in the simulation. The setup
-involves two steps: (1) computing the spatial lag for the historical
-data, and (2) registering a `spatial_lag` model in the model system so
-the lag is recomputed at each simulated time step.
+`st_weights_from_sf()` builds a neighbourhood list and weights from an
+`sf` object. The default is queen contiguity. For other schemes, call
+`sfdep` directly and supply `nb`, `wt`, and `unit_ids` yourself (in the
+order they appear in the spatial object).
 
-### Step 1: Prepare the spatial weights and compute the historical lag
-
-The convenience function `st_weights_from_sf` creates a neighborhood
-list and weights from an `sf` object. It defaults to queen contiguity.
-For more advanced weight schemes, use the `sfdep` package directly and
-supply the neighborhood list (`nb`), weights (`wt`), and the unit IDs in
-the order they appear in the spatial object.
-
-Note that computing the spatial lag for the historical data can be
-fiddly when the panel is unbalanced or has missing observations. The
-example below filters the data to units present in the neighborhood
-structure before computing the lag.
+Computing the historical lag can be fiddly when the panel is unbalanced
+or has missing observations; the example below filters to units present
+in the neighbourhood structure before computing the lag.
 
 ``` r
 library(endogenr)
 library(dplyr)
 
 df <- endogenr::example_data
-df <- tsibble::as_tsibble(df, key = "gwcode", index = "year")
 
 # Load a map and filter to units present in the data
 map <- poldat::cshp_gw_modifications(france_overseas = FALSE) |>
@@ -168,67 +198,93 @@ map <- map |> dplyr::filter(gwcode %in% unique(df$gwcode))
 sf::sf_use_s2(FALSE)
 neigh <- st_weights_from_sf(map, "gwcode", weights_args = list(allow_zero = TRUE))
 
-# Compute the spatial lag of yjbest for each year in the historical data
+# Compute the spatial lag of `best` for each year in the historical data
 df <- df |>
   dplyr::filter(gwcode %in% neigh$unit_ids) |>
-  as_tibble() |>
-  group_by(year) |>
+  dplyr::group_by(year) |>
   dplyr::mutate(
-    sl_yjbest = sfdep::st_lag(yjbest, neigh$nb, neigh$wt, allow_zero = TRUE)
-  )
-
-df <- tsibble::tsibble(df, key = "gwcode", index = "year")
+    sl_best = sfdep::st_lag(best, neigh$nb, neigh$wt, allow_zero = TRUE)
+  ) |>
+  dplyr::ungroup()
 ```
 
-### Step 2: Add a `spatial_lag` model to the system
+### Step 2: add a `spatial_lag` model to the system
 
-A `spatial_lag` model works like a deterministic model — it is a
-transformation applied at each simulated time step `t`. This ensures the
-spatial lag variable is updated as the underlying variable evolves
-during simulation.
-
-One important consideration is **how the spatial lag variable enters
-other model formulas**. Using `yjbest ~ sl_yjbest` will not work because
-`sl_yjbest` is computed in the same period as `yjbest`, creating a
-circular dependency. Instead, use `lag(sl_yjbest)` so the conflict model
-uses the spatial lag from the previous period.
+A `spatial_lag` model is a cross-sectional transformation applied at
+every simulated `t`. Reference the lag in other formulas as `lag(sl_y)`
+— using the same-period value `sl_y` would create a circular dependency.
 
 ``` r
-e1 <- gdppc_grwt ~ lag(yjbest) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(psecprop) +
-  lag(zoo::rollmean(gdppc_grwt, k = 3, fill = NA, align = "right"))
-c1 <- yjbest ~ lag(yjbest) + lag(sl_yjbest) + lag(log(gdppc)) + lag(log(population)) +
-  lag(psecprop) + lag(dem) + lag(gdppc_grwt) +
-  lag(zoo::rollmean(yjbest, k = 5, fill = NA, align = "right"))
-d1 <- dem ~ lag(dem) + lag(gdppc_grwt) + lag(log(gdppc)) + lag(yjbest) + lag(psecprop) +
-  lag(zoo::rollmean(dem, k = 3, fill = NA, align = "right"))
+c1 <- best ~ lag(best) + lag(sl_best) + lag(log(gdppc)) +
+  lag(log(population)) + lag(psecprop) + lag(v2x_polyarchy) + lag(gdppc_grwt) +
+  lag(zoo::rollmean(best, k = 5, fill = NA, align = "right"))
 
 model_system <- list(
-  # spatial_lag recomputes sl_yjbest from yjbest at each simulated t
-  build_model("spatial_lag", formula = sl_yjbest ~ yjbest,
+  # spatial_lag recomputes sl_best from `best` at each simulated t
+  build_model("spatial_lag", formula = sl_best ~ best,
               nb = neigh$nb, wt = neigh$wt, unit_ids = neigh$unit_ids,
               island_default = 0),
   build_model("deterministic", formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
   build_model("deterministic", formula = gdp ~ I(abs(gdppc * population))),
   build_model("parametric_distribution", formula = ~gdppc_grwt, distribution = "norm"),
   build_model("linear", formula = c1, boot = "resid"),
-  build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"),
+  build_model("univariate_fable",
+              formula = v2x_polyarchy ~ error("A") + trend("N") + season("N"),
               method = "ets"),
   build_model("exogen", formula = ~psecprop),
   build_model("exogen", formula = ~population)
 )
 
 simulator_setup <- setup_simulator(
-  models = model_system,
-  data = df,
+  models      = model_system,
+  data        = df,
   train_start = 1970,
-  test_start = 2010,
-  horizon = 12,
-  groupvar = "gwcode",
-  timevar = "year",
-  inner_sims = 2,
-  min_window = 10
+  test_start  = 2010,
+  horizon     = 12,
+  groupvar    = "gwcode",
+  timevar     = "year",
+  inner_sims  = 2,
+  min_window  = 10
 )
 
+future::plan(future::multisession, workers = 2)
 set.seed(42)
-res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup, parallel = FALSE)
+progressr::with_progress({
+  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+})
+future::plan(future::sequential)
+```
+
+## Long-horizon comparison
+
+For each horizon `h`, the long-horizon API fits a single regression of
+`y_{t+h}` on baseline covariates at `t`. Use it when you want a sanity
+check against the dynamic simulator. See `?cv_long_horizon` for the
+cross-validated entry point.
+
+``` r
+formulas <- list(
+  lh_linear = gdppc_grwt ~ lag(gdppc_grwt) + lag(log(gdppc)) + lag(best)
+)
+
+lh_setup <- setup_long_horizon(
+  data       = df,
+  formulas   = formulas,
+  horizons   = 1:12,
+  groupvar   = "gwcode",
+  timevar    = "year",
+  train_end  = 2010
+)
+
+lh_forecasts <- forecast_long_horizon(
+  lh_setup,
+  data       = df,
+  test_start = 2010,
+  nsim       = 100,
+  inner_sims = 10
+)
+
+lh_acc <- get_lh_accuracy(lh_forecasts, df, "gdppc_grwt", "gwcode", "year")
+sim_acc <- get_accuracy(res, "gdppc_grwt", df)  # aggregate by horizon if comparing
+compare_approaches(lh_acc, sim_acc)
 ```

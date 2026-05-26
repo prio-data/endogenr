@@ -22,3 +22,12 @@ Given a materialized data.table (or its column names), determines the outcome
 and predictor columns by excluding key and index columns, and returns a
 formula suitable for \code{lm()} / \code{glm()}.
 }
+\seealso{
+Other formula_helpers:
+\code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=inject_positional_lag]{inject_positional_lag()}},
+\code{\link[=intensity_decay]{intensity_decay()}},
+\code{\link[=materialize_formula]{materialize_formula()}},
+\code{\link[=time_since_event]{time_since_event()}}
+}
+\concept{formula_helpers}

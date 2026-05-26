@@ -7,30 +7,35 @@
 \method{fit_model}{spatial_lag_spec}(spec, ctx = NULL, ...)
 }
 \arguments{
-\item{formula}{Formula of the form \code{sl_y ~ lag(y)} or \code{sl_y ~ y}.
-The LHS names the new spatial-lag column; the RHS names the source variable.}
+\item{spec}{A \code{spatial_lag_spec} object from \code{\link[=build_model]{build_model()}}. Must carry
+\code{nb}, \code{wt}, and \code{unit_ids} in \code{spec$args}; \code{island_default} is
+optional and defaults to \code{NA_real_}.}
 
-\item{nb}{Neighbor list (e.g., from \code{sfdep::st_contiguity()}).}
+\item{ctx}{A \code{\link[=panel_context]{panel_context()}} object (accepted for consistency; not used).}
 
-\item{wt}{Weights list (e.g., from \code{sfdep::st_weights()}).}
-
-\item{unit_ids}{Ordered vector of geographic unit IDs matching the positional
-indexing of \code{nb} and \code{wt}.}
-
-\item{island_default}{Value assigned to units with no neighbors. Defaults to
-\code{NA_real_}. Supply \code{0} or a global mean if preferred.}
+\item{...}{Ignored, accepted for S3 generic consistency.}
 }
 \value{
 An endogenmodel of class \code{c("spatial_lag", "endogenmodel")}.
 }
 \description{
-Computes a spatially-lagged variable (W·y) as a weighted average of a variable
-across neighboring geographic units at each time step. No model fitting is
-required — it is a pure cross-sectional transformation applied at every \code{t}.
+Computes a spatially-lagged variable (W·y) as a weighted average of a
+variable across neighbouring geographic units at each time step. No model
+fitting is required — it is a pure cross-sectional transformation applied
+at every \code{t}.
 }
 \details{
-Use \code{lag()} on the RHS to reference t-1 values (always available during
-simulation). Without \code{lag()}, the source variable is read at the current
-time \code{t} (valid when the source variable is already computed at \code{t}
-by an earlier model in the topological execution order).
+Use \code{\link[=build_model]{build_model()}} with \code{type = "spatial_lag"} and a formula of the form
+\code{sl_y ~ lag(y)} or \code{sl_y ~ y}. The LHS names the new spatial-lag
+column; the RHS names the source variable. Use \code{lag()} on the RHS to
+reference t-1 values (always available during simulation); without
+\code{lag()}, the source variable is read at the current time \code{t} (valid
+when that variable is already computed at \code{t} by an earlier model in
+the topological execution order).
 }
+\seealso{
+Other spatial:
+\code{\link[=predict.spatial_lag]{predict.spatial_lag()}},
+\code{\link[=st_weights_from_sf]{st_weights_from_sf()}}
+}
+\concept{spatial}

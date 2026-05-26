@@ -2,7 +2,7 @@
 % Please edit documentation in R/systemsim.R
 \name{simulate_endogenr}
 \alias{simulate_endogenr}
-\title{Dynamic simulation of the system}
+\title{Run the dynamic simulation of an endogenr system}
 \usage{
 simulate_endogenr(nsim, simulator_setup, parallel = FALSE, ncores = 6)
 }
@@ -11,14 +11,61 @@ simulate_endogenr(nsim, simulator_setup, parallel = FALSE, ncores = 6)
 
 \item{simulator_setup}{A list from \code{\link[=setup_simulator]{setup_simulator()}}.}
 
-\item{parallel}{Logical. Use parallel computation via \code{\link[future:multisession]{future::multisession()}}.}
+\item{parallel}{Logical. Deprecated. Use \code{\link[future:plan]{future::plan()}} before calling.}
 
-\item{ncores}{Integer. Number of workers for parallel execution.}
+\item{ncores}{Integer. Deprecated. Use \code{\link[future:plan]{future::plan()}} before calling.}
 }
 \value{
-A data.table with all original columns plus \code{.sim} (integer 1..nsim*inner_sims).
+A \code{data.table} with all simulation columns plus \code{.sim} (integer
+\verb{1..nsim * inner_sims}). Carries \code{panel_unit} and \code{panel_time}
+attributes.
 }
 \description{
-Runs the endogenr simulation system. Estimates models, sequences the forecast,
-and simulates outcomes for all units across the forecast horizon.
+Estimates models, sequences the forecast according to the dependency
+graph computed in \code{\link[=setup_simulator]{setup_simulator()}}, and simulates outcomes for all
+units across the forecast horizon. Returns one long \code{data.table} with a
+\code{.sim} column identifying each draw.
 }
+\details{
+Parallel execution is controlled by the user via the \code{future} package.
+Set a plan before calling \code{simulate_endogenr()}:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{future::plan(future::multisession, workers = 6)
+progressr::with_progress(\{
+  res <- simulate_endogenr(nsim = 50, simulator_setup = setup)
+\})
+future::plan(future::sequential)
+}\if{html}{\out{</div>}}
+
+Progress reporting uses \code{\link[progressr:progressor]{progressr::progressor()}} when the \code{progressr}
+package is installed; wrap the call in \code{\link[progressr:with_progress]{progressr::with_progress()}} to
+see a bar.
+
+The output carries \code{panel_unit} / \code{panel_time} attributes (the
+\code{paneltools::as_panel()} convention) so downstream helpers like
+\code{\link[=get_accuracy]{get_accuracy()}}, \code{\link[=plotsim]{plotsim()}}, and \code{\link[=sim_to_dist]{sim_to_dist()}} infer the panel
+context automatically.
+
+\code{parallel} and \code{ncores} are deprecated and retained only for backward
+compatibility; they emit a deprecation message and, when \code{parallel = TRUE}, register a temporary \code{future::multisession} plan that is restored
+on exit. Prefer setting the plan yourself.
+}
+\seealso{
+\code{\link[=setup_simulator]{setup_simulator()}}, \code{\link[=get_accuracy]{get_accuracy()}}, \code{\link[=plotsim]{plotsim()}},
+\code{\link[=sim_to_dist]{sim_to_dist()}}
+
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}}
+}
+\concept{simulation}

@@ -17,3 +17,12 @@ Replaces \code{lag()} in the formula's evaluation environment with a positional
 shift function: \code{c(rep(NA, n), head(x, -n))}. This ensures \code{lag()} in model
 formulas performs a within-group positional shift rather than \code{stats::lag()}.
 }
+\seealso{
+Other formula_helpers:
+\code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=intensity_decay]{intensity_decay()}},
+\code{\link[=materialize_formula]{materialize_formula()}},
+\code{\link[=time_since_event]{time_since_event()}}
+}
+\concept{formula_helpers}

@@ -1,20 +1,27 @@
 #' Univariate model from fable
 #'
-#' Univariate statistical models ("univariate_fable") currently supports exponential smoothing (ETS) and ARIMA models. See <https://otexts.com/fpp3/> for
-#' details on these models. These models are estimated independently for each groupvar in [setup_simulator()], and the forecasts are completely
-#' independent of the rest of the system (the forecasts are populated in the simulation dataset before the dynamic simulation is calculated). See [fable::ETS()]
-#' and [fable::ARIMA()] for how to write the function calls for these models. A simple exponential smoothing model can be set up using
-#' build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
+#' Univariate statistical models ("univariate_fable") currently support
+#' exponential smoothing (ETS) and ARIMA models. See <https://otexts.com/fpp3/>
+#' for details on these models. These models are estimated independently for
+#' each panel unit, and their forecasts are populated in the simulation
+#' dataset before the dynamic simulation runs. See [fable::ETS()] and
+#' [fable::ARIMA()] for how to write the function calls. A simple ETS model
+#' is set up via
+#' `build_model("univariate_fable", formula = y ~ error("A") + trend("N") + season("N"), method = "ets")`.
 #'
 #' Requires packages `fable`, `fabletools`, and `tsibble` (in Suggests).
 #'
-#' @param formula An R-formula using the model specification in [fable::ARIMA()] or [fable::ETS()]
-#' @param data A data.table, data.frame, or tsibble. Converted to tsibble internally for fable.
-#' @param method Character. Either "arima" or "ets".
+#' @param spec A `univariate_fable_spec` object from [build_model()]. The
+#'   `formula` slot follows the model-specification syntax in [fable::ARIMA()]
+#'   or [fable::ETS()].
+#' @param data A data.table, data.frame, or tsibble. Converted to tsibble
+#'   internally for fable.
 #' @param ctx A panel_context object.
-#' @param ... Other arguments from [fable::ARIMA()] or [fable::ETS()]
+#' @param ... Additional arguments forwarded to [fable::ARIMA()] or
+#'   [fable::ETS()].
 #'
-#' @return A univariate_fable endogenmodel class.
+#' @return A univariate_fable endogenmodel.
+#' @family simulation
 #' @export
 #' @exportS3Method
 fit_model.univariate_fable_spec <- function(spec, data = NULL, ctx = NULL, ...) {
@@ -71,9 +78,10 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
 #' @param test_start Integer. Not used directly (horizon determines forecast length).
 #' @param horizon the number of future steps to predict
 #' @param inner_sims the number of inner simulations.
-#' @param ...
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return A data.table with columns: unit, sim, time, outcome.
+#' @family simulation
 #' @export
 predict.univariate_fable <- function(model, data, ctx, test_start, horizon, inner_sims, ...) {
   grp <- ctx_unit(ctx)

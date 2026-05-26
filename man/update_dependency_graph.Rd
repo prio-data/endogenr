@@ -6,6 +6,15 @@
 \usage{
 update_dependency_graph(model, dependency_graph)
 }
+\arguments{
+\item{model}{An endogenmodel produced by \code{fit_model()}.}
+
+\item{dependency_graph}{A directed \code{igraph} graph (possibly empty).}
+}
+\value{
+The updated \code{igraph} graph with vertices and edges from \code{model}
+merged into it.
+}
 \description{
 Updates the dependency graph based on a new model
 }

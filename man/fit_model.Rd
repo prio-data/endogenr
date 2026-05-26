@@ -20,3 +20,10 @@ Generic function that dispatches to type-specific fitting methods based on
 the spec's class. Called internally by \code{\link[=setup_simulator]{setup_simulator()}} and
 \code{\link[=inner_simulation]{inner_simulation()}}.
 }
+\seealso{
+Other build:
+\code{\link[=build_model]{build_model()}},
+\code{\link[=get_execution_order]{get_execution_order()}},
+\code{\link[=get_train_window]{get_train_window()}}
+}
+\concept{build}

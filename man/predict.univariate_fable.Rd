@@ -18,6 +18,8 @@
 \item{horizon}{the number of future steps to predict}
 
 \item{inner_sims}{the number of inner simulations.}
+
+\item{...}{Ignored, accepted for S3 generic consistency.}
 }
 \value{
 A data.table with columns: unit, sim, time, outcome.
@@ -26,3 +28,19 @@ A data.table with columns: unit, sim, time, outcome.
 Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
 separately, you should use fable directly!
 }
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

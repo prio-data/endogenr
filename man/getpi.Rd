@@ -6,6 +6,14 @@
 \usage{
 getpi(lmpred, nsamples = 1)
 }
+\arguments{
+\item{lmpred}{A prediction object from \code{predict.lm()} with \code{se.fit = TRUE}.}
+
+\item{nsamples}{Integer. Number of draws (1 for row-expansion path).}
+}
+\value{
+Numeric vector (or matrix if \code{nsamples > 1}) of predictive draws.
+}
 \description{
 Samples nsamples points from the predictive distribution.
 }

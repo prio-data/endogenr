@@ -4,14 +4,21 @@
 #' into the simulation grid. The exogenous variable must already be present in
 #' the data passed to [setup_simulator()].
 #'
-#' @param formula A one-sided formula with the exogenous variable (e.g. `~population`).
-#' @param impute_from Integer. The time from which to take values (typically `test_start`).
-#' @param newdata A data.frame or data.table containing the exogenous variable for
-#'   the full forecast period.
+#' Use [build_model()] with `type = "exogen"` and a one-sided formula such as
+#' `~population`. Required arguments are forwarded by [setup_simulator()].
+#'
+#' @param spec An `exogen_spec` object from [build_model()]. The formula
+#'   (e.g. `~population`) names the exogenous variable.
+#' @param newdata A data.frame or data.table containing the exogenous variable
+#'   for the full forecast period.
+#' @param ctx A [panel_context()] object.
+#' @param test_start Integer. The time from which to take values (typically
+#'   the forecast start).
 #' @param inner_sims Integer. Number of inner simulations.
-#' @param ctx A `panel_context` object.
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return An endogenmodel of class `exogen`.
+#' @family simulation
 #' @export
 #' @exportS3Method
 fit_model.exogen_spec <- function(spec, newdata = NULL, ctx = NULL,
@@ -62,6 +69,7 @@ exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL,
 #' @param ... Ignored.
 #'
 #' @return A data.table with columns: unit, sim, time, and outcome variable(s).
+#' @family simulation
 #' @export
 predict.exogen <- function(model, data, ctx, test_start, horizon, inner_sims, ...) {
   grp <- ctx_unit(ctx)

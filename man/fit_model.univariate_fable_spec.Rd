@@ -7,26 +7,47 @@
 \method{fit_model}{univariate_fable_spec}(spec, data = NULL, ctx = NULL, ...)
 }
 \arguments{
-\item{data}{A data.table, data.frame, or tsibble. Converted to tsibble internally for fable.}
+\item{spec}{A \code{univariate_fable_spec} object from \code{\link[=build_model]{build_model()}}. The
+\code{formula} slot follows the model-specification syntax in \code{\link[fable:ARIMA]{fable::ARIMA()}}
+or \code{\link[fable:ETS]{fable::ETS()}}.}
+
+\item{data}{A data.table, data.frame, or tsibble. Converted to tsibble
+internally for fable.}
 
 \item{ctx}{A panel_context object.}
 
-\item{...}{Other arguments from \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
-
-\item{formula}{An R-formula using the model specification in \code{\link[fable:ARIMA]{fable::ARIMA()}} or \code{\link[fable:ETS]{fable::ETS()}}}
-
-\item{method}{Character. Either "arima" or "ets".}
+\item{...}{Additional arguments forwarded to \code{\link[fable:ARIMA]{fable::ARIMA()}} or
+\code{\link[fable:ETS]{fable::ETS()}}.}
 }
 \value{
-A univariate_fable endogenmodel class.
+A univariate_fable endogenmodel.
 }
 \description{
-Univariate statistical models ("univariate_fable") currently supports exponential smoothing (ETS) and ARIMA models. See \url{https://otexts.com/fpp3/} for
-details on these models. These models are estimated independently for each groupvar in \code{\link[=setup_simulator]{setup_simulator()}}, and the forecasts are completely
-independent of the rest of the system (the forecasts are populated in the simulation dataset before the dynamic simulation is calculated). See \code{\link[fable:ETS]{fable::ETS()}}
-and \code{\link[fable:ARIMA]{fable::ARIMA()}} for how to write the function calls for these models. A simple exponential smoothing model can be set up using
-build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets").
+Univariate statistical models ("univariate_fable") currently support
+exponential smoothing (ETS) and ARIMA models. See \url{https://otexts.com/fpp3/}
+for details on these models. These models are estimated independently for
+each panel unit, and their forecasts are populated in the simulation
+dataset before the dynamic simulation runs. See \code{\link[fable:ETS]{fable::ETS()}} and
+\code{\link[fable:ARIMA]{fable::ARIMA()}} for how to write the function calls. A simple ETS model
+is set up via
+\code{build_model("univariate_fable", formula = y ~ error("A") + trend("N") + season("N"), method = "ets")}.
 }
 \details{
 Requires packages \code{fable}, \code{fabletools}, and \code{tsibble} (in Suggests).
 }
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

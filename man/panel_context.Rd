@@ -35,3 +35,4 @@ A lightweight metadata carrier that stores panel dimension names (unit, time,
 sim) separately from the data. This decouples panel metadata from the data
 carrier, preventing silent metadata loss on data operations.
 }
+\concept{panel_context}

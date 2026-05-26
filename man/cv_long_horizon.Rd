@@ -44,3 +44,13 @@ Runs the full pipeline — \code{\link[=setup_long_horizon]{setup_long_horizon()
 for each training window defined by \code{test_starts}, stacks all forecasts, and
 returns aggregated accuracy scores.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

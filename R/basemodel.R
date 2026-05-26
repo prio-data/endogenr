@@ -2,7 +2,7 @@
 #'
 #' Do not use directly.
 #'
-#' @param formula
+#' @param formula A two-sided R formula stored on the model spec.
 #'
 #' @return A list with class endogenmodel
 #' @keywords internal
@@ -22,13 +22,46 @@ new_endogenmodel <- function(formula){
 #' arguments. Actual fitting happens later via [fit_model()] (called
 #' internally by [setup_simulator()]).
 #'
+#' @section Model types and required arguments:
+#'
+#' \describe{
+#'   \item{`"deterministic"`}{Two-sided formula `outcome ~ I(expr)`. The RHS
+#'     must be wrapped in `I()`. Evaluated at each simulated time step `t`.
+#'     No fitting; no extra arguments.}
+#'   \item{`"parametric_distribution"`}{One-sided formula `~ var`. Pass
+#'     `distribution = "norm"` (or any distribution name accepted by
+#'     [fitdistrplus::fitdist()]). Extra arguments (`start`, `method`,
+#'     `lower`, `upper`, …) are forwarded to `fitdist()`.}
+#'   \item{`"linear"`}{Two-sided formula. Optional `boot ∈ {"resid","wild"}`
+#'     selects residual or wild bootstrap; omit `boot` for plain OLS.}
+#'   \item{`"glm"`}{Two-sided formula. `family = stats::gaussian()` by
+#'     default; pass any `stats::family` (e.g. `stats::quasibinomial()`).
+#'     Optional `boot` as for `"linear"`.}
+#'   \item{`"exogen"`}{One-sided formula `~var`. The variable must already
+#'     be present in `data` for every row of the forecast horizon — the
+#'     model just copies those values into the simulation grid.}
+#'   \item{`"univariate_fable"`}{Two-sided fable formula (e.g.
+#'     `y ~ error("A") + trend("N") + season("N")`). Pass `method = "ets"`
+#'     or `method = "arima"`. Requires the `fable`/`fabletools`/`tsibble`
+#'     packages.}
+#'   \item{`"heterolm"`}{Two-sided mean formula plus `variance = ~ ...`
+#'     (one-sided log-variance formula, defaults to `~ 1`). Requires the
+#'     `heterolm` package.}
+#'   \item{`"spatial_lag"`}{Two-sided formula `sl_y ~ lag(y)` (use `lag()`
+#'     to avoid a circular dependency on a same-period outcome). Pass `nb`,
+#'     `wt`, and `unit_ids` from [st_weights_from_sf()] or `sfdep`
+#'     directly. Optional `island_default` for units with no neighbours.}
+#' }
+#'
 #' @param type One of "deterministic", "parametric_distribution", "linear",
 #'   "glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".
-#' @param formula An R formula. See details for each model type.
-#' @param ... Model-specific arguments (e.g. `boot`, `distribution`, `family`,
-#'   `variance`, `nb`, `wt`, `unit_ids`).
+#' @param formula An R formula. See the model-type section for the expected
+#'   shape per type.
+#' @param ... Model-specific arguments. See the model-type section.
 #'
 #' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`).
+#' @seealso [setup_simulator()], [simulate_endogenr()], [fit_model()]
+#' @family build
 #' @export
 #'
 #' @examples
@@ -72,5 +105,6 @@ build_model <- function(type, formula, ...) {
 #'   `ctx`, `subset`).
 #'
 #' @return A fitted endogenmodel object.
+#' @family build
 #' @export
 fit_model <- function(spec, ...) UseMethod("fit_model")

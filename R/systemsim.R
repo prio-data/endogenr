@@ -132,23 +132,81 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 }
 
 
-#' Sets up the endogenr simulator, including fitting the models
+#' Set up an endogenr simulator
 #'
-#' @param models A list of models created using [build_model()]
-#' @param data A data.frame, data.table, or tsibble. Must contain all variables referenced by
-#'   model formulas, plus groupvar, timevar, and future exogenous data.
-#' @param train_start Integer. The earliest training time to include.
-#' @param test_start Integer. When to start the forecast period.
-#' @param horizon Integer. How many time steps to forecast.
-#' @param groupvar Character. The column name identifying panel units.
-#' @param timevar Character. The column name identifying time periods.
+#' Validates the input panel, validates that the model system is closed, fits
+#' all model specs once on the training window, builds the dependency graph,
+#' and prepares the simulation grid. The returned setup object is the input
+#' to [simulate_endogenr()].
+#'
+#' @details
+#' During setup the following happens, in order:
+#' \enumerate{
+#'   \item The panel is coerced to a `data.table`, sorted by
+#'     `(groupvar, timevar)`, and filtered to
+#'     `[train_start, test_start + horizon - 1]`.
+#'   \item [validate_panel()] checks contiguous integer time, balanced units,
+#'     correct sort order, and complete initial state at `test_start - 1`.
+#'   \item [validate_system_closure()] checks that every RHS variable is
+#'     produced either by another model or by a data column, that all
+#'     formula-referenced columns exist in `data`, and that no two models
+#'     share an outcome.
+#'   \item Each spec is fit via [fit_model()] once (or with a randomly drawn
+#'     window from [get_train_window()] for `linear`/`glm`/`heterolm` when
+#'     `min_window` is set).
+#'   \item The dependency graph is built and a topological execution order is
+#'     computed via [get_execution_order()].
+#'   \item The cross-join simulation grid is created via
+#'     `prepare_simulation_data()`.
+#' }
+#'
+#' The returned list carries two contexts: `ctx` (with `sim = "sim"`, used at
+#' predict time) and `fit_ctx` (without `sim`, used by inner refits). Both
+#' are produced by [panel_context()].
+#'
+#' `min_window` triggers a random training window per outer simulation for
+#' the parametric regression families. Leave it `NULL` for a fixed window
+#' `[train_start, test_start - 1]`.
+#'
+#' `globals` is forwarded as-is to `future.apply::future_lapply()` so that
+#' user-defined functions referenced by formulas (e.g. closure helpers) are
+#' visible on parallel workers.
+#'
+#' @param models A list of model specs created by [build_model()].
+#' @param data A data.frame, data.table, or tsibble. Must contain all
+#'   variables referenced by model formulas, plus `groupvar`, `timevar`, and
+#'   future exogenous data through `test_start + horizon - 1`.
+#' @param train_start Integer. Earliest training time to include.
+#' @param test_start Integer. First time step in the forecast period.
+#' @param horizon Integer. Number of forecast time steps.
+#' @param groupvar Character. Column name identifying panel units.
+#' @param timevar Character. Column name identifying time periods.
 #' @param inner_sims Integer. Number of inner simulations per outer sim.
-#' @param min_window Integer or NULL. If set, linear/glm/heterolm models get a random
-#'   training window of at least this length per outer simulation.
+#' @param min_window Integer or `NULL`. If set, `linear`/`glm`/`heterolm`
+#'   models are refit on a random training window of at least this length
+#'   per outer simulation.
 #' @param globals Named list of user functions to export to parallel workers.
 #'
 #' @return A list of setup parameters for [simulate_endogenr()].
+#' @seealso [build_model()], [simulate_endogenr()], [validate_panel()],
+#'   [validate_system_closure()]
+#' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' df <- endogenr::example_data
+#' system <- list(
+#'   build_model("deterministic",
+#'               formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
+#'   build_model("parametric_distribution",
+#'               formula = ~gdppc_grwt, distribution = "norm"),
+#'   build_model("exogen", formula = ~population)
+#' )
+#' setup <- setup_simulator(system, df,
+#'   train_start = 1970, test_start = 2010, horizon = 5,
+#'   groupvar = "gwcode", timevar = "year", inner_sims = 2)
+#' }
 setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar,
                             inner_sims, min_window = NULL, globals = NULL) {
   # Create panel context
@@ -274,17 +332,50 @@ inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
   return(sim)
 }
 
-#' Dynamic simulation of the system
+#' Run the dynamic simulation of an endogenr system
 #'
-#' Runs the endogenr simulation system. Estimates models, sequences the forecast,
-#' and simulates outcomes for all units across the forecast horizon.
+#' Estimates models, sequences the forecast according to the dependency
+#' graph computed in [setup_simulator()], and simulates outcomes for all
+#' units across the forecast horizon. Returns one long `data.table` with a
+#' `.sim` column identifying each draw.
+#'
+#' @details
+#' Parallel execution is controlled by the user via the `future` package.
+#' Set a plan before calling `simulate_endogenr()`:
+#'
+#' ```r
+#' future::plan(future::multisession, workers = 6)
+#' progressr::with_progress({
+#'   res <- simulate_endogenr(nsim = 50, simulator_setup = setup)
+#' })
+#' future::plan(future::sequential)
+#' ```
+#'
+#' Progress reporting uses [progressr::progressor()] when the `progressr`
+#' package is installed; wrap the call in [progressr::with_progress()] to
+#' see a bar.
+#'
+#' The output carries `panel_unit` / `panel_time` attributes (the
+#' `paneltools::as_panel()` convention) so downstream helpers like
+#' [get_accuracy()], [plotsim()], and [sim_to_dist()] infer the panel
+#' context automatically.
+#'
+#' `parallel` and `ncores` are deprecated and retained only for backward
+#' compatibility; they emit a deprecation message and, when `parallel =
+#' TRUE`, register a temporary `future::multisession` plan that is restored
+#' on exit. Prefer setting the plan yourself.
 #'
 #' @param nsim Integer. Number of outer-loop simulations.
 #' @param simulator_setup A list from [setup_simulator()].
-#' @param parallel Logical. Use parallel computation via [future::multisession()].
-#' @param ncores Integer. Number of workers for parallel execution.
+#' @param parallel Logical. Deprecated. Use [future::plan()] before calling.
+#' @param ncores Integer. Deprecated. Use [future::plan()] before calling.
 #'
-#' @return A data.table with all original columns plus `.sim` (integer 1..nsim*inner_sims).
+#' @return A `data.table` with all simulation columns plus `.sim` (integer
+#'   `1..nsim * inner_sims`). Carries `panel_unit` and `panel_time`
+#'   attributes.
+#' @seealso [setup_simulator()], [get_accuracy()], [plotsim()],
+#'   [sim_to_dist()]
+#' @family simulation
 #' @export
 simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6) {
   if (!missing(parallel) || !missing(ncores)) {
@@ -377,6 +468,7 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A data.table with one row per (unit, time), output columns as list-columns.
+#' @family postprocess
 #' @export
 sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim") {
   if (is.null(ctx)) {
@@ -412,6 +504,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #'
 #' @return A data.table with one row per unit, columns: unit, crps, mae, winkler.
+#' @family postprocess
 #' @export
 get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var = ".sim", level = 50) {
   if (is.null(ctx)) {
@@ -492,6 +585,7 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A ggplot object.
+#' @family postprocess
 #' @export
 plotsim <- function(simulation_results, outcome, units, true_data, ctx = NULL, sim_var = ".sim") {
   if (is.null(ctx)) {

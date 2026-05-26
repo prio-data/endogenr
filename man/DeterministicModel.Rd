@@ -7,7 +7,12 @@
 deterministicmodel(formula = NULL, ctx = NULL)
 }
 \arguments{
+\item{formula}{A two-sided formula of the form \code{outcome ~ I(expr)}.}
+
 \item{ctx}{A panel_context object (unused but accepted for consistency).}
+}
+\value{
+An endogenmodel of class \code{deterministic}.
 }
 \description{
 This calculates a deterministic outcome based on an R formula.

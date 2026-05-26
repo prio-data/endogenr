@@ -39,3 +39,12 @@ For repeated calls with the same formula (e.g. inside a simulation loop),
 pass \code{.mat_formula} and \code{.col_mapping} (cached from a prior call) to skip
 the \code{update()} / \code{inject_positional_lag()} / \code{clean_names()} overhead.
 }
+\seealso{
+Other formula_helpers:
+\code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=inject_positional_lag]{inject_positional_lag()}},
+\code{\link[=intensity_decay]{intensity_decay()}},
+\code{\link[=time_since_event]{time_since_event()}}
+}
+\concept{formula_helpers}

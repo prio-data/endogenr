@@ -6,6 +6,12 @@
 \usage{
 get_sepi(lmpred)
 }
+\arguments{
+\item{lmpred}{A prediction object from \code{predict.lm()} with \code{se.fit = TRUE}.}
+}
+\value{
+Numeric vector. Per-row standard error including residual scale.
+}
 \description{
 Get the standard error for prediction
 }

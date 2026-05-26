@@ -12,6 +12,11 @@ getpi_glm(glmpred, family, df, nsamples = 1)
 \item{family}{a family object}
 
 \item{df}{residual degrees of freedom}
+
+\item{nsamples}{Integer. Number of draws from the predictive distribution.}
+}
+\value{
+A numeric vector (or matrix if \code{nsamples > 1}) of samples on the response scale.
 }
 \description{
 Samples nsamples points from the predictive distribution on the response scale.

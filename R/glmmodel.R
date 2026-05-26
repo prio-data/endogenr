@@ -2,15 +2,13 @@
 #'
 #' Supports residual based bootstrapping and wild bootstrapping on the link scale.
 #'
-#' @param formula
-#' @param data
-#' @param family
-#' @param type
+#' @param formula A two-sided R formula.
+#' @param data A data.frame or data.table.
+#' @param family A `family` object (e.g. `stats::gaussian()`).
+#' @param type Bootstrap type: `"resid"` or `"wild"`.
 #'
-#' @return
+#' @return A fitted `glm` object.
 #' @keywords internal
-#'
-#' @examples
 bootstrapglm <- function(formula, data, family, type){
   data <- na.omit(data)
   fitted <- stats::glm(formula, data, family = family)
@@ -46,18 +44,16 @@ fit_model.glm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...
 
 #' GLM model
 #'
-#' @param formula
+#' @param formula A two-sided R formula.
 #' @param family A family object (e.g. quasibinomial(), gaussian(), poisson())
-#' @param boot
+#' @param boot Optional bootstrap type: `"resid"`, `"wild"`, or `NULL`.
 #' @param data A data.table or data.frame.
 #' @param ctx A panel_context object.
 #' @param subset Optional list with start/end for training window.
-#' @param ...
+#' @param ... Additional arguments stored on the model spec.
 #'
-#' @return
+#' @return An endogenmodel of class `glm_endogenr`.
 #' @keywords internal
-#'
-#' @examples
 glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, data = NULL, ctx = NULL, subset = NULL, ...){
   model <- new_endogenmodel(formula)
   model$boot <- boot
@@ -110,12 +106,10 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, da
 #' @param glmpred prediction object from predict.glm with se.fit = TRUE and type = "link"
 #' @param family a family object
 #' @param df residual degrees of freedom
-#' @param nsamples
+#' @param nsamples Integer. Number of draws from the predictive distribution.
 #'
-#' @return
+#' @return A numeric vector (or matrix if `nsamples > 1`) of samples on the response scale.
 #' @keywords internal
-#'
-#' @examples
 getpi_glm <- function(glmpred, family, df, nsamples = 1){
   # Sample on the link scale using t-distribution, then apply inverse link
   eta_samples <- glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
@@ -128,17 +122,16 @@ getpi_glm <- function(glmpred, family, df, nsamples = 1){
 
 #' Predict function for a GLM model
 #'
-#' @param model
+#' @param model A `glm_endogenr` endogenmodel.
 #' @param data A data.table.
 #' @param t Time step to predict.
 #' @param ctx A panel_context object.
 #' @param what Either "pi" or "expectation".
-#' @param ...
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
-#'
-#' @examples
 predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)
   grp <- ctx_unit(ctx)

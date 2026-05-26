@@ -26,3 +26,13 @@ Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRP
 Output format is compatible with \code{\link[=get_accuracy]{get_accuracy()}} results (after aggregating
 by horizon) for cross-approach comparison via \code{\link[=compare_approaches]{compare_approaches()}}.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

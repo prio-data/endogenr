@@ -25,6 +25,7 @@
 #'   Default `9`.
 #'
 #' @return A `patchwork` object (if `show_gof = TRUE`) or a `ggplot` object.
+#' @family postprocess
 #' @export
 plot_estimates <- function(
     models,

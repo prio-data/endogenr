@@ -23,3 +23,9 @@ A data.table with the spatial lag values at time \code{t}.
 \description{
 Predict method for spatial lag models
 }
+\seealso{
+Other spatial:
+\code{\link[=fit_model.spatial_lag_spec]{fit_model.spatial_lag_spec()}},
+\code{\link[=st_weights_from_sf]{st_weights_from_sf()}}
+}
+\concept{spatial}

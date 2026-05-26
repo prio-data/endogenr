@@ -39,3 +39,13 @@ with \code{.target} (the column added by \code{\link[=create_lh_data]{create_lh_
 \item RHS = covariates at the baseline year t
 }
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

@@ -8,13 +8,11 @@ fit_model.deterministic_spec <- function(spec, ctx = NULL, ...) {
 #'
 #' This calculates a deterministic outcome based on an R formula.
 #'
-#' @param formula
+#' @param formula A two-sided formula of the form `outcome ~ I(expr)`.
 #' @param ctx A panel_context object (unused but accepted for consistency).
 #'
-#' @return
+#' @return An endogenmodel of class `deterministic`.
 #' @keywords internal
-#'
-#' @examples
 deterministicmodel <- function(formula = NULL, ctx = NULL){
   model <- new_endogenmodel(formula)
   class(model) <- c("deterministic", class(model))
@@ -26,13 +24,14 @@ deterministicmodel <- function(formula = NULL, ctx = NULL){
 
 #' Predict function for a deterministic model
 #'
-#' @param model
+#' @param model A `deterministic` endogenmodel.
 #' @param t Time step to predict.
 #' @param data A data.table.
 #' @param ctx A panel_context object.
-#' @param ...
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
 predict.deterministic <- function(model, t, data, ctx, ...) {
   idx <- ctx_time(ctx)

@@ -7,11 +7,15 @@
 \method{predict}{deterministic}(model, t, data, ctx, ...)
 }
 \arguments{
+\item{model}{A \code{deterministic} endogenmodel.}
+
 \item{t}{Time step to predict.}
 
 \item{data}{A data.table.}
 
 \item{ctx}{A panel_context object.}
+
+\item{...}{Ignored, accepted for S3 generic consistency.}
 }
 \value{
 A data.table with key + index + outcome columns.
@@ -19,3 +23,19 @@ A data.table with key + index + outcome columns.
 \description{
 Predict function for a deterministic model
 }
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

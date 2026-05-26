@@ -111,15 +111,20 @@ fit_parametric_distribution_model <- function(model, data) {
 #' Parametric distribution model
 #'
 #' This model is static across time, and therefore independent/exogenous.
-#' Uses fitdistrplus::fitdist() to fit a distribution to the pooled training data.
+#' Uses [fitdistrplus::fitdist()] to fit a distribution to the pooled training
+#' data.
 #'
-#' @param formula A one-sided formula (e.g. `~gdppc_grwt`).
-#' @param distribution Character. Distribution name compatible with fitdistrplus.
-#' @param data A data.table or data.frame.
+#' Use [build_model()] with `type = "parametric_distribution"`, a one-sided
+#' formula (e.g. `~gdppc_grwt`), and `distribution = "norm"` (or any
+#' distribution name accepted by `fitdist()`).
+#'
+#' @param spec A `parametric_distribution_spec` object from [build_model()].
+#' @param data A data.table or data.frame containing the outcome column.
 #' @param ctx A panel_context object.
-#' @param ... Additional arguments passed to fitdistrplus::fitdist().
+#' @param ... Additional arguments forwarded to [fitdistrplus::fitdist()].
 #'
 #' @return An endogenmodel of class `parametric_distribution`.
+#' @family simulation
 #' @export
 #' @exportS3Method
 fit_model.parametric_distribution_spec <- function(spec, data = NULL, ctx = NULL, ...) {
@@ -159,6 +164,7 @@ parametric_distribution_model <- function(formula = NULL, distribution = NULL, d
 #' @param ... Ignored.
 #'
 #' @return A data.table with columns: unit, sim, time, outcome.
+#' @family simulation
 #' @export
 predict.parametric_distribution <- function(model, data, ctx, test_start, horizon, inner_sims, ...) {
   unit_col <- ctx_unit(ctx)

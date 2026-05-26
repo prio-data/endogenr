@@ -6,6 +6,13 @@
 \usage{
 parse_formula(model)
 }
+\arguments{
+\item{model}{An endogenmodel with \verb{$formula} and \code{class()} set.}
+}
+\value{
+A list with \code{edges} (data.frame of in/out edges), \code{vertices}
+(character vector), and \code{outcome} (the LHS variable name).
+}
 \description{
 Parse a model formula to correctly anticipate the input and output variables
 }

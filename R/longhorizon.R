@@ -33,6 +33,7 @@
 #'
 #' @return A data.table with all original columns plus a `.target` column holding
 #'   the h-step-ahead value of the outcome.
+#' @family long_horizon
 #' @export
 create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
   if (!data.table::is.data.table(data)) {
@@ -73,6 +74,7 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
 #' @return A list with model components for use in [forecast_long_horizon()]:
 #'   `formula`, `aligned_formula`, `naive_formula`, `h`, `fitted`, `sigma`,
 #'   `df`, `fit_data`, `boot`.
+#' @family long_horizon
 #' @export
 fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NULL) {
   if (!data.table::is.data.table(aligned_data)) {
@@ -159,6 +161,7 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 #' @param boot Character or NULL. Bootstrap type: `"resid"`, `"wild"`, or `NULL`.
 #'
 #' @return A `lh_setup` list suitable for [forecast_long_horizon()].
+#' @family long_horizon
 #' @export
 setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
                                train_end, boot = NULL) {
@@ -297,6 +300,7 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #'
 #' @return A data.table with columns: `groupvar`, `test_start`, `horizon`,
 #'   `year_target`, `variant`, `.draws` (list-column of numeric vectors).
+#' @family long_horizon
 #' @export
 forecast_long_horizon <- function(lh_setup, data, test_start,
                                   nsim = 500L, inner_sims = 10L) {
@@ -339,6 +343,7 @@ forecast_long_horizon <- function(lh_setup, data, test_start,
 #' @param timevar Character. Time variable name.
 #'
 #' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`.
+#' @family long_horizon
 #' @export
 get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
   if (!data.table::is.data.table(lh_forecasts)) {
@@ -391,6 +396,7 @@ get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
 #'
 #' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`, averaged
 #'   across all folds, units, and horizons.
+#' @family long_horizon
 #' @export
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
                             test_starts, boot = NULL, nsim = 500L,
@@ -428,6 +434,7 @@ cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #'   Must contain at least `horizon`, `crps`, and `mae` columns.
 #'
 #' @return A data.table with columns: `approach`, `variant`, `horizon`, `crps`, `mae`.
+#' @family long_horizon
 #' @export
 compare_approaches <- function(lh_accuracy, sim_accuracy) {
   if (!data.table::is.data.table(lh_accuracy)) {

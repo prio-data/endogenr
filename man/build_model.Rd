@@ -10,10 +10,10 @@ build_model(type, formula, ...)
 \item{type}{One of "deterministic", "parametric_distribution", "linear",
 "glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".}
 
-\item{formula}{An R formula. See details for each model type.}
+\item{formula}{An R formula. See the model-type section for the expected
+shape per type.}
 
-\item{...}{Model-specific arguments (e.g. \code{boot}, \code{distribution}, \code{family},
-\code{variance}, \code{nb}, \code{wt}, \code{unit_ids}).}
+\item{...}{Model-specific arguments. See the model-type section.}
 }
 \value{
 An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb{$args}).
@@ -24,6 +24,39 @@ The spec is a lightweight object storing the model type, formula, and
 arguments. Actual fitting happens later via \code{\link[=fit_model]{fit_model()}} (called
 internally by \code{\link[=setup_simulator]{setup_simulator()}}).
 }
+\section{Model types and required arguments}{
+
+
+\describe{
+\item{\code{"deterministic"}}{Two-sided formula \code{outcome ~ I(expr)}. The RHS
+must be wrapped in \code{I()}. Evaluated at each simulated time step \code{t}.
+No fitting; no extra arguments.}
+\item{\code{"parametric_distribution"}}{One-sided formula \code{~ var}. Pass
+\code{distribution = "norm"} (or any distribution name accepted by
+\code{\link[fitdistrplus:fitdist]{fitdistrplus::fitdist()}}). Extra arguments (\code{start}, \code{method},
+\code{lower}, \code{upper}, …) are forwarded to \code{fitdist()}.}
+\item{\code{"linear"}}{Two-sided formula. Optional \verb{boot ∈ \{"resid","wild"\}}
+selects residual or wild bootstrap; omit \code{boot} for plain OLS.}
+\item{\code{"glm"}}{Two-sided formula. \code{family = stats::gaussian()} by
+default; pass any \code{stats::family} (e.g. \code{stats::quasibinomial()}).
+Optional \code{boot} as for \code{"linear"}.}
+\item{\code{"exogen"}}{One-sided formula \code{~var}. The variable must already
+be present in \code{data} for every row of the forecast horizon — the
+model just copies those values into the simulation grid.}
+\item{\code{"univariate_fable"}}{Two-sided fable formula (e.g.
+\code{y ~ error("A") + trend("N") + season("N")}). Pass \code{method = "ets"}
+or \code{method = "arima"}. Requires the \code{fable}/\code{fabletools}/\code{tsibble}
+packages.}
+\item{\code{"heterolm"}}{Two-sided mean formula plus \code{variance = ~ ...}
+(one-sided log-variance formula, defaults to \code{~ 1}). Requires the
+\code{heterolm} package.}
+\item{\code{"spatial_lag"}}{Two-sided formula \code{sl_y ~ lag(y)} (use \code{lag()}
+to avoid a circular dependency on a same-period outcome). Pass \code{nb},
+\code{wt}, and \code{unit_ids} from \code{\link[=st_weights_from_sf]{st_weights_from_sf()}} or \code{sfdep}
+directly. Optional \code{island_default} for units with no neighbours.}
+}
+}
+
 \examples{
 df <- endogenr::example_data
 train <- df[df$year >= 1970 & df$year < 2010, ]
@@ -38,3 +71,12 @@ model_system <- list(
   build_model("exogen", formula = ~population)
 )
 }
+\seealso{
+\code{\link[=setup_simulator]{setup_simulator()}}, \code{\link[=simulate_endogenr]{simulate_endogenr()}}, \code{\link[=fit_model]{fit_model()}}
+
+Other build:
+\code{\link[=fit_model]{fit_model()}},
+\code{\link[=get_execution_order]{get_execution_order()}},
+\code{\link[=get_train_window]{get_train_window()}}
+}
+\concept{build}

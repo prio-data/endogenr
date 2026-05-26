@@ -12,6 +12,7 @@
 #' @param sim Character or NULL. Column name identifying simulation draws.
 #'
 #' @return A `panel_context` object.
+#' @family panel_context
 #' @export
 panel_context <- function(unit, time, sim = NULL) {
   stopifnot(is.character(unit), length(unit) == 1L)

@@ -6,6 +6,16 @@
 \usage{
 bootstraplm(formula, data, type)
 }
+\arguments{
+\item{formula}{A two-sided R formula.}
+
+\item{data}{A data.frame or data.table.}
+
+\item{type}{Bootstrap type: \code{"resid"} or \code{"wild"}.}
+}
+\value{
+A fitted \code{lm} object.
+}
 \description{
 Supports residual based bootstrapping and wild bootstrapping.
 }

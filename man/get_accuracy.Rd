@@ -38,3 +38,10 @@ A data.table with one row per unit, columns: unit, crps, mae, winkler.
 Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
 observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS computation.
 }
+\seealso{
+Other postprocess:
+\code{\link[=plot_estimates]{plot_estimates()}},
+\code{\link[=plotsim]{plotsim()}},
+\code{\link[=sim_to_dist]{sim_to_dist()}}
+}
+\concept{postprocess}

@@ -7,20 +7,40 @@
 \method{fit_model}{parametric_distribution_spec}(spec, data = NULL, ctx = NULL, ...)
 }
 \arguments{
-\item{data}{A data.table or data.frame.}
+\item{spec}{A \code{parametric_distribution_spec} object from \code{\link[=build_model]{build_model()}}.}
+
+\item{data}{A data.table or data.frame containing the outcome column.}
 
 \item{ctx}{A panel_context object.}
 
-\item{...}{Additional arguments passed to fitdistrplus::fitdist().}
-
-\item{formula}{A one-sided formula (e.g. \code{~gdppc_grwt}).}
-
-\item{distribution}{Character. Distribution name compatible with fitdistrplus.}
+\item{...}{Additional arguments forwarded to \code{\link[fitdistrplus:fitdist]{fitdistrplus::fitdist()}}.}
 }
 \value{
 An endogenmodel of class \code{parametric_distribution}.
 }
 \description{
 This model is static across time, and therefore independent/exogenous.
-Uses fitdistrplus::fitdist() to fit a distribution to the pooled training data.
+Uses \code{\link[fitdistrplus:fitdist]{fitdistrplus::fitdist()}} to fit a distribution to the pooled training
+data.
 }
+\details{
+Use \code{\link[=build_model]{build_model()}} with \code{type = "parametric_distribution"}, a one-sided
+formula (e.g. \code{~gdppc_grwt}), and \code{distribution = "norm"} (or any
+distribution name accepted by \code{fitdist()}).
+}
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_simulator]{setup_simulator()}},
+\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+}
+\concept{simulation}

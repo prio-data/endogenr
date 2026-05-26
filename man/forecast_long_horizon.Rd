@@ -36,3 +36,13 @@ For each (variant, horizon) combination in a \code{lh_setup} object, draws
 \code{nsim * inner_sims} samples from the predictive distribution conditioned on
 covariates observed at \code{test_start}.
 }
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}
