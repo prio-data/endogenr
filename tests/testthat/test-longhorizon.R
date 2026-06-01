@@ -18,6 +18,18 @@ lh_test_data <- function() {
   data.table::as.data.table(df)
 }
 
+# ── Helper: panel with cross-sectional design columns ─────────────────────
+# Adds a balanced two-level `region` factor plus two extra covariates so the
+# pooled design (factor intercepts, interactions, `-1`) can be exercised.
+
+lh_design_data <- function() {
+  dt <- lh_test_data()
+  dt[, region := ifelse(gwcode <= 3L, "A", "B")]
+  dt[, yjbest := stats::rnorm(.N)]
+  dt[, dem := stats::rnorm(.N)]
+  dt[]
+}
+
 # ── lead_horizon ──────────────────────────────────────────────────────────
 
 test_that("lead_horizon performs a positional lead with NA padding", {
@@ -57,8 +69,8 @@ test_that("RHS is evaluated at the origin (no implicit lag)", {
   dt <- lh_test_data()
   f <- list(lh = lead_horizon(y) ~ y + x)
   setup <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010)
-  # naive formula predictors are the origin covariates, not lagged copies
-  nf <- setup$models$lh[["1"]]$naive_formula
+  # fit formula predictors are the origin covariates, not lagged copies
+  nf <- setup$models$lh[["1"]]$fit_formula
   expect_setequal(all.vars(nf), c(".target", "y", "x"))
 })
 
@@ -278,4 +290,116 @@ test_that("get_lh_accuracy scores each variant against its own outcome", {
   # which only holds if each variant is scored against its own outcome column.
   expect_gt(stats::median(acc[variant == "big", crps]),
             10 * stats::median(acc[variant == "small", crps]))
+})
+
+
+# ── pooled estimation with cross-sectional / design terms ─────────────────
+
+test_that("factor(region) with -1 fits pooled (no contrasts error) and forecasts", {
+  dt <- lh_design_data()
+  # The user's failing call shape: -1 + factor(region) + covariates.
+  f <- list(m = lead_horizon(log(gdppc)) ~
+              -1 + factor(region) + log(gdppc) + yjbest + dem)
+
+  expect_error(
+    setup <- setup_long_horizon(dt, f, 1:2, "gwcode", "year",
+                                test_start = 2010),
+    NA
+  )
+
+  # Region-specific intercepts: under -1 every region level is a coefficient.
+  co <- names(stats::coef(setup$models$m[["1"]]$fitted))
+  expect_true(all(c("factor(region)A", "factor(region)B") %in% co))
+
+  fc  <- forecast_long_horizon(setup, dt, nsim = 20, inner_sims = 3)
+  acc <- get_lh_accuracy(fc, dt, setup, scale = "model")
+  expect_true(all(is.finite(acc$crps)))
+  # one accuracy row per (variant, unit, horizon)
+  expect_equal(nrow(acc), data.table::uniqueN(dt$gwcode) * 2L)
+})
+
+test_that("interaction factor(region):log(gdppc) fits region-specific slopes", {
+  dt <- lh_design_data()
+  f <- list(i = lead_horizon(log(gdppc)) ~
+              factor(region) + factor(region):log(gdppc))
+  setup <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010)
+
+  co <- names(stats::coef(setup$models$i[["1"]]$fitted))
+  expect_true(any(grepl("factor\\(region\\).*:.*log\\(gdppc\\)", co)))
+
+  fc <- forecast_long_horizon(setup, dt, nsim = 10, inner_sims = 2)
+  expect_true(all(is.finite(unlist(fc$.draws))))
+})
+
+test_that("poly(log(gdppc), 2) fits and predict reproduces the basis", {
+  dt <- lh_design_data()
+  f <- list(p = lead_horizon(log(gdppc)) ~ poly(log(gdppc), 2))
+  setup <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010)
+  expect_equal(length(stats::coef(setup$models$p[["1"]]$fitted)), 3L) # int + 2
+
+  fc <- forecast_long_horizon(setup, dt, nsim = 10, inner_sims = 2)
+  expect_true(all(is.finite(unlist(fc$.draws))))
+})
+
+test_that("RHS lag() is panel-aware (within-unit shift, no cross-unit bleed)", {
+  dt <- lh_design_data()
+  f <- list(l = lead_horizon(log(gdppc)) ~ factor(region) + lag(log(gdppc)))
+  setup <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010)
+  m <- setup$models$l[["1"]]
+
+  # The lag is extracted to a `.pt` column; the design term stays in the formula.
+  expect_equal(deparse(m$fit_formula), ".target ~ factor(region) + .pt1")
+  expect_equal(unname(vapply(m$ts_map, deparse, character(1))), "lag(log(gdppc))")
+
+  # `.pt1` equals the within-unit lag of log(gdppc): for gwcode 1 the value at
+  # year t equals log(gdppc) at year t-1 of the SAME unit (no bleed from unit 2).
+  fd <- m$fit_data
+  expect_true(".pt1" %in% names(fd))
+
+  fc <- forecast_long_horizon(setup, dt, nsim = 10, inner_sims = 2)
+  expect_true(all(is.finite(unlist(fc$.draws))))
+})
+
+test_that("bootstrap works with a transformed LHS (pooled refit)", {
+  dt <- lh_design_data()
+  f <- list(m = lead_horizon(log(gdppc)) ~ factor(region) + log(gdppc))
+  setup <- setup_long_horizon(dt, f, 1, "gwcode", "year",
+                              test_start = 2010, boot = "resid")
+  fc <- forecast_long_horizon(setup, dt, nsim = 10, inner_sims = 2)
+  expect_true(all(is.finite(unlist(fc$.draws))))
+})
+
+# ── regression guard: pooled fit is the canonical OLS ──────────────────────
+
+test_that("pooled fit equals a direct lm on the aligned data", {
+  dt <- lh_test_data()
+  f <- list(lh = lead_horizon(y) ~ y + x)
+  setup <- setup_long_horizon(dt, f, 2, "gwcode", "year", test_start = 2010)
+  fitted <- setup$models$lh[["2"]]$fitted
+
+  aligned <- create_lh_data(dt, "y", 2, "gwcode", "year", 2010)
+  direct  <- stats::lm(.target ~ y + x, data = aligned)
+
+  expect_equal(unname(stats::coef(fitted)), unname(stats::coef(direct)))
+  expect_equal(unname(summary(fitted)$sigma), unname(summary(direct)$sigma))
+})
+
+test_that("ts_fns registers a custom unwrapped within-unit function", {
+  dt <- lh_design_data()
+  # A user-defined within-unit transform used UNWRAPPED on the RHS.
+  cumstep <- function(z) cumsum(z) / seq_along(z)
+  f <- list(c = lead_horizon(log(gdppc)) ~ cumstep(x))
+
+  # Without registration it is treated as pooled (still fits, but not panel-aware).
+  s0 <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010)
+  expect_equal(deparse(s0$models$c[["1"]]$fit_formula), ".target ~ cumstep(x)")
+
+  # Registered as a time-series function it is extracted and evaluated per unit.
+  s1 <- setup_long_horizon(dt, f, 1, "gwcode", "year", test_start = 2010,
+                           ts_fns = "cumstep")
+  expect_equal(deparse(s1$models$c[["1"]]$fit_formula), ".target ~ .pt1")
+  expect_equal(unname(vapply(s1$models$c[["1"]]$ts_map, deparse, character(1))),
+               "cumstep(x)")
+  fc <- forecast_long_horizon(s1, dt, nsim = 10, inner_sims = 2)
+  expect_true(all(is.finite(unlist(fc$.draws))))
 })

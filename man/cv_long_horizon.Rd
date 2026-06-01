@@ -16,7 +16,8 @@ cv_long_horizon(
   inner_sims = 10L,
   scale = c("native", "model"),
   inverse = NULL,
-  level = 50
+  level = 50,
+  ts_fns = NULL
 )
 }
 \arguments{
@@ -47,6 +48,9 @@ as the \code{test_start} for its fold.}
 \item{inverse}{Function or NULL; see \code{\link[=get_lh_accuracy]{get_lh_accuracy()}}.}
 
 \item{level}{Numeric. Coverage level for the Winkler score (default 50).}
+
+\item{ts_fns}{Character vector or NULL. Extra within-unit time-series function
+names, passed to \code{\link[=setup_long_horizon]{setup_long_horizon()}} (see \code{\link[=fit_lh_model]{fit_lh_model()}}).}
 }
 \value{
 A data.table with columns: \code{variant}, the unit column, \code{horizon},

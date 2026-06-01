@@ -120,8 +120,27 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, test_start) {
 
 #' Fit a long-horizon OLS model
 #'
-#' Fits an ordinary least-squares model (with optional bootstrap) that predicts
-#' the h-step-ahead outcome from baseline covariates at the forecast origin t.
+#' Fits a single **pooled** ordinary least-squares model (with optional
+#' bootstrap) that predicts the h-step-ahead outcome from baseline covariates at
+#' the forecast origin t. One model is estimated across all units, so its
+#' coefficients are the average long-run effects. Cross-sectional and design
+#' structure is expressed through the formula language and resolved on the pooled
+#' data: `factor()` intercepts, interactions (e.g. `factor(region):log(gdppc)`
+#' for region-specific slopes), `poly()`/splines, and intercept suppression
+#' (`-1`) are all supported.
+#'
+#' Estimation is split into two stages so that panel structure and design
+#' construction never collide (`model.matrix()` is not panel-aware):
+#' * **Stage 1 (panel-aware).** Every maximal time-series sub-expression in the
+#'   formula — anything wrapped in `lag()`, `diff()`, `cumsum()`, a rolling
+#'   function, `decay_since_event()`, etc. (see the Time-series functions
+#'   section) — is evaluated *per unit* on time-ordered data and materialised
+#'   into a synthetic column. This is the only stage that needs the panel; it is
+#'   what makes `lag()` a within-unit shift rather than a pooled one.
+#' * **Stage 2 (pooled).** The rewritten formula is fitted with `lm()` /
+#'   [bootstraplm()] on the pooled data, so `factor` contrasts, `poly`/spline
+#'   bases and interactions are built across all units and reproduced at predict
+#'   time via `predict.lm()`'s stored `predvars`/`xlevels`.
 #'
 #' The formula LHS must be wrapped in [lead_horizon()] and names the outcome,
 #' optionally transformed, e.g. `lead_horizon(gdppc_grwt) ~ ...` or
@@ -131,95 +150,98 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, test_start) {
 #' * LHS = transformation applied to the h-step-ahead value
 #' * RHS = covariates at the baseline year t (write `lag()` only for older history)
 #'
+#' @section Time-series functions:
+#' The following are recognised as within-unit (panel-aware) and materialised in
+#' Stage 1: `lag`, `lead`, `lead_horizon`, `shift`, `rollmean`, `rollsum`,
+#' `rollapply`, `frollmean`, `frollsum`, `frollapply`, `cumsum`, `cumprod`,
+#' `cummax`, `cummin`, `diff`, `decay_since_event`, `time_since_event`,
+#' `intensity_decay` (matched bare or `pkg::`-qualified). A custom within-unit
+#' function used *unwrapped* and not in this set would be evaluated pooled
+#' (incorrect); either wrap it in `lag()` (the whole call is then materialised,
+#' so `lag(rollmean(...))` is always correct), precompute it as a column, or
+#' register its name via `ts_fns`. `scale()` and other data-dependent functions
+#' that are not design operators are treated as pooled/row-wise unless they sit
+#' inside a time-series expression.
+#'
 #' @param formula Formula. Model specification; LHS is `lead_horizon(outcome)`
-#'   (optionally transformed), RHS uses baseline covariates at the origin.
+#'   (optionally transformed), RHS uses baseline covariates at the origin and may
+#'   include `factor()`, interactions, `poly()`/splines and `-1`.
 #' @param aligned_data A data.table from [create_lh_data()].
 #' @param h Integer. Forecast horizon (stored for bookkeeping).
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
 #' @param boot Character or NULL. Bootstrap type: `"resid"`, `"wild"`, or `NULL`
 #'   for standard OLS.
+#' @param ts_fns Character vector or NULL. Extra function names to treat as
+#'   within-unit time-series functions, unioned with the built-in set (see the
+#'   Time-series functions section). Use to register a custom within-unit
+#'   function that you call unwrapped in the formula.
 #'
 #' @return A list with model components for use in [forecast_long_horizon()]:
-#'   `formula`, `aligned_formula`, `naive_formula`, `h`, `fitted`, `sigma`,
-#'   `df`, `fit_data`, `boot`.
+#'   `formula` (the original formula), `fit_formula` (the rewritten, pooled
+#'   formula actually fitted), `ts_map` (the `.pt#` -> time-series-expression
+#'   map), `h`, `fitted`, `sigma`, `df`, `fit_data`, `boot`.
 #' @family long_horizon
 #' @export
-fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NULL) {
+fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar,
+                         boot = NULL, ts_fns = NULL) {
   if (!data.table::is.data.table(aligned_data)) {
     aligned_data <- data.table::as.data.table(as.data.frame(aligned_data))
   }
 
-  # Build aligned formula: strip the lead_horizon() marker from the LHS and
-  # replace the outcome variable with .target (the led column from create_lh_data()).
-  inner_lhs   <- .lh_lhs_inner(formula)
-  outcome_var <- all.vars(inner_lhs)[1L]
-  new_lhs     <- .sub_sym(inner_lhs, outcome_var, ".target")
-  aligned_formula <- rlang::new_formula(new_lhs, rlang::f_rhs(formula),
-                                        env = rlang::f_env(formula))
+  # Build the fit formula: strip the lead_horizon() marker from the LHS and
+  # replace the outcome variable with .target (the led column from
+  # create_lh_data()). The RHS is left as written.
+  inner_lhs    <- .lh_lhs_inner(formula)
+  outcome_var  <- all.vars(inner_lhs)[1L]
+  fit_lhs      <- .sub_sym(inner_lhs, outcome_var, ".target")
+  fit_formula0 <- rlang::new_formula(fit_lhs, rlang::f_rhs(formula),
+                                     env = rlang::f_env(formula))
 
-  # Extend formula with timevar for row tracking
-  aligned_formula_ext <- stats::update(aligned_formula,
-                                       paste(". ~ . +", timevar))
+  # Stage 1: materialise per-unit time-series terms into `.pt#` columns and
+  # rewrite the formula to its pooled form.
+  pm  <- panel_materialize(fit_formula0, aligned_data, groupvar, timevar,
+                           ts_fns = ts_fns)
+  env <- rlang::f_env(pm$formula)
 
-  # Inject positional lag for per-group evaluation
-  aligned_formula_ext <- inject_positional_lag(aligned_formula_ext)
-
-  # Evaluate formula terms per group using data.table
-  model_data <- aligned_data[, {
-    mf <- tryCatch(
-      stats::model.frame(aligned_formula_ext, data = .SD, na.action = NULL),
-      error = function(e) NULL
-    )
-    if (is.null(mf)) return(data.table::data.table())
-    mm <- stats::model.matrix(stats::terms(mf), data = mf,
-                              na.action = stats::na.pass)
-    mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
-    resp <- stats::setNames(data.frame(mf[[1L]], stringsAsFactors = FALSE),
-                            names(mf)[1L])
-    data.table::as.data.table(cbind(resp, as.data.frame(mm)))
-  }, by = c(groupvar)]
-
-  # Name the response `.target` (it sits right after the group key) and clean
-  # only the remaining columns. Keeping the dotted, reserved-style name and
-  # excluding it from clean_names() guarantees the response can never collide
-  # with a user covariate, and that predictor names match those produced at
-  # predict time (where the response is absent).
-  resp_pos <- length(groupvar) + 1L
-  data.table::setnames(model_data, resp_pos, ".target")
-  other_cols <- setdiff(names(model_data), ".target")
-  data.table::setnames(model_data, other_cols,
-                       names(janitor::clean_names(model_data[, ..other_cols])))
-
-  # Identify columns to use for fitting (drop groupvar and timevar)
-  grp_clean  <- .clean_name(groupvar)
-  time_clean <- .clean_name(timevar)
-  all_vars   <- names(model_data)
-  fit_vars   <- all_vars[!all_vars %in% c(grp_clean, time_clean)]
-
-  fit_data <- stats::na.omit(model_data[, ..fit_vars])
-
-  # Naive formula over cleaned column names (response is .target)
-  naive_formula <- stats::as.formula(
-    paste(fit_vars[1L], "~", paste(fit_vars[-1L], collapse = " + "))
-  )
-
-  if (!is.null(boot)) {
-    fitted <- bootstraplm(naive_formula, fit_data, type = boot)
+  # A transformed/derived response (e.g. `log(.target)`) cannot be a
+  # `bootstraplm()` LHS, and `lm()` would otherwise re-evaluate it on every
+  # refit. Materialise it into the bare `.target` response column and fit
+  # against that; the modelled scale is unchanged (so scoring is unaffected).
+  resp_expr <- rlang::f_lhs(pm$formula)
+  if (is.symbol(resp_expr)) {
+    fit_formula <- pm$formula
   } else {
-    fitted <- stats::lm(naive_formula, fit_data)
+    resp_vals <- eval(resp_expr, pm$data, env)
+    data.table::set(pm$data, j = ".target", value = resp_vals)
+    fit_formula <- rlang::new_formula(as.name(".target"),
+                                      rlang::f_rhs(pm$formula), env = env)
+  }
+
+  # Restrict the fit data to the variables the (rewritten) formula references,
+  # so na.omit drops only rows missing a model term (bootstraplm na.omits the
+  # whole frame).
+  fit_vars <- intersect(all.vars(fit_formula), names(pm$data))
+  fit_data <- pm$data[, ..fit_vars]
+
+  # Stage 2: pooled fit. factor contrasts / poly / spline / interaction bases
+  # are built across all units here.
+  if (!is.null(boot)) {
+    fitted <- bootstraplm(fit_formula, fit_data, type = boot)
+  } else {
+    fitted <- stats::lm(fit_formula, fit_data)
   }
 
   list(
-    formula         = formula,
-    aligned_formula = aligned_formula,
-    naive_formula   = naive_formula,
-    h               = h,
-    fitted          = fitted,
-    sigma           = summary(fitted)$sigma,
-    df              = fitted$df.residual,
-    fit_data        = fit_data,
-    boot            = boot
+    formula     = formula,
+    fit_formula = fit_formula,
+    ts_map      = pm$map,
+    h           = h,
+    fitted      = fitted,
+    sigma       = summary(fitted)$sigma,
+    df          = fitted$df.residual,
+    fit_data    = fit_data,
+    boot        = boot
   )
 }
 
@@ -234,7 +256,9 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 #' `list(lh_linear = lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc) + best)`.
 #' The right-hand side is evaluated at the forecast origin (`test_start - 1`),
 #' matching the dynamic simulator's information set. Use `lag()` on the RHS only
-#' when you deliberately want history older than the origin.
+#' when you deliberately want history older than the origin. The model is pooled
+#' across units; express cross-sectional structure with the formula language
+#' (`factor()`, interactions, `poly()`/splines, `-1`). See [fit_lh_model()].
 #'
 #' @param data A data.frame or data.table.
 #' @param formulas A formula or a list of formulas, one per model variant. Each
@@ -249,12 +273,14 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 #'   the first out-of-sample target. Same meaning as `test_start` in
 #'   [setup_simulator()].
 #' @param boot Character or NULL. Bootstrap type: `"resid"`, `"wild"`, or `NULL`.
+#' @param ts_fns Character vector or NULL. Extra within-unit time-series function
+#'   names, passed to [fit_lh_model()] (see its Time-series functions section).
 #'
 #' @return A `lh_setup` list suitable for [forecast_long_horizon()].
 #' @family long_horizon
 #' @export
 setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
-                               test_start, boot = NULL) {
+                               test_start, boot = NULL, ts_fns = NULL) {
   formulas <- .name_formulas(formulas)
   models <- list()
 
@@ -266,7 +292,7 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
     for (h in horizons) {
       aligned <- create_lh_data(data, outcome_var, h, groupvar, timevar, test_start)
       models[[variant]][[as.character(h)]] <-
-        fit_lh_model(f, aligned, h, groupvar, timevar, boot)
+        fit_lh_model(f, aligned, h, groupvar, timevar, boot, ts_fns = ts_fns)
     }
   }
 
@@ -277,7 +303,8 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
     groupvar  = groupvar,
     timevar   = timevar,
     test_start = test_start,
-    boot      = boot
+    boot      = boot,
+    ts_fns    = ts_fns
   )
 }
 
@@ -293,70 +320,54 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
     data <- data.table::as.data.table(as.data.frame(data))
   }
 
-  formula <- lh_model$formula
-  boot    <- lh_model$boot
-
-  # Build one-sided RHS formula extended with timevar for row tracking
-  rhs_str         <- deparse(rlang::f_rhs(formula), width.cutoff = 500L)
-  rhs_formula_ext <- stats::as.formula(paste("~", rhs_str, "+", timevar))
-
-  # Inject positional lag
-  rhs_formula_ext <- inject_positional_lag(rhs_formula_ext)
+  fit_formula <- lh_model$fit_formula
+  boot        <- lh_model$boot
+  env         <- rlang::f_env(fit_formula)
 
   # Covariates are observed at the forecast origin (test_start - 1), the last
-  # observed period; include enough history for any lag() on the RHS.
+  # observed period; keep enough history per unit for any lag() on the RHS.
   origin <- test_start - 1L
   recent <- data[data[[timevar]] <= origin]
   data.table::setkeyv(recent, c(groupvar, timevar))
   recent <- recent[, utils::tail(.SD, 20L), by = c(groupvar)]
 
-  # Evaluate RHS formula per group
-  rhs_data <- recent[, {
-    mf <- tryCatch(
-      stats::model.frame(rhs_formula_ext, data = .SD, na.action = NULL),
-      error = function(e) NULL
-    )
-    if (is.null(mf)) return(data.table::data.table())
-    mm <- stats::model.matrix(stats::terms(mf), data = mf,
-                              na.action = stats::na.pass)
-    mm <- mm[, colnames(mm) != "(Intercept)", drop = FALSE]
-    data.table::as.data.table(as.data.frame(mm))
-  }, by = c(groupvar)]
+  # Stage 1 at predict time: materialise only the time-series terms the
+  # (rewritten) RHS references, using each unit's recent history. Filtering by
+  # the RHS variables skips any LHS-only `.pt#` (which would reference `.target`,
+  # absent here).
+  rhs_vars <- all.vars(rlang::f_rhs(fit_formula))
+  pred_map <- lh_model$ts_map[intersect(names(lh_model$ts_map), rhs_vars)]
+  recent2  <- .apply_ts_map(pred_map, recent, groupvar, timevar, env)
 
-  rhs_data <- janitor::clean_names(rhs_data)
+  # Newdata at the origin; drop rows with any NA in an RHS term.
+  newdata   <- recent2[recent2[[timevar]] == origin]
+  keep_vars <- intersect(rhs_vars, names(newdata))
+  if (length(keep_vars) > 0L) {
+    complete <- stats::complete.cases(newdata[, ..keep_vars])
+    newdata  <- newdata[complete]
+  }
 
-  grp_clean  <- .clean_name(groupvar)
-  time_clean <- .clean_name(timevar)
-
-  rhs_at_t <- rhs_data[rhs_data[[time_clean]] == origin]
-  # Remove rows with any NA
-  complete <- stats::complete.cases(rhs_at_t)
-  rhs_at_t <- rhs_at_t[complete]
-
-  if (nrow(rhs_at_t) == 0L) {
+  if (nrow(newdata) == 0L) {
     return(data.table::data.table(
       placeholder_group = character(0L),
       .draws = list()
     ))
   }
 
-  groups    <- rhs_at_t[[grp_clean]]
-  pred_cols <- setdiff(names(rhs_at_t), c(grp_clean, time_clean))
-  pred_data <- rhs_at_t[, ..pred_cols]
-  n_total   <- nsim * inner_sims
+  groups  <- newdata[[groupvar]]
+  n_total <- nsim * inner_sims
 
   if (is.null(boot)) {
-    # Standard: single fit, draw n_total samples
-    pred   <- predict(lh_model$fitted, newdata = pred_data, se.fit = TRUE)
+    # Standard: single fit, draw n_total samples.
+    pred   <- predict(lh_model$fitted, newdata = newdata, se.fit = TRUE)
     se_pi  <- sqrt(pred$se.fit^2 + lh_model$sigma^2)
     draws_mat <- pred$fit + outer(se_pi, stats::rt(n_total, df = lh_model$df))
   } else {
-    # Bootstrap: refit nsim times, draw inner_sims per refit
-    draws_mat <- matrix(NA_real_, nrow = nrow(pred_data), ncol = n_total)
+    # Bootstrap: refit nsim times, draw inner_sims per refit.
+    draws_mat <- matrix(NA_real_, nrow = nrow(newdata), ncol = n_total)
     for (i in seq_len(nsim)) {
-      boot_fit <- bootstraplm(lh_model$naive_formula, lh_model$fit_data,
-                              type = boot)
-      pred_i   <- predict(boot_fit, newdata = pred_data, se.fit = TRUE)
+      boot_fit <- bootstraplm(fit_formula, lh_model$fit_data, type = boot)
+      pred_i   <- predict(boot_fit, newdata = newdata, se.fit = TRUE)
       sigma_i  <- summary(boot_fit)$sigma
       df_i     <- boot_fit$df.residual
       se_pi_i  <- sqrt(pred_i$se.fit^2 + sigma_i^2)
@@ -614,6 +625,8 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
 #' @param scale One of `"native"` or `"model"`; see [get_lh_accuracy()].
 #' @param inverse Function or NULL; see [get_lh_accuracy()].
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
+#' @param ts_fns Character vector or NULL. Extra within-unit time-series function
+#'   names, passed to [setup_long_horizon()] (see [fit_lh_model()]).
 #'
 #' @return A data.table with columns: `variant`, the unit column, `horizon`,
 #'   `crps`, `mae`, `winkler`, averaged across all folds.
@@ -622,14 +635,15 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
                             test_starts, boot = NULL, nsim = 500L,
                             inner_sims = 10L, scale = c("native", "model"),
-                            inverse = NULL, level = 50) {
+                            inverse = NULL, level = 50, ts_fns = NULL) {
   scale <- match.arg(scale)
   formulas <- .name_formulas(formulas)
   all_forecasts <- list()
 
   for (ts in test_starts) {
     lh_setup  <- setup_long_horizon(data, formulas, horizons, groupvar, timevar,
-                                    test_start = ts, boot = boot)
+                                    test_start = ts, boot = boot,
+                                    ts_fns = ts_fns)
     forecasts <- forecast_long_horizon(lh_setup, data, test_start = ts,
                                        nsim = nsim, inner_sims = inner_sims)
     all_forecasts[[as.character(ts)]] <- forecasts

@@ -11,7 +11,8 @@ setup_long_horizon(
   groupvar,
   timevar,
   test_start,
-  boot = NULL
+  boot = NULL,
+  ts_fns = NULL
 )
 }
 \arguments{
@@ -34,6 +35,9 @@ the first out-of-sample target. Same meaning as \code{test_start} in
 \code{\link[=setup_simulator]{setup_simulator()}}.}
 
 \item{boot}{Character or NULL. Bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}.}
+
+\item{ts_fns}{Character vector or NULL. Extra within-unit time-series function
+names, passed to \code{\link[=fit_lh_model]{fit_lh_model()}} (see its Time-series functions section).}
 }
 \value{
 A \code{lh_setup} list suitable for \code{\link[=forecast_long_horizon]{forecast_long_horizon()}}.
@@ -48,7 +52,9 @@ Each formula must have its LHS wrapped in \code{\link[=lead_horizon]{lead_horizo
 \code{list(lh_linear = lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc) + best)}.
 The right-hand side is evaluated at the forecast origin (\code{test_start - 1}),
 matching the dynamic simulator's information set. Use \code{lag()} on the RHS only
-when you deliberately want history older than the origin.
+when you deliberately want history older than the origin. The model is pooled
+across units; express cross-sectional structure with the formula language
+(\code{factor()}, interactions, \code{poly()}/splines, \code{-1}). See \code{\link[=fit_lh_model]{fit_lh_model()}}.
 }
 \seealso{
 Other long_horizon:
