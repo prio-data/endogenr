@@ -486,10 +486,42 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
   dt[, lapply(.SD, list), by = keys, .SDcols = outputs]
 }
 
+# Internal NA-safe scoring kernel shared by get_accuracy() and
+# get_lh_accuracy(). Scores a list of draw vectors against a truth vector,
+# returning CRPS, MAE, and Winkler scores. NA truth or an empty (all-NA) draw
+# vector yields NA for that row.
+.score_draws <- function(draws, y, level = 50) {
+  alpha <- 1 - level / 100
+  n <- length(draws)
+  crps <- rep(NA_real_, n)
+  mae  <- rep(NA_real_, n)
+  winkler <- rep(NA_real_, n)
+  for (i in seq_len(n)) {
+    d <- draws[[i]]
+    d <- d[!is.na(d)]
+    yi <- y[i]
+    if (length(d) == 0L || is.na(yi)) next
+    crps[i] <- scoringRules::crps_sample(y = yi, dat = d)
+    mae[i]  <- abs(stats::median(d) - yi)
+    lo <- unname(stats::quantile(d, alpha / 2))
+    hi <- unname(stats::quantile(d, 1 - alpha / 2))
+    penalty <- ifelse(yi < lo, (2 / alpha) * (lo - yi),
+                ifelse(yi > hi, (2 / alpha) * (yi - hi), 0))
+    winkler[i] <- (hi - lo) + penalty
+  }
+  list(crps = crps, mae = mae, winkler = winkler)
+}
+
 #' Calculate probabilistic accuracy scores for simulations
 #'
 #' Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
 #' observed truth. Uses [scoringRules::crps_sample()] for CRPS computation.
+#'
+#' By default scores are aggregated per unit. Pass `test_start` to add a
+#' `horizon` column (`time - test_start + 1`) and `by` to control the grouping
+#' (e.g. `by = c(groupvar, "horizon")` for a per-(unit, horizon) breakdown that
+#' lines up with [get_lh_accuracy()] and [compare_approaches()]). `transform`
+#' applies a function to both draws and truth before scoring.
 #'
 #' @param simulation_results A data.table from [simulate_endogenr()], filtered to
 #'   the forecast period.
@@ -502,11 +534,20 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #'   [simulate_endogenr()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
+#' @param test_start Numeric or NULL. When supplied, a `horizon` column is added
+#'   as `time - test_start + 1` before aggregation.
+#' @param by Character vector of grouping columns for aggregation. Defaults to
+#'   the unit column. Including `"horizon"` requires `test_start`.
+#' @param transform Function or NULL. Applied to both draws and truth before
+#'   scoring (score on a transformed scale).
 #'
-#' @return A data.table with one row per unit, columns: unit, crps, mae, winkler.
+#' @return A data.table of scores, one row per group in `by`, with columns
+#'   `crps`, `mae`, `winkler`.
 #' @family postprocess
 #' @export
-get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var = ".sim", level = 50) {
+get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
+                         sim_var = ".sim", level = 50, test_start = NULL,
+                         by = NULL, transform = NULL) {
   if (is.null(ctx)) {
     ctx <- .infer_ctx(simulation_results, truth)
     if (is.null(ctx)) {
@@ -527,6 +568,12 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var
     truth <- data.table::as.data.table(as.data.frame(truth))
   }
 
+  group_by <- if (is.null(by)) unit_col else by
+  if ("horizon" %in% group_by && is.null(test_start)) {
+    stop("`by` includes 'horizon' but `test_start` was not supplied.",
+         call. = FALSE)
+  }
+
   # Nest draws per (unit, time)
   draws_dt <- simulation_results[, .(draws = list(get(outcome))), by = c(unit_col, time_col)]
 
@@ -536,35 +583,25 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL, sim_var
   data.table::setnames(truth_sub, outcome, ".truth")
   scored <- merge(draws_dt, truth_sub, by = c(unit_col, time_col))
 
-  # Compute scores per (unit, time)
-  alpha <- 1 - level / 100
-  scored[, `:=`(
-    crps = vapply(seq_len(.N), function(i) {
-      d <- draws[[i]][!is.na(draws[[i]])]
-      if (length(d) == 0 || is.na(.truth[i])) return(NA_real_)
-      scoringRules::crps_sample(y = .truth[i], dat = d)
-    }, numeric(1)),
-    mae = vapply(seq_len(.N), function(i) {
-      d <- draws[[i]][!is.na(draws[[i]])]
-      if (length(d) == 0 || is.na(.truth[i])) return(NA_real_)
-      abs(stats::median(d) - .truth[i])
-    }, numeric(1)),
-    winkler = vapply(seq_len(.N), function(i) {
-      d <- draws[[i]][!is.na(draws[[i]])]
-      if (length(d) == 0 || is.na(.truth[i])) return(NA_real_)
-      lo <- stats::quantile(d, alpha / 2)
-      hi <- stats::quantile(d, 1 - alpha / 2)
-      width <- hi - lo
-      penalty <- ifelse(.truth[i] < lo, (2 / alpha) * (lo - .truth[i]),
-                 ifelse(.truth[i] > hi, (2 / alpha) * (.truth[i] - hi), 0))
-      width + penalty
-    }, numeric(1))
-  )]
+  # Optional scoring-scale transform applied to both draws and truth
+  if (!is.null(transform)) {
+    scored[, draws := lapply(draws, transform)]
+    scored[, .truth := transform(.truth)]
+  }
 
-  # Aggregate per unit
+  # Score per (unit, time) with the shared NA-safe kernel
+  sc <- .score_draws(scored$draws, scored$.truth, level)
+  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler)]
+
+  # Optional horizon dimension
+  if (!is.null(test_start)) {
+    scored[, horizon := get(time_col) - test_start + 1L]
+  }
+
+  # Aggregate
   result <- scored[, .(crps = mean(crps, na.rm = TRUE),
                        mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE)), by = unit_col]
+                       winkler = mean(winkler, na.rm = TRUE)), by = group_by]
   return(result)
 }
 

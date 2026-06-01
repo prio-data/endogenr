@@ -9,15 +9,18 @@ compare_approaches(lh_accuracy, sim_accuracy)
 \arguments{
 \item{lh_accuracy}{A data.table from \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} or \code{\link[=cv_long_horizon]{cv_long_horizon()}}.}
 
-\item{sim_accuracy}{A data.table from \code{\link[=get_accuracy]{get_accuracy()}} after summarising by horizon.
-Must contain at least \code{horizon}, \code{crps}, and \code{mae} columns.}
+\item{sim_accuracy}{A data.table from \code{\link[=get_accuracy]{get_accuracy()}}. For per-horizon
+comparison it must carry a \code{horizon} column (and the unit column).}
 }
 \value{
-A data.table with columns: \code{approach}, \code{variant}, \code{horizon}, \code{crps}, \code{mae}.
+A data.table with an \code{approach} column plus the shared score columns;
+\code{variant} is \code{NA} for simulation rows.
 }
 \description{
 Combines the output of \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} / \code{\link[=cv_long_horizon]{cv_long_horizon()}} with
-simulation accuracy aggregated by horizon, adding an \code{approach} column.
+simulation accuracy from \code{\link[=get_accuracy]{get_accuracy()}}, adding an \code{approach} column. For a
+like-for-like comparison both inputs should share the \verb{(unit, horizon)} key —
+score the simulation with \code{get_accuracy(..., test_start = , by = c(unit, "horizon"))}.
 }
 \seealso{
 Other long_horizon:
@@ -26,6 +29,7 @@ Other long_horizon:
 \code{\link[=fit_lh_model]{fit_lh_model()}},
 \code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
 \code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
 \code{\link[=setup_long_horizon]{setup_long_horizon()}}
 }
 \concept{long_horizon}

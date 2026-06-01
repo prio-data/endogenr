@@ -10,7 +10,10 @@ get_accuracy(
   truth,
   ctx = NULL,
   sim_var = ".sim",
-  level = 50
+  level = 50,
+  test_start = NULL,
+  by = NULL,
+  transform = NULL
 )
 }
 \arguments{
@@ -30,13 +33,30 @@ groupvar, timevar, and outcome columns.}
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 
 \item{level}{Numeric. Coverage level for the Winkler score (default 50).}
+
+\item{test_start}{Numeric or NULL. When supplied, a \code{horizon} column is added
+as \code{time - test_start + 1} before aggregation.}
+
+\item{by}{Character vector of grouping columns for aggregation. Defaults to
+the unit column. Including \code{"horizon"} requires \code{test_start}.}
+
+\item{transform}{Function or NULL. Applied to both draws and truth before
+scoring (score on a transformed scale).}
 }
 \value{
-A data.table with one row per unit, columns: unit, crps, mae, winkler.
+A data.table of scores, one row per group in \code{by}, with columns
+\code{crps}, \code{mae}, \code{winkler}.
 }
 \description{
 Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
 observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS computation.
+}
+\details{
+By default scores are aggregated per unit. Pass \code{test_start} to add a
+\code{horizon} column (\code{time - test_start + 1}) and \code{by} to control the grouping
+(e.g. \code{by = c(groupvar, "horizon")} for a per-(unit, horizon) breakdown that
+lines up with \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} and \code{\link[=compare_approaches]{compare_approaches()}}). \code{transform}
+applies a function to both draws and truth before scoring.
 }
 \seealso{
 Other postprocess:

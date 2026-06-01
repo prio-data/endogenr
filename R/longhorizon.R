@@ -16,37 +16,104 @@
 }
 
 
+#' Lead a vector by a forecast horizon (positional within-group shift)
+#'
+#' Returns the value `h` steps ahead within an ordered vector, padding the tail
+#' with `NA`. This is the long-horizon analogue of the positional `lag()` used in
+#' simulation formulas, and the marker recognised on the left-hand side of
+#' long-horizon formulas (see [setup_long_horizon()]).
+#'
+#' Inside a long-horizon formula, write the outcome on the LHS wrapped in
+#' `lead_horizon()`, e.g. `lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc)`.
+#' The horizon `h` is supplied internally per horizon by [setup_long_horizon()];
+#' you do not pass it in the formula. The right-hand side is evaluated at the
+#' forecast origin (the last observed period), so write `lag()` only when you
+#' deliberately want older history.
+#'
+#' @param x A vector, assumed sorted in time order within a group.
+#' @param h Integer. Number of steps to lead.
+#'
+#' @return A vector the same length and type as `x`, led by `h` with `NA` padding.
+#' @family long_horizon
+#' @export
+#'
+#' @examples
+#' lead_horizon(1:5, 2)
+lead_horizon <- function(x, h = 1L) {
+  n <- length(x)
+  if (h <= 0L) return(x)
+  if (h >= n) return(x[rep(NA_integer_, n)])
+  c(x[(h + 1L):n], x[rep(NA_integer_, h)])
+}
+
+# Helper: extract the inner expression EXPR from a `lead_horizon(EXPR)` LHS.
+# Errors if the formula LHS is not wrapped in lead_horizon().
+.lh_lhs_inner <- function(formula) {
+  lhs <- rlang::f_lhs(formula)
+  if (is.null(lhs) || !is.call(lhs) ||
+      !identical(lhs[[1L]], as.name("lead_horizon"))) {
+    stop("Long-horizon formula LHS must be wrapped in lead_horizon(), e.g. ",
+         "lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc). Got: ",
+         deparse(lhs), call. = FALSE)
+  }
+  lhs[[2L]]
+}
+
+# Helper: the raw outcome variable name of a long-horizon formula.
+.lh_outcome <- function(formula) {
+  all.vars(.lh_lhs_inner(formula))[1L]
+}
+
+# Helper: normalise `formulas` into a uniquely named list of formulas. Accepts a
+# bare formula or a list, and fills blank/missing names with `model1`,
+# `model2`, ... so every variant has a stable identifier for the `variant`
+# column (an unnamed list would otherwise be skipped silently).
+.name_formulas <- function(formulas) {
+  if (inherits(formulas, "formula")) formulas <- list(formulas)
+  if (!is.list(formulas) || length(formulas) == 0L) {
+    stop("`formulas` must be a formula or a non-empty list of formulas.",
+         call. = FALSE)
+  }
+  nm <- names(formulas)
+  if (is.null(nm)) nm <- rep("", length(formulas))
+  blank <- is.na(nm) | !nzchar(nm)
+  nm[blank] <- paste0("model", seq_along(formulas))[blank]
+  names(formulas) <- make.unique(nm)
+  formulas
+}
+
+
 #' Create aligned (t, t+h) training data for long-horizon models
 #'
-#' For each group, computes the h-step-ahead value of the outcome and stores it
-#' in a new `.target` column. The original outcome column is left untouched so
-#' that formula RHS terms (e.g. `lag(outcome)`) are evaluated at the baseline
-#' period t, not the target period t+h.
+#' For each group, computes the h-step-ahead value of the outcome (via
+#' [lead_horizon()]) and stores it in a new `.target` column. The original
+#' outcome column is left untouched so that formula RHS terms are evaluated at
+#' the baseline period t, not the target period t+h.
 #'
 #' @param data A data.frame or data.table containing all variables.
 #' @param outcome Character. The raw outcome variable name (without transformation).
 #' @param h Integer. The forecast horizon.
 #' @param groupvar Character. The group variable name.
 #' @param timevar Character. The time variable name.
-#' @param train_end Numeric. Training cutoff; only rows where `t + h < train_end`
-#'   are included (strict inequality prevents outcome leakage).
+#' @param test_start Numeric. First forecast year; only rows whose target year
+#'   `t + h < test_start` are included (strict inequality prevents leakage).
 #'
 #' @return A data.table with all original columns plus a `.target` column holding
 #'   the h-step-ahead value of the outcome.
 #' @family long_horizon
 #' @export
-create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
+create_lh_data <- function(data, outcome, h, groupvar, timevar, test_start) {
   if (!data.table::is.data.table(data)) {
     data <- data.table::as.data.table(as.data.frame(data))
   }
   dt <- data.table::copy(data)
   data.table::setkeyv(dt, c(groupvar, timevar))
 
-  # Add .target = lead(outcome, h) per group
-  dt[, .target := data.table::shift(get(outcome), n = h, type = "lead"), by = c(groupvar)]
+  # Add .target = lead(outcome, h) per group (positional, sorted by time)
+  dt[, .target := lead_horizon(get(outcome), h), by = c(groupvar)]
 
   # Filter to valid training rows
-  dt <- dt[dt[[timevar]] < (train_end - h) & !is.na(.target)]
+  dt <- dt[dt[[timevar]] < (test_start - h) & !is.na(.target)]
   return(dt)
 }
 
@@ -54,16 +121,18 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, train_end) {
 #' Fit a long-horizon OLS model
 #'
 #' Fits an ordinary least-squares model (with optional bootstrap) that predicts
-#' the h-step-ahead outcome from baseline covariates at time t.
+#' the h-step-ahead outcome from baseline covariates at the forecast origin t.
 #'
-#' The formula LHS specifies the outcome variable and its transformation, e.g.
-#' `asinh(gdppc) ~ lag(asinh(gdppc))`. Internally the LHS variable is replaced
-#' with `.target` (the column added by [create_lh_data()]) so that:
+#' The formula LHS must be wrapped in [lead_horizon()] and names the outcome,
+#' optionally transformed, e.g. `lead_horizon(gdppc_grwt) ~ ...` or
+#' `lead_horizon(asinh(gdppc)) ~ ...`. Internally the `lead_horizon()` wrapper is
+#' stripped and the outcome variable is replaced with `.target` (the led column
+#' added by [create_lh_data()]) so that:
 #' * LHS = transformation applied to the h-step-ahead value
-#' * RHS = covariates at the baseline year t
+#' * RHS = covariates at the baseline year t (write `lag()` only for older history)
 #'
-#' @param formula Formula. Model specification; LHS is the transformed outcome,
-#'   RHS uses baseline covariates (may include `lag()`, raw variables, etc.).
+#' @param formula Formula. Model specification; LHS is `lead_horizon(outcome)`
+#'   (optionally transformed), RHS uses baseline covariates at the origin.
 #' @param aligned_data A data.table from [create_lh_data()].
 #' @param h Integer. Forecast horizon (stored for bookkeeping).
 #' @param groupvar Character. Group variable name.
@@ -81,10 +150,11 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
     aligned_data <- data.table::as.data.table(as.data.frame(aligned_data))
   }
 
-  # Build aligned formula: replace outcome var in LHS with .target
-  lhs_expr    <- rlang::f_lhs(formula)
-  outcome_var <- all.vars(lhs_expr)[1L]
-  new_lhs     <- .sub_sym(lhs_expr, outcome_var, ".target")
+  # Build aligned formula: strip the lead_horizon() marker from the LHS and
+  # replace the outcome variable with .target (the led column from create_lh_data()).
+  inner_lhs   <- .lh_lhs_inner(formula)
+  outcome_var <- all.vars(inner_lhs)[1L]
+  new_lhs     <- .sub_sym(inner_lhs, outcome_var, ".target")
   aligned_formula <- rlang::new_formula(new_lhs, rlang::f_rhs(formula),
                                         env = rlang::f_env(formula))
 
@@ -110,7 +180,16 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
     data.table::as.data.table(cbind(resp, as.data.frame(mm)))
   }, by = c(groupvar)]
 
-  model_data <- janitor::clean_names(model_data)
+  # Name the response `.target` (it sits right after the group key) and clean
+  # only the remaining columns. Keeping the dotted, reserved-style name and
+  # excluding it from clean_names() guarantees the response can never collide
+  # with a user covariate, and that predictor names match those produced at
+  # predict time (where the response is absent).
+  resp_pos <- length(groupvar) + 1L
+  data.table::setnames(model_data, resp_pos, ".target")
+  other_cols <- setdiff(names(model_data), ".target")
+  data.table::setnames(model_data, other_cols,
+                       names(janitor::clean_names(model_data[, ..other_cols])))
 
   # Identify columns to use for fitting (drop groupvar and timevar)
   grp_clean  <- .clean_name(groupvar)
@@ -120,7 +199,7 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 
   fit_data <- stats::na.omit(model_data[, ..fit_vars])
 
-  # Naive formula over cleaned column names
+  # Naive formula over cleaned column names (response is .target)
   naive_formula <- stats::as.formula(
     paste(fit_vars[1L], "~", paste(fit_vars[-1L], collapse = " + "))
   )
@@ -151,29 +230,41 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar, boot = NUL
 #' and [fit_lh_model()] to produce a complete set of fitted models. No dynamic
 #' loop is needed — models are independent across time and estimated once.
 #'
+#' Each formula must have its LHS wrapped in [lead_horizon()]; for example
+#' `list(lh_linear = lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc) + best)`.
+#' The right-hand side is evaluated at the forecast origin (`test_start - 1`),
+#' matching the dynamic simulator's information set. Use `lag()` on the RHS only
+#' when you deliberately want history older than the origin.
+#'
 #' @param data A data.frame or data.table.
-#' @param formulas Named list of formulas, one per model variant.
+#' @param formulas A formula or a list of formulas, one per model variant. Each
+#'   LHS must be wrapped in [lead_horizon()]. A bare formula is accepted as a
+#'   single variant; unnamed (or partially named) list entries are auto-named
+#'   `model1`, `model2`, ... and that name becomes the `variant` label.
 #' @param horizons Integer vector of forecast horizons (e.g. `1:12`).
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
-#' @param train_end Numeric. Training cutoff; only observations before this year
-#'   (shifted by h) are used for training.
+#' @param test_start Numeric. First forecast year. Training uses only rows whose
+#'   h-step target falls strictly before `test_start`, so `test_start` itself is
+#'   the first out-of-sample target. Same meaning as `test_start` in
+#'   [setup_simulator()].
 #' @param boot Character or NULL. Bootstrap type: `"resid"`, `"wild"`, or `NULL`.
 #'
 #' @return A `lh_setup` list suitable for [forecast_long_horizon()].
 #' @family long_horizon
 #' @export
 setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
-                               train_end, boot = NULL) {
+                               test_start, boot = NULL) {
+  formulas <- .name_formulas(formulas)
   models <- list()
 
   for (variant in names(formulas)) {
     f           <- formulas[[variant]]
-    outcome_var <- all.vars(rlang::f_lhs(f))[1L]
+    outcome_var <- .lh_outcome(f)
     models[[variant]] <- list()
 
     for (h in horizons) {
-      aligned <- create_lh_data(data, outcome_var, h, groupvar, timevar, train_end)
+      aligned <- create_lh_data(data, outcome_var, h, groupvar, timevar, test_start)
       models[[variant]][[as.character(h)]] <-
         fit_lh_model(f, aligned, h, groupvar, timevar, boot)
     }
@@ -185,14 +276,17 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
     formulas  = formulas,
     groupvar  = groupvar,
     timevar   = timevar,
-    train_end = train_end,
+    test_start = test_start,
     boot      = boot
   )
 }
 
 
 # Internal helper: draw predictive samples for one (lh_model, test_start) pair.
-# Returns a data.table with columns: groupvar, .draws (list of numeric vectors).
+# Nested Monte Carlo: `nsim` bootstrap refits (parameter uncertainty) x
+# `inner_sims` predictive draws per refit (residual uncertainty) = nsim *
+# inner_sims draws per unit. With boot = NULL there is one fit and only the
+# product matters. Returns a data.table with columns: groupvar, .draws.
 .predict_lh <- function(lh_model, data, groupvar, timevar, test_start,
                         nsim, inner_sims) {
   if (!data.table::is.data.table(data)) {
@@ -209,7 +303,8 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   # Inject positional lag
   rhs_formula_ext <- inject_positional_lag(rhs_formula_ext)
 
-  # Include enough history for lag() computation.
+  # Covariates are observed at the forecast origin (test_start - 1), the last
+  # observed period; include enough history for any lag() on the RHS.
   origin <- test_start - 1L
   recent <- data[data[[timevar]] <= origin]
   data.table::setkeyv(recent, c(groupvar, timevar))
@@ -286,26 +381,53 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #'
 #' For each (variant, horizon) combination in a `lh_setup` object, draws
 #' `nsim * inner_sims` samples from the predictive distribution conditioned on
-#' covariates observed at `test_start`.
+#' covariates observed at the forecast origin (`test_start - 1`).
+#'
+#' @details
+#' The predictive sample is drawn with a nested Monte Carlo, identical in spirit
+#' to the dynamic simulator. `nsim` is the number of bootstrap *refits*
+#' (parameter / model uncertainty) and `inner_sims` the number of predictive
+#' draws *per refit* (residual / sampling uncertainty), for a total of
+#' `nsim * inner_sims` draws per unit and horizon. Refitting is the expensive
+#' step, so taking several cheap predictive draws per refit (`inner_sims > 1`)
+#' is an efficiency lever, not an extra source of randomness. With `boot = NULL`
+#' (plain OLS) there is a single fit and only the product `nsim * inner_sims`
+#' matters. These arguments deliberately mirror `nsim` in [simulate_endogenr()]
+#' and `inner_sims` in [setup_simulator()]; pass the same values to both
+#' approaches to keep a benchmark apples-to-apples.
 #'
 #' @param lh_setup A setup object from [setup_long_horizon()].
 #' @param data The full dataset (original, not aligned). Used to extract
-#'   baseline covariates at `test_start`.
-#' @param test_start Numeric. The first forecast year (same convention as
-#'   [simulate_endogenr()]). Covariates are observed at `test_start - 1`, and
-#'   horizon h=1 targets `test_start`, h=2 targets `test_start + 1`, etc.
-#' @param nsim Integer. Number of outer simulations (bootstrap draws if boot is
-#'   set; otherwise multiplied with `inner_sims` for total draws).
-#' @param inner_sims Integer. Number of inner draws per simulation.
+#'   baseline covariates at the origin.
+#' @param test_start Numeric or NULL. The first forecast year (same convention as
+#'   [simulate_endogenr()]). Covariates are observed at `test_start - 1`, horizon
+#'   h=1 targets `test_start`, h=2 targets `test_start + 1`, etc. Defaults to the
+#'   `test_start` stored in `lh_setup`; a value below it triggers a leakage
+#'   warning.
+#' @param nsim Integer. Number of bootstrap refits (parameter uncertainty) when
+#'   `boot` is set; with plain OLS it only scales the total draw count. Mirrors
+#'   `nsim` in [simulate_endogenr()].
+#' @param inner_sims Integer. Number of predictive draws drawn per refit
+#'   (residual uncertainty). Total draws per unit and horizon are
+#'   `nsim * inner_sims`. Mirrors `inner_sims` in [setup_simulator()].
 #'
 #' @return A data.table with columns: `groupvar`, `test_start`, `horizon`,
-#'   `year_target`, `variant`, `.draws` (list-column of numeric vectors).
+#'   `year_target`, `variant`, `.draws` (list-column of numeric vectors). The
+#'   result carries `lh_formulas`, `panel_unit`, and `panel_time` attributes so
+#'   [get_lh_accuracy()] can recover the per-variant outcomes and panel context.
 #' @family long_horizon
 #' @export
-forecast_long_horizon <- function(lh_setup, data, test_start,
+forecast_long_horizon <- function(lh_setup, data, test_start = NULL,
                                   nsim = 500L, inner_sims = 10L) {
   groupvar <- lh_setup$groupvar
   timevar  <- lh_setup$timevar
+
+  if (is.null(test_start)) test_start <- lh_setup$test_start
+  if (!is.null(lh_setup$test_start) && test_start < lh_setup$test_start) {
+    warning("test_start (", test_start, ") is before the setup's test_start (",
+            lh_setup$test_start, "); forecasts may overlap the training ",
+            "window (leakage).", call. = FALSE)
+  }
 
   results <- list()
 
@@ -325,27 +447,65 @@ forecast_long_horizon <- function(lh_setup, data, test_start,
     }
   }
 
-  data.table::rbindlist(results)
+  out <- data.table::rbindlist(results)
+  # Stamp metadata so get_lh_accuracy() can recover the per-variant formulas
+  # (hence outcomes) and the panel context without re-passing them.
+  data.table::setattr(out, "lh_formulas", lh_setup$formulas)
+  data.table::setattr(out, "panel_unit", groupvar)
+  data.table::setattr(out, "panel_time", timevar)
+  out
 }
 
 
-#' Compute CRPS and MAE accuracy scores for long-horizon forecasts
+#' Compute CRPS, MAE, and Winkler accuracy scores for long-horizon forecasts
 #'
-#' Uses [scoringRules::crps_sample()] for CRPS and manual MAE from median of draws.
-#' Output format is compatible with [get_accuracy()] results (after aggregating
-#' by horizon) for cross-approach comparison via [compare_approaches()].
+#' Scores forecast draws against observed truth per `(variant, unit, horizon)`
+#' using the same NA-safe kernel as [get_accuracy()]. The output shares the
+#' `(unit, horizon)` key with `get_accuracy(..., test_start = , by = )`, so the
+#' two approaches can be stacked directly with [compare_approaches()].
+#'
+#' The outcome is taken *per variant* from each formula's LHS (via `lh_setup` or
+#' the `lh_formulas` attribute stamped by [forecast_long_horizon()]), so a setup
+#' mixing outcomes — e.g.
+#' `list(m1 = lead_horizon(gdppc) ~ ., m2 = lead_horizon(population) ~ .)` —
+#' is scored correctly, each variant against its own outcome. `truth` must
+#' therefore contain every outcome column referenced by the formulas.
+#'
+#' Group and time columns come from `lh_setup` when supplied, otherwise inferred
+#' from the `panel_unit` / `panel_time` attributes on `lh_forecasts` (then
+#' `truth`). Pass `lh_setup` for robustness when those attributes may have been
+#' dropped (e.g. after manually rebinding forecasts, as [cv_long_horizon()] does).
+#'
+#' Forecast draws are on the *modelled* scale (the formula LHS). `scale` controls
+#' the scoring scale:
+#' * `"native"` (default): score raw draws against the raw outcome. For a
+#'   non-identity LHS (e.g. `asinh(gdppc)`) supply `inverse` (e.g. `sinh`) to
+#'   back-transform the draws; with several transformed variants pass a named
+#'   list of inverse functions keyed by variant.
+#' * `"model"`: apply each formula's LHS transform to the truth and score on the
+#'   modelled scale (no inverse needed).
 #'
 #' @param lh_forecasts Output from [forecast_long_horizon()] or [cv_long_horizon()].
-#' @param truth A data.frame or data.table with the outcome column in the same
-#'   scale as the forecast draws.
-#' @param outcome Character. Name of the outcome column in `truth`.
-#' @param groupvar Character. Group variable name.
-#' @param timevar Character. Time variable name.
+#' @param truth A data.frame or data.table containing the outcome column(s)
+#'   referenced by the formulas, plus the group and time columns.
+#' @param lh_setup Optional setup object from [setup_long_horizon()]. Supplies
+#'   the group/time columns and the per-variant formulas. When `NULL`, these are
+#'   inferred from attributes on `lh_forecasts`.
+#' @param scale One of `"native"` or `"model"`. See Details.
+#' @param inverse Function, named list of functions (keyed by variant), or
+#'   `NULL`. Inverse of the LHS transform applied to the draws under
+#'   `scale = "native"` for variants with a non-identity LHS.
+#' @param level Numeric. Coverage level for the Winkler score (default 50).
 #'
-#' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`.
+#' @return A data.table with columns: `variant`, the unit column, `horizon`,
+#'   `crps`, `mae`, `winkler`.
 #' @family long_horizon
 #' @export
-get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
+get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
+                            scale = c("native", "model"),
+                            inverse = NULL, level = 50) {
+  scale <- match.arg(scale)
+
   if (!data.table::is.data.table(lh_forecasts)) {
     lh_forecasts <- data.table::as.data.table(lh_forecasts)
   }
@@ -353,27 +513,81 @@ get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
     truth <- data.table::as.data.table(as.data.frame(truth))
   }
 
-  # Merge forecasts with truth on (groupvar, year_target)
-  truth_cols <- c(groupvar, timevar, outcome)
-  truth_sub <- truth[, ..truth_cols]
-  data.table::setnames(truth_sub, c(timevar, outcome), c("year_target", ".truth"))
+  # Resolve group/time columns and the per-variant formulas.
+  if (!is.null(lh_setup)) {
+    groupvar <- lh_setup$groupvar
+    timevar  <- lh_setup$timevar
+    formulas <- lh_setup$formulas
+  } else {
+    formulas <- attr(lh_forecasts, "lh_formulas", exact = TRUE)
+    ctx <- .infer_ctx(lh_forecasts, truth)
+    if (is.null(formulas) || is.null(ctx)) {
+      stop("Cannot recover formulas / panel context. Pass `lh_setup` from ",
+           "setup_long_horizon(), or score a forecast object that still ",
+           "carries its `lh_formulas` / `panel_unit` / `panel_time` attributes.",
+           call. = FALSE)
+    }
+    groupvar <- ctx_unit(ctx)
+    timevar  <- ctx_time(ctx)
+  }
+  formulas <- .name_formulas(formulas)
 
-  scored <- merge(lh_forecasts, truth_sub, by = c(groupvar, "year_target"), all.x = TRUE)
+  variants <- unique(as.character(lh_forecasts$variant))
 
-  # Compute per-row CRPS and MAE
-  scored[, `:=`(
-    crps = vapply(seq_len(.N), function(i) {
-      scoringRules::crps_sample(y = .truth[i], dat = .draws[[i]])
-    }, numeric(1)),
-    mae = vapply(seq_len(.N), function(i) {
-      abs(stats::median(.draws[[i]]) - .truth[i])
-    }, numeric(1))
-  )]
+  # Per variant: inner LHS expression and the raw outcome variable.
+  inner_by_v   <- lapply(stats::setNames(variants, variants),
+                         function(v) .lh_lhs_inner(formulas[[v]]))
+  outcome_by_v <- vapply(inner_by_v, function(e) all.vars(e)[1L], character(1))
 
-  # Aggregate by (variant, horizon)
+  # Truth columns needed: all LHS vars (model) or the outcomes (native), + keys.
+  needed <- if (scale == "model") {
+    unique(unlist(lapply(inner_by_v, all.vars)))
+  } else {
+    unique(unname(outcome_by_v))
+  }
+  truth_cols <- unique(c(groupvar, timevar, needed))
+  truth_sub  <- truth[, ..truth_cols]
+  data.table::setnames(truth_sub, timevar, "year_target")
+
+  scored <- merge(lh_forecasts, truth_sub, by = c(groupvar, "year_target"),
+                  all.x = TRUE)
+
+  # Per-variant truth on the scoring scale (and back-transformed draws for a
+  # transformed LHS scored on the native scale).
+  scored[, .truth_score := NA_real_]
+  for (v in variants) {
+    idx <- which(scored$variant == v)
+    if (length(idx) == 0L) next
+    inner_v   <- inner_by_v[[v]]
+    outcome_v <- outcome_by_v[[v]]
+
+    if (scale == "model") {
+      data.table::set(scored, i = idx, j = ".truth_score",
+                      value = as.numeric(eval(inner_v, scored[idx])))
+    } else {
+      data.table::set(scored, i = idx, j = ".truth_score",
+                      value = as.numeric(scored[[outcome_v]][idx]))
+      is_identity <- is.name(inner_v) &&
+        identical(as.character(inner_v), outcome_v)
+      if (!is_identity) {
+        inv_v <- if (is.list(inverse)) inverse[[v]] else inverse
+        if (is.null(inv_v)) {
+          stop("scale = 'native' with a transformed LHS (", deparse(inner_v),
+               ") for variant '", v, "' requires an `inverse` function.",
+               call. = FALSE)
+        }
+        for (k in idx) scored$.draws[[k]] <- inv_v(scored$.draws[[k]])
+      }
+    }
+  }
+
+  sc <- .score_draws(scored$.draws, scored$.truth_score, level)
+  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler)]
+
   result <- scored[, .(crps = mean(crps, na.rm = TRUE),
-                       mae = mean(mae, na.rm = TRUE)),
-                   by = .(variant, horizon)]
+                       mae = mean(mae, na.rm = TRUE),
+                       winkler = mean(winkler, na.rm = TRUE)),
+                   by = c("variant", groupvar, "horizon")]
   return(result)
 }
 
@@ -382,58 +596,76 @@ get_lh_accuracy <- function(lh_forecasts, truth, outcome, groupvar, timevar) {
 #'
 #' Runs the full pipeline — [setup_long_horizon()] + [forecast_long_horizon()] —
 #' for each training window defined by `test_starts`, stacks all forecasts, and
-#' returns aggregated accuracy scores.
+#' returns aggregated accuracy scores per `(variant, unit, horizon)`.
 #'
 #' @param data A data.frame or data.table.
-#' @param formulas Named list of formulas (see [setup_long_horizon()]).
+#' @param formulas A formula or list of formulas (see [setup_long_horizon()]);
+#'   bare formulas and unnamed lists are accepted and auto-named.
 #' @param horizons Integer vector of forecast horizons.
 #' @param groupvar Character. Group variable name.
 #' @param timevar Character. Time variable name.
-#' @param test_starts Numeric vector of first forecast years.
+#' @param test_starts Numeric vector of first forecast years. Each value is used
+#'   as the `test_start` for its fold.
 #' @param boot Character or NULL. Bootstrap type.
-#' @param nsim Integer. Number of outer simulations.
-#' @param inner_sims Integer. Number of inner draws per simulation.
+#' @param nsim Integer. Number of bootstrap refits per fold (see
+#'   [forecast_long_horizon()]); total draws per cell are `nsim * inner_sims`.
+#' @param inner_sims Integer. Number of predictive draws per refit (see
+#'   [forecast_long_horizon()]).
+#' @param scale One of `"native"` or `"model"`; see [get_lh_accuracy()].
+#' @param inverse Function or NULL; see [get_lh_accuracy()].
+#' @param level Numeric. Coverage level for the Winkler score (default 50).
 #'
-#' @return A data.table with columns: `variant`, `horizon`, `crps`, `mae`, averaged
-#'   across all folds, units, and horizons.
+#' @return A data.table with columns: `variant`, the unit column, `horizon`,
+#'   `crps`, `mae`, `winkler`, averaged across all folds.
 #' @family long_horizon
 #' @export
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
                             test_starts, boot = NULL, nsim = 500L,
-                            inner_sims = 10L) {
+                            inner_sims = 10L, scale = c("native", "model"),
+                            inverse = NULL, level = 50) {
+  scale <- match.arg(scale)
+  formulas <- .name_formulas(formulas)
   all_forecasts <- list()
 
   for (ts in test_starts) {
     lh_setup  <- setup_long_horizon(data, formulas, horizons, groupvar, timevar,
-                                    train_end = ts, boot = boot)
+                                    test_start = ts, boot = boot)
     forecasts <- forecast_long_horizon(lh_setup, data, test_start = ts,
                                        nsim = nsim, inner_sims = inner_sims)
     all_forecasts[[as.character(ts)]] <- forecasts
   }
 
-  combined    <- data.table::rbindlist(all_forecasts)
-  outcome_var <- all.vars(rlang::f_lhs(formulas[[1L]]))[1L]
+  combined <- data.table::rbindlist(all_forecasts)
 
   if (!data.table::is.data.table(data)) {
     data <- data.table::as.data.table(as.data.frame(data))
   }
-  truth_cols <- c(groupvar, timevar, outcome_var)
+
+  # Truth needs every column referenced by a formula LHS (covers both scales).
+  needed <- unique(unlist(lapply(formulas, function(f) all.vars(.lh_lhs_inner(f)))))
+  truth_cols <- unique(c(groupvar, timevar, needed))
   truth <- data[, ..truth_cols]
 
-  get_lh_accuracy(combined, truth, outcome_var, groupvar, timevar)
+  # All folds share group/time/formulas; the last fold's setup carries that
+  # metadata (rbindlist drops the stamped attributes).
+  get_lh_accuracy(combined, truth, lh_setup = lh_setup,
+                  scale = scale, inverse = inverse, level = level)
 }
 
 
 #' Stack long-horizon and simulation accuracy results for comparison
 #'
 #' Combines the output of [get_lh_accuracy()] / [cv_long_horizon()] with
-#' simulation accuracy aggregated by horizon, adding an `approach` column.
+#' simulation accuracy from [get_accuracy()], adding an `approach` column. For a
+#' like-for-like comparison both inputs should share the `(unit, horizon)` key —
+#' score the simulation with `get_accuracy(..., test_start = , by = c(unit, "horizon"))`.
 #'
 #' @param lh_accuracy A data.table from [get_lh_accuracy()] or [cv_long_horizon()].
-#' @param sim_accuracy A data.table from [get_accuracy()] after summarising by horizon.
-#'   Must contain at least `horizon`, `crps`, and `mae` columns.
+#' @param sim_accuracy A data.table from [get_accuracy()]. For per-horizon
+#'   comparison it must carry a `horizon` column (and the unit column).
 #'
-#' @return A data.table with columns: `approach`, `variant`, `horizon`, `crps`, `mae`.
+#' @return A data.table with an `approach` column plus the shared score columns;
+#'   `variant` is `NA` for simulation rows.
 #' @family long_horizon
 #' @export
 compare_approaches <- function(lh_accuracy, sim_accuracy) {
@@ -448,7 +680,8 @@ compare_approaches <- function(lh_accuracy, sim_accuracy) {
   lh_tbl[, approach := "long_horizon"]
 
   sim_tbl <- data.table::copy(sim_accuracy)
-  sim_tbl[, `:=`(approach = "simulation", variant = NA_character_)]
+  if (!"variant" %in% names(sim_tbl)) sim_tbl[, variant := NA_character_]
+  sim_tbl[, approach := "simulation"]
 
   data.table::rbindlist(list(lh_tbl, sim_tbl), fill = TRUE)
 }

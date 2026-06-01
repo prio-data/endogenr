@@ -7,8 +7,8 @@
 fit_lh_model(formula, aligned_data, h, groupvar, timevar, boot = NULL)
 }
 \arguments{
-\item{formula}{Formula. Model specification; LHS is the transformed outcome,
-RHS uses baseline covariates (may include \code{lag()}, raw variables, etc.).}
+\item{formula}{Formula. Model specification; LHS is \code{lead_horizon(outcome)}
+(optionally transformed), RHS uses baseline covariates at the origin.}
 
 \item{aligned_data}{A data.table from \code{\link[=create_lh_data]{create_lh_data()}}.}
 
@@ -28,15 +28,17 @@ A list with model components for use in \code{\link[=forecast_long_horizon]{fore
 }
 \description{
 Fits an ordinary least-squares model (with optional bootstrap) that predicts
-the h-step-ahead outcome from baseline covariates at time t.
+the h-step-ahead outcome from baseline covariates at the forecast origin t.
 }
 \details{
-The formula LHS specifies the outcome variable and its transformation, e.g.
-\code{asinh(gdppc) ~ lag(asinh(gdppc))}. Internally the LHS variable is replaced
-with \code{.target} (the column added by \code{\link[=create_lh_data]{create_lh_data()}}) so that:
+The formula LHS must be wrapped in \code{\link[=lead_horizon]{lead_horizon()}} and names the outcome,
+optionally transformed, e.g. \code{lead_horizon(gdppc_grwt) ~ ...} or
+\code{lead_horizon(asinh(gdppc)) ~ ...}. Internally the \code{lead_horizon()} wrapper is
+stripped and the outcome variable is replaced with \code{.target} (the led column
+added by \code{\link[=create_lh_data]{create_lh_data()}}) so that:
 \itemize{
 \item LHS = transformation applied to the h-step-ahead value
-\item RHS = covariates at the baseline year t
+\item RHS = covariates at the baseline year t (write \code{lag()} only for older history)
 }
 }
 \seealso{
@@ -46,6 +48,7 @@ Other long_horizon:
 \code{\link[=cv_long_horizon]{cv_long_horizon()}},
 \code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
 \code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
 \code{\link[=setup_long_horizon]{setup_long_horizon()}}
 }
 \concept{long_horizon}

@@ -10,14 +10,17 @@ setup_long_horizon(
   horizons,
   groupvar,
   timevar,
-  train_end,
+  test_start,
   boot = NULL
 )
 }
 \arguments{
 \item{data}{A data.frame or data.table.}
 
-\item{formulas}{Named list of formulas, one per model variant.}
+\item{formulas}{A formula or a list of formulas, one per model variant. Each
+LHS must be wrapped in \code{\link[=lead_horizon]{lead_horizon()}}. A bare formula is accepted as a
+single variant; unnamed (or partially named) list entries are auto-named
+\code{model1}, \code{model2}, ... and that name becomes the \code{variant} label.}
 
 \item{horizons}{Integer vector of forecast horizons (e.g. \code{1:12}).}
 
@@ -25,8 +28,10 @@ setup_long_horizon(
 
 \item{timevar}{Character. Time variable name.}
 
-\item{train_end}{Numeric. Training cutoff; only observations before this year
-(shifted by h) are used for training.}
+\item{test_start}{Numeric. First forecast year. Training uses only rows whose
+h-step target falls strictly before \code{test_start}, so \code{test_start} itself is
+the first out-of-sample target. Same meaning as \code{test_start} in
+\code{\link[=setup_simulator]{setup_simulator()}}.}
 
 \item{boot}{Character or NULL. Bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}.}
 }
@@ -38,6 +43,13 @@ For each combination of horizon and named formula, calls \code{\link[=create_lh_
 and \code{\link[=fit_lh_model]{fit_lh_model()}} to produce a complete set of fitted models. No dynamic
 loop is needed — models are independent across time and estimated once.
 }
+\details{
+Each formula must have its LHS wrapped in \code{\link[=lead_horizon]{lead_horizon()}}; for example
+\code{list(lh_linear = lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc) + best)}.
+The right-hand side is evaluated at the forecast origin (\code{test_start - 1}),
+matching the dynamic simulator's information set. Use \code{lag()} on the RHS only
+when you deliberately want history older than the origin.
+}
 \seealso{
 Other long_horizon:
 \code{\link[=compare_approaches]{compare_approaches()}},
@@ -45,6 +57,7 @@ Other long_horizon:
 \code{\link[=cv_long_horizon]{cv_long_horizon()}},
 \code{\link[=fit_lh_model]{fit_lh_model()}},
 \code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
-\code{\link[=get_lh_accuracy]{get_lh_accuracy()}}
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}}
 }
 \concept{long_horizon}

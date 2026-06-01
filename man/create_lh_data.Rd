@@ -4,7 +4,7 @@
 \alias{create_lh_data}
 \title{Create aligned (t, t+h) training data for long-horizon models}
 \usage{
-create_lh_data(data, outcome, h, groupvar, timevar, train_end)
+create_lh_data(data, outcome, h, groupvar, timevar, test_start)
 }
 \arguments{
 \item{data}{A data.frame or data.table containing all variables.}
@@ -17,18 +17,18 @@ create_lh_data(data, outcome, h, groupvar, timevar, train_end)
 
 \item{timevar}{Character. The time variable name.}
 
-\item{train_end}{Numeric. Training cutoff; only rows where \code{t + h < train_end}
-are included (strict inequality prevents outcome leakage).}
+\item{test_start}{Numeric. First forecast year; only rows whose target year
+\code{t + h < test_start} are included (strict inequality prevents leakage).}
 }
 \value{
 A data.table with all original columns plus a \code{.target} column holding
 the h-step-ahead value of the outcome.
 }
 \description{
-For each group, computes the h-step-ahead value of the outcome and stores it
-in a new \code{.target} column. The original outcome column is left untouched so
-that formula RHS terms (e.g. \code{lag(outcome)}) are evaluated at the baseline
-period t, not the target period t+h.
+For each group, computes the h-step-ahead value of the outcome (via
+\code{\link[=lead_horizon]{lead_horizon()}}) and stores it in a new \code{.target} column. The original
+outcome column is left untouched so that formula RHS terms are evaluated at
+the baseline period t, not the target period t+h.
 }
 \seealso{
 Other long_horizon:
@@ -37,6 +37,7 @@ Other long_horizon:
 \code{\link[=fit_lh_model]{fit_lh_model()}},
 \code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
 \code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
 \code{\link[=setup_long_horizon]{setup_long_horizon()}}
 }
 \concept{long_horizon}

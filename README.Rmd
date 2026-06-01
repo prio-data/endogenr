@@ -236,14 +236,20 @@ future::plan(future::sequential)
 
 ## Long-horizon comparison
 
-For each horizon `h`, the long-horizon API fits a single regression of
-`y_{t+h}` on baseline covariates at `t`. Use it when you want a sanity
-check against the dynamic simulator. See `?cv_long_horizon` for the
-cross-validated entry point.
+For each horizon `h`, the long-horizon API fits a single *direct* regression of
+the h-step-ahead outcome on covariates observed at the forecast origin
+(`test_start - 1`, the last observed period — the same information the dynamic
+simulator conditions on). It is a reduced-form benchmark for the dynamic
+simulator. See `?cv_long_horizon` for the cross-validated entry point.
+
+The outcome on the formula LHS must be wrapped in `lead_horizon()`; the horizon
+`h` is supplied internally per horizon. The RHS is evaluated at the origin, so
+write the covariates *unlagged* for the standard benchmark (use `lag()` only
+when you deliberately want history older than the origin).
 
 ```{r long-horizon, eval=FALSE}
 formulas <- list(
-  lh_linear = gdppc_grwt ~ lag(gdppc_grwt) + lag(log(gdppc)) + lag(best)
+  lh_linear = lead_horizon(gdppc_grwt) ~ gdppc_grwt + log(gdppc) + best
 )
 
 lh_setup <- setup_long_horizon(
@@ -252,18 +258,29 @@ lh_setup <- setup_long_horizon(
   horizons   = 1:12,
   groupvar   = "gwcode",
   timevar    = "year",
-  train_end  = 2010
+  test_start = 2010
 )
 
 lh_forecasts <- forecast_long_horizon(
   lh_setup,
   data       = df,
-  test_start = 2010,
+  test_start = 2010,   # defaults to lh_setup$test_start
   nsim       = 100,
   inner_sims = 10
 )
 
-lh_acc <- get_lh_accuracy(lh_forecasts, df, "gdppc_grwt", "gwcode", "year")
-sim_acc <- get_accuracy(res, "gdppc_grwt", df)  # aggregate by horizon if comparing
-compare_approaches(lh_acc, sim_acc)
+# Score both approaches on the same (unit, horizon) grid, then stack them.
+lh_acc  <- get_lh_accuracy(lh_forecasts, df, lh_setup)
+sim_acc <- get_accuracy(res, "gdppc_grwt", df,
+                        test_start = 2010, by = c("gwcode", "horizon"))
+
+compare_approaches(lh_acc, sim_acc) |>
+  dplyr::group_by(approach, horizon) |>
+  dplyr::summarize(crps = mean(crps), .groups = "drop") |>
+  dplyr::arrange(horizon, approach)
 ```
+
+
+For a transformed outcome (e.g. `lead_horizon(asinh(gdppc)) ~ ...`), score on
+the modelled scale with `get_lh_accuracy(..., scale = "model")`, or on the
+native scale with `scale = "native", inverse = sinh`.

@@ -13,13 +13,17 @@ cv_long_horizon(
   test_starts,
   boot = NULL,
   nsim = 500L,
-  inner_sims = 10L
+  inner_sims = 10L,
+  scale = c("native", "model"),
+  inverse = NULL,
+  level = 50
 )
 }
 \arguments{
 \item{data}{A data.frame or data.table.}
 
-\item{formulas}{Named list of formulas (see \code{\link[=setup_long_horizon]{setup_long_horizon()}}).}
+\item{formulas}{A formula or list of formulas (see \code{\link[=setup_long_horizon]{setup_long_horizon()}});
+bare formulas and unnamed lists are accepted and auto-named.}
 
 \item{horizons}{Integer vector of forecast horizons.}
 
@@ -27,22 +31,31 @@ cv_long_horizon(
 
 \item{timevar}{Character. Time variable name.}
 
-\item{test_starts}{Numeric vector of first forecast years.}
+\item{test_starts}{Numeric vector of first forecast years. Each value is used
+as the \code{test_start} for its fold.}
 
 \item{boot}{Character or NULL. Bootstrap type.}
 
-\item{nsim}{Integer. Number of outer simulations.}
+\item{nsim}{Integer. Number of bootstrap refits per fold (see
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}}); total draws per cell are \code{nsim * inner_sims}.}
 
-\item{inner_sims}{Integer. Number of inner draws per simulation.}
+\item{inner_sims}{Integer. Number of predictive draws per refit (see
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}}).}
+
+\item{scale}{One of \code{"native"} or \code{"model"}; see \code{\link[=get_lh_accuracy]{get_lh_accuracy()}}.}
+
+\item{inverse}{Function or NULL; see \code{\link[=get_lh_accuracy]{get_lh_accuracy()}}.}
+
+\item{level}{Numeric. Coverage level for the Winkler score (default 50).}
 }
 \value{
-A data.table with columns: \code{variant}, \code{horizon}, \code{crps}, \code{mae}, averaged
-across all folds, units, and horizons.
+A data.table with columns: \code{variant}, the unit column, \code{horizon},
+\code{crps}, \code{mae}, \code{winkler}, averaged across all folds.
 }
 \description{
 Runs the full pipeline — \code{\link[=setup_long_horizon]{setup_long_horizon()}} + \code{\link[=forecast_long_horizon]{forecast_long_horizon()}} —
 for each training window defined by \code{test_starts}, stacks all forecasts, and
-returns aggregated accuracy scores.
+returns aggregated accuracy scores per \verb{(variant, unit, horizon)}.
 }
 \seealso{
 Other long_horizon:
@@ -51,6 +64,7 @@ Other long_horizon:
 \code{\link[=fit_lh_model]{fit_lh_model()}},
 \code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
 \code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
 \code{\link[=setup_long_horizon]{setup_long_horizon()}}
 }
 \concept{long_horizon}
