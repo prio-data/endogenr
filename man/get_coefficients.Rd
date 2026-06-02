@@ -10,9 +10,12 @@ get_coefficients(fitted_system)
 \item{fitted_system}{An \code{endogenr_fitted_system} from \code{\link[=fit_system]{fit_system()}}.}
 }
 \value{
-A \code{data.table} with columns \code{.draw} (integer, \verb{1..nsim}), \code{outcome},
-\code{term}, \code{estimate}, \code{std.error}, \code{statistic}, and \code{p.value}. Zero rows if
-no model carries coefficients.
+A \code{data.table} with columns \code{.draw} (integer, \verb{1..nsim}),
+\code{.window_start}/\code{.window_end} (the training window that produced the
+draw), \code{outcome}, \code{term}, \code{estimate}, \code{std.error}, \code{statistic}, and
+\code{p.value}. For shared/non-refit fits the window is the full
+\verb{[train_start, test_start - 1]} range. Zero rows if no model carries
+coefficients.
 }
 \description{
 Walks the stored coefficient draws of a \code{\link[=fit_system]{fit_system()}} output and returns a

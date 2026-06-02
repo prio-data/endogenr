@@ -176,9 +176,12 @@ plot_estimates <- function(
 #'
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #'
-#' @return A `data.table` with columns `.draw` (integer, `1..nsim`), `outcome`,
-#'   `term`, `estimate`, `std.error`, `statistic`, and `p.value`. Zero rows if
-#'   no model carries coefficients.
+#' @return A `data.table` with columns `.draw` (integer, `1..nsim`),
+#'   `.window_start`/`.window_end` (the training window that produced the
+#'   draw), `outcome`, `term`, `estimate`, `std.error`, `statistic`, and
+#'   `p.value`. For shared/non-refit fits the window is the full
+#'   `[train_start, test_start - 1]` range. Zero rows if no model carries
+#'   coefficients.
 #' @seealso [fit_system()], [plot_coefficients()], [plot_estimates()]
 #' @family postprocess
 #' @export
@@ -187,6 +190,11 @@ get_coefficients <- function(fitted_system) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
   }
 
+  # Window for fits that did not draw a random one (subset = NULL): the full
+  # training range [train_start, test_start - 1].
+  full_start <- fitted_system$train_start
+  full_end   <- fitted_system$test_start - 1L
+
   draws <- fitted_system$fitted_draws
   rows <- vector("list", length(draws))
 
@@ -194,8 +202,14 @@ get_coefficients <- function(fitted_system) {
     draw_rows <- list()
     for (model in draws[[d]]) {
       if (is.null(model) || is.null(model$coefs)) next
+      win <- model$subset
       ct <- data.table::as.data.table(model$coefs)
-      ct[, `:=`(.draw = d, outcome = model$outcome)]
+      ct[, `:=`(
+        .draw = d,
+        .window_start = if (is.null(win$start)) full_start else win$start,
+        .window_end   = if (is.null(win$end))   full_end   else win$end,
+        outcome = model$outcome
+      )]
       draw_rows[[length(draw_rows) + 1L]] <- ct
     }
     if (length(draw_rows) > 0L) {
@@ -206,7 +220,8 @@ get_coefficients <- function(fitted_system) {
   out <- data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)
   if (nrow(out) == 0L) return(out)
 
-  lead <- c(".draw", "outcome", "term", "estimate", "std.error", "statistic", "p.value")
+  lead <- c(".draw", ".window_start", ".window_end", "outcome", "term",
+            "estimate", "std.error", "statistic", "p.value")
   data.table::setcolorder(out, c(intersect(lead, names(out)),
                                  setdiff(names(out), lead)))
   out[]

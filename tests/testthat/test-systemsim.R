@@ -314,6 +314,12 @@ test_that("fit_system shares a single fit across draws when min_window is NULL",
     unname(stats::coef(models[[1]]$fitted)[["lag_x"]])
   }, numeric(1))
   expect_equal(length(unique(slopes)), 1L)
+
+  # No random window: get_coefficients reports the full [train_start,
+  # test_start - 1] range for every draw.
+  gc <- get_coefficients(fit)
+  expect_true(all(gc$.window_start == 2000))
+  expect_true(all(gc$.window_end == 2009))
 })
 
 test_that("fit_system strips the cached training frame but predict still works", {
@@ -380,14 +386,20 @@ test_that("get_coefficients returns a tidy across-draw table", {
   gc <- get_coefficients(fit)
 
   expect_s3_class(gc, "data.table")
-  expect_true(all(c(".draw", "outcome", "term", "estimate",
-                    "std.error", "statistic", "p.value") %in% names(gc)))
+  expect_true(all(c(".draw", ".window_start", ".window_end", "outcome", "term",
+                    "estimate", "std.error", "statistic", "p.value") %in% names(gc)))
 
   # One coefficient-bearing model (the linear), tidied to 2 terms per draw.
   n_terms <- nrow(fit$fitted_models[[1]]$coefs)
   expect_equal(nrow(gc), 5L * n_terms)
   expect_setequal(unique(gc$.draw), 1:5)
   expect_setequal(unique(gc$outcome), "y")
+
+  # The refit window is recorded per draw, lies inside the trainable range,
+  # and varies across draws (random windows).
+  expect_true(all(gc$.window_start >= 2000 & gc$.window_end <= 2025))
+  win_by_draw <- unique(gc[, .(.draw, .window_start, .window_end)])
+  expect_gt(nrow(unique(win_by_draw[, .(.window_start, .window_end)])), 1L)
 
   # Across-draw spread for the refit slope.
   slope <- gc[gc$term != "(Intercept)"]
