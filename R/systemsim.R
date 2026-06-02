@@ -227,15 +227,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 
   # Extract model outcomes for validation
   specs <- models
-  independent_types <- get_independent_models()
-  model_outcomes <- vapply(specs, function(spec) {
-    f <- spec$formula
-    if (spec$type %in% independent_types) {
-      all.vars(f)
-    } else {
-      all.vars(rlang::f_lhs(f))
-    }
-  }, character(1))
+  model_outcomes <- vapply(specs, .spec_outcome, character(1))
 
   # Validate panel integrity
   validate_panel(data, ctx, test_start, model_outcomes)

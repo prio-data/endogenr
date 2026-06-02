@@ -105,3 +105,53 @@ compare_approaches(lh_acc,
                                           .(approach, variant)]
 
 
+
+# Experiment grid -----------------------------------------------------------
+# Explore variations of the simulation pipeline (model system, train_start,
+# and/or test_start) in one call. Each combination is a separate experiment;
+# results stack into one long data.table that plugs into get_experiment_accuracy().
+
+# Vary the gdppc_grwt equation: swap just the `linear` spec into the base system.
+e2 <- gdppc_grwt ~ region + lag(dem) + lag(log(gdppc))
+e3 <- gdppc_grwt ~ region + lag(yjbest) + lag(log(gdppc)) + lag(psecprop)
+
+systems <- vary_model(model_system, list(
+  e1 = build_model("linear", formula = e1, boot = "resid"),
+  e2 = build_model("linear", formula = e2, boot = "resid"),
+  e3 = build_model("linear", formula = e3, boot = "resid")
+))
+
+# Parallelise ACROSS experiments (the default): set one plan; each experiment's
+# inner fit/simulate runs sequentially on its worker. Cross 3 model variants
+# with 2 forecast starts -> 6 experiments. Keep test_start + horizon - 1 within
+# the data range (<= 2024).
+start <- Sys.time()
+future::plan(future::multisession, workers = 8)
+set.seed(42)
+progressr::with_progress({
+  exp_res <- run_experiments(
+    data        = df,
+    models      = systems,
+    train_start = 1970,
+    test_start  = c(2006, 2010),
+    horizon     = 12,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 30,
+    nsim        = 64,
+    min_window  = 20
+  )
+})
+future::plan(future::sequential)
+Sys.time() - start
+
+# One score block per experiment, each against its own test_start.
+exp_acc <- get_experiment_accuracy(exp_res, "gdppc", df)
+exp_acc[, .(crps = mean(crps), mae = mean(mae)),
+        by = .(.experiment, model, test_start, horizon)]
+
+library(ggplot2)
+ggplot(exp_acc[, .(crps = mean(crps)), by = .(model, test_start, horizon)],
+       aes(x = horizon, y = crps, colour = factor(model))) +
+  geom_line() +
+  facet_wrap(~test_start)
