@@ -96,6 +96,7 @@ test_that("validate_panel skips initial state check when model_outcomes is NULL"
 
 test_that("validate_system_closure passes for a closed system", {
   models <- list(
+    build_model("exogen", formula = ~x),
     build_model("linear", formula = y ~ lag(x))
   )
   expect_true(validate_system_closure(models, c("gwcode", "year", "x", "y")))
@@ -122,12 +123,13 @@ test_that("validate_system_closure errors on duplicate outcomes", {
   )
 })
 
-test_that("validate_system_closure accepts RHS var provided by another model", {
+test_that("validate_system_closure accepts a predictor produced by another model", {
   models <- list(
+    build_model("exogen", formula = ~x),
     build_model("linear", formula = y ~ lag(x)),
     build_model("linear", formula = z ~ lag(y))
   )
-  # y is an outcome of model 1; closure is fine. y/z must still exist as data columns.
+  # x via exogen, y via model 2; z's lag(y) and the lagged x are all produced.
   expect_true(validate_system_closure(models, c("gwcode", "year", "x", "y", "z")))
 })
 
@@ -159,6 +161,74 @@ test_that("validate_system_closure handles independent models", {
   expect_true(validate_system_closure(models, c("gwcode", "year", "x", "y")))
 })
 
+test_that("validate_system_closure errors on an unmodeled same-period predictor", {
+  models <- list(
+    build_model("exogen", formula = ~x),
+    build_model("linear", formula = y ~ region + lag(x))
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "x", "y", "region")),
+    "not produced by any model: region"
+  )
+})
+
+test_that("validate_system_closure errors on an unmodeled lagged predictor", {
+  # lag(psecprop) where psecprop has no producing model: NA from forecast step 2.
+  models <- list(
+    build_model("linear", formula = y ~ lag(psecprop))
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "y", "psecprop")),
+    "not produced by any model: psecprop"
+  )
+})
+
+test_that("validate_system_closure flags factor()-wrapped predictors", {
+  models <- list(
+    build_model("exogen", formula = ~x),
+    build_model("linear", formula = y ~ -1 + factor(region) + lag(x))
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "x", "y", "region")),
+    "not produced by any model.*region"
+  )
+})
+
+test_that("validate_system_closure accepts a predictor produced by exogen", {
+  models <- list(
+    build_model("exogen", formula = ~region),
+    build_model("linear", formula = y ~ region)
+  )
+  expect_true(validate_system_closure(models, c("gwcode", "year", "y", "region")))
+})
+
+test_that("validate_system_closure accepts a same-period predictor produced by another model", {
+  models <- list(
+    build_model("linear", formula = z ~ lag(z)),
+    build_model("linear", formula = y ~ z)
+  )
+  expect_true(validate_system_closure(models, c("gwcode", "year", "y", "z")))
+})
+
+test_that("validate_system_closure accepts a lagged self-reference", {
+  models <- list(
+    build_model("deterministic", formula = gdppc ~ I(abs(lag(gdppc) * 1.02)))
+  )
+  expect_true(validate_system_closure(models, c("gwcode", "year", "gdppc")))
+})
+
+test_that("validate_system_closure flags an unmodeled heterolm variance predictor", {
+  models <- list(
+    build_model("exogen", formula = ~x),
+    build_model("heterolm", formula = y ~ lag(x), variance = ~ w)
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "x", "y", "w")),
+    "not produced by any model: w"
+  )
+})
+
+
 # ── Integration: setup_simulator with bad input ────────────────────────────
 
 test_that("setup_simulator catches non-contiguous time series", {
@@ -185,5 +255,19 @@ test_that("setup_simulator catches unclosed system", {
       groupvar = "gwcode", timevar = "year", inner_sims = 1
     ),
     "missing from the input data.*missing_var"
+  )
+})
+
+test_that("setup_simulator errors on an unmodeled same-period predictor with guidance", {
+  dt <- make_panel()
+  dt$region <- ifelse(dt$gwcode == 1, "A", "B")
+  models <- list(build_model("linear", formula = y ~ region + lag(x)))
+  expect_error(
+    setup_simulator(
+      models = models, data = dt,
+      train_start = 2000, test_start = 2008, horizon = 2,
+      groupvar = "gwcode", timevar = "year", inner_sims = 1
+    ),
+    "not produced by any model: region"
   )
 })

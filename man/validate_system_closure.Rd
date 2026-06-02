@@ -16,9 +16,10 @@ a \verb{$formula} field).}
 Invisible TRUE if valid. Throws informative errors otherwise.
 }
 \description{
-Checks that every RHS variable referenced by model formulas is available
-either as another model's outcome or as a column in the data. Also checks
-for duplicate outcomes across models.
+Checks that every predictor referenced by a model formula is produced by some
+model (so it is available throughout the forecast window), that every
+formula-referenced variable exists as a data column, and that no two models
+share an outcome.
 }
 \seealso{
 Other validate:

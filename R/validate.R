@@ -96,9 +96,10 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
 
 #' Validate that the model system is closed
 #'
-#' Checks that every RHS variable referenced by model formulas is available
-#' either as another model's outcome or as a column in the data. Also checks
-#' for duplicate outcomes across models.
+#' Checks that every predictor referenced by a model formula is produced by some
+#' model (so it is available throughout the forecast window), that every
+#' formula-referenced variable exists as a data column, and that no two models
+#' share an outcome.
 #'
 #' @param models A list of models (unfitted specs or fitted model objects with
 #'   a `$formula` field).
@@ -172,14 +173,21 @@ validate_system_closure <- function(models, data_columns) {
          call. = FALSE)
   }
 
-  # Check system closure: every RHS var must be in {outcomes} U {data_columns}
+  # System closure: every RHS predictor must be produced by a model. The
+  # simulation grid carries only model outputs into the forecast window, so a
+  # variable referenced as a predictor but produced by no model is dropped to NA
+  # after the training period and silently propagates NA through the forecast —
+  # immediately when used at the current period, after `n` steps when used at
+  # lag `n`. (Lagged self-references such as lag(y) in y's own model are fine: y
+  # is its own outcome.)
   all_rhs_vars <- unique(all_rhs_vars)
-  available <- unique(c(outcomes, data_columns))
-  missing_vars <- setdiff(all_rhs_vars, available)
-
-  if (length(missing_vars) > 0) {
-    stop("System is not closed. The following RHS variables are not provided ",
-         "by any model or data column: ", paste(missing_vars, collapse = ", "),
+  unmodeled <- setdiff(all_rhs_vars, outcomes)
+  if (length(unmodeled) > 0) {
+    stop("The following variables are referenced as predictors but are not ",
+         "produced by any model: ", paste(unmodeled, collapse = ", "),
+         ". Every predictor must be produced by a model so it is available ",
+         "throughout the forecast window. Add a model that produces each, e.g. ",
+         "build_model('exogen', formula = ~", unmodeled[1], ").",
          call. = FALSE)
   }
 
