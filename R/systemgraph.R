@@ -32,11 +32,37 @@ get_execution_order = function(dependency_graph) {
 
   third <- second |> igraph::delete_vertices(exogenous_variables)
 
+  # A cycle among the same-period (non-lag) edges means a model depends on its
+  # own or another model's current-period value, which cannot be sequenced.
+  if (igraph::gorder(third) > 0L && !igraph::is_dag(third)) {
+    offenders <- .same_period_cycle_vars(third)
+    stop("Model system has a same-period dependency cycle among: ",
+         paste(offenders, collapse = ", "),
+         ". A model cannot depend on its own or another model's current-period ",
+         "value; use lag() to reference a prior period.",
+         call. = FALSE)
+  }
+
   # Use topological sort to determine calculation order
   endogenous_order <- igraph::topo_sort(third, mode = "out")
   endogenous_order <- igraph::V(third)$name[endogenous_order]
   execution_order <- c(exogenous_variables, endogenous_order)
   return(execution_order)
+}
+
+#' Identify variables participating in a same-period dependency cycle
+#'
+#' @param g A directed `igraph` graph (the non-lag, endogenous subgraph).
+#' @return Character vector of vertex names that sit in a non-trivial strongly
+#'   connected component or carry a self-loop.
+#' @keywords internal
+.same_period_cycle_vars <- function(g) {
+  comp <- igraph::components(g, mode = "strong")
+  multi <- names(which(table(comp$membership) > 1L))
+  cyclic <- igraph::V(g)$name[as.character(comp$membership) %in% multi]
+  el <- igraph::as_edgelist(g)
+  self_loops <- if (nrow(el) > 0L) el[el[, 1L] == el[, 2L], 1L] else character(0)
+  unique(c(cyclic, self_loops))
 }
 
 #' Test if a certain function is in each term in a formula
@@ -55,31 +81,66 @@ func_in_term <- function(formula, func = "lag") {
   res[-1] # first term is always just list()
 }
 
+#' Classify the variables in a single formula term by lag context
+#'
+#' Walks the term's AST and records each variable as lagged (it appears inside
+#' a `lag()` call) or same-period (it does not). The classification is
+#' per-variable, not per-term: a same-period variable sharing a term with a
+#' lagged one (e.g. `I(lag(y) * x)`) is still same-period. A variable that is
+#' both (e.g. `I(x - lag(x))`) is reported in both buckets.
+#'
+#' @param expr A language object (one parsed formula term).
+#'
+#' @return A list with `lagged` and `plain` character vectors (each unique).
+#' @keywords internal
+.classify_term_vars <- function(expr) {
+  lagged <- character(0)
+  plain  <- character(0)
+  walk <- function(e, under_lag) {
+    if (is.symbol(e)) {
+      nm <- as.character(e)
+      if (nzchar(nm)) {
+        if (under_lag) lagged[[length(lagged) + 1L]] <<- nm
+        else           plain[[length(plain) + 1L]]   <<- nm
+      }
+      return(invisible())
+    }
+    if (!is.call(e)) return(invisible())
+    # A `lag()` call (bare or namespaced) sets the lag context for its args.
+    under_lag <- under_lag || identical(.pt_call_name(e), "lag")
+    for (j in seq_along(e)[-1L]) walk(e[[j]], under_lag)
+  }
+  walk(expr, FALSE)
+  list(lagged = unique(lagged), plain = unique(plain))
+}
+
 #' Extract dependency edges from a single formula
 #'
-#' Iterates over formula terms individually, correctly handling variables that
-#' appear both lagged and unlagged (e.g., `y ~ lag(x) + x` produces both
-#' `lag_x -> y` and `x -> y` edges).
+#' Iterates over formula terms and classifies each variable per-term by lag
+#' context (see [.classify_term_vars()]). A variable inside a `lag()` call
+#' becomes a `lag_`-prefixed input (a prior-period dependency, stripped when
+#' computing execution order); a same-period variable keeps its bare name. A
+#' variable that is both lagged and unlagged (across terms as in
+#' `y ~ lag(x) + x`, or within one term as in `y ~ I(lag(x) - x)`) produces
+#' both `lag_x -> y` and `x -> y` edges.
 #'
 #' @param formula An R formula.
 #' @param outcome Character. The outcome variable name.
 #'
-#' @return A data.frame with columns `in.` and `out`.
+#' @return A data.frame with columns `in.` and `out` (zero rows when the
+#'   formula has no variable terms, e.g. `~ 1`).
 #' @keywords internal
 .edges_from_formula <- function(formula, outcome) {
   term_labels <- attr(stats::terms(formula), "term.labels")
-  edges <- vector("list", length(term_labels))
-  for (i in seq_along(term_labels)) {
-    expr <- parse(text = term_labels[[i]])[[1]]
-    var_names <- all.vars(expr, functions = FALSE)
-    func_names <- setdiff(all.vars(expr, functions = TRUE), var_names)
-    has_lag <- "lag" %in% func_names
-    prefix <- if (has_lag) "lag_" else ""
-    edges[[i]] <- data.frame(in. = paste0(prefix, var_names), out = outcome)
+  ins <- character(0)
+  for (lbl in term_labels) {
+    vars <- .classify_term_vars(parse(text = lbl)[[1]])
+    if (length(vars$lagged)) ins <- c(ins, paste0("lag_", vars$lagged))
+    if (length(vars$plain))  ins <- c(ins, vars$plain)
   }
-  unique(do.call(rbind, edges))
+  ins <- unique(ins)
+  data.frame(in. = ins, out = rep(outcome, length(ins)), stringsAsFactors = FALSE)
 }
-
 #' Parse a model formula to correctly anticipate the input and output variables
 #'
 #' @param model An endogenmodel with `$formula` and `class()` set.
@@ -96,7 +157,7 @@ parse_formula <- function(model){
     edges <- .edges_from_formula(formula, outcome)
 
     # Also include variance formula dependencies for heterolm models
-    if ("heterolm" %in% class(model) && !is.null(model$variance_formula)) {
+    if ("heterolm" %in% class(model) && inherits(model$variance_formula, "formula")) {
       var_edges <- .edges_from_formula(model$variance_formula, outcome)
       if (nrow(var_edges) > 0) {
         edges <- unique(rbind(edges, var_edges))

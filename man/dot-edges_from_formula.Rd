@@ -12,11 +12,16 @@
 \item{outcome}{Character. The outcome variable name.}
 }
 \value{
-A data.frame with columns \code{in.} and \code{out}.
+A data.frame with columns \code{in.} and \code{out} (zero rows when the
+formula has no variable terms, e.g. \code{~ 1}).
 }
 \description{
-Iterates over formula terms individually, correctly handling variables that
-appear both lagged and unlagged (e.g., \code{y ~ lag(x) + x} produces both
-\code{lag_x -> y} and \code{x -> y} edges).
+Iterates over formula terms and classifies each variable per-term by lag
+context (see \code{\link[=.classify_term_vars]{.classify_term_vars()}}). A variable inside a \code{lag()} call
+becomes a \code{lag_}-prefixed input (a prior-period dependency, stripped when
+computing execution order); a same-period variable keeps its bare name. A
+variable that is both lagged and unlagged (across terms as in
+\code{y ~ lag(x) + x}, or within one term as in \code{y ~ I(lag(x) - x)}) produces
+both \code{lag_x -> y} and \code{x -> y} edges.
 }
 \keyword{internal}

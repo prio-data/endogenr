@@ -85,7 +85,8 @@ test_that("setup_simulator returns expected structure with linear model", {
   dt <- make_test_data()
 
   model_system <- list(
-    build_model("linear", formula = y ~ lag(x))
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
   )
 
   result <- setup_simulator(
@@ -117,7 +118,8 @@ test_that("setup_simulator fitted_models have coefs and gof for linear", {
   dt <- make_test_data()
 
   model_system <- list(
-    build_model("linear", formula = y ~ lag(x))
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
   )
 
   result <- setup_simulator(
@@ -142,7 +144,8 @@ test_that("setup_simulator builds correct execution_order", {
   dt <- make_test_data()
 
   model_system <- list(
-    build_model("linear", formula = y ~ lag(x))
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
   )
 
   result <- setup_simulator(
@@ -162,8 +165,10 @@ test_that("setup_simulator builds correct execution_order", {
 test_that("setup_simulator works with deterministic model", {
   dt <- make_test_data()
 
+  # Self-lag deterministic: a valid model with no unmodeled same-period predictor
+  # (an unlagged data column such as `x` would now be rejected by closure checks).
   model_system <- list(
-    build_model("deterministic", formula = y ~ I(x * 2))
+    build_model("deterministic", formula = y ~ I(lag(y) * 1.02))
   )
 
   result <- setup_simulator(
@@ -191,7 +196,8 @@ test_that("setup_simulator handles multiple models with dependency ordering", {
 
   model_system <- list(
     build_model("linear", formula = y ~ lag(x)),
-    build_model("linear", formula = z ~ lag(y))
+    build_model("linear", formula = z ~ lag(y)),
+    build_model("exogen", formula = ~x)
   )
 
   result <- setup_simulator(
@@ -219,7 +225,8 @@ test_that("setup_simulator accepts tsibble input", {
   ts <- tsibble::tsibble(df, key = "gwcode", index = "year")
 
   model_system <- list(
-    build_model("linear", formula = y ~ lag(x))
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
   )
 
   result <- setup_simulator(
@@ -243,7 +250,8 @@ test_that("simulate_endogenr runs and returns expected output", {
   dt <- make_test_data()
 
   model_system <- list(
-    build_model("linear", formula = y ~ lag(x))
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
   )
 
   setup <- setup_simulator(
@@ -276,7 +284,7 @@ test_that("sim_to_dist nests simulations into list-columns", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -307,7 +315,7 @@ test_that("get_accuracy computes CRPS, MAE, and Winkler scores", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -337,7 +345,7 @@ test_that("simulate_endogenr stamps panel_unit and panel_time attributes", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -358,7 +366,7 @@ test_that("get_accuracy infers ctx from simulation_results attributes", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -384,7 +392,7 @@ test_that("get_accuracy infers ctx from truth attributes when results lack them"
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -417,7 +425,7 @@ test_that("plotsim infers ctx from attributes", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
@@ -438,7 +446,7 @@ test_that("sim_to_dist infers ctx from simulation_results attributes", {
   dt <- make_test_data()
 
   setup <- setup_simulator(
-    models      = list(build_model("linear", formula = y ~ lag(x))),
+    models      = list(build_model("linear", formula = y ~ lag(x)), build_model("exogen", formula = ~x)),
     data        = dt,
     train_start = 2000,
     test_start  = 2013,
