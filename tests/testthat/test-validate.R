@@ -229,14 +229,14 @@ test_that("validate_system_closure flags an unmodeled heterolm variance predicto
 })
 
 
-# ── Integration: setup_simulator with bad input ────────────────────────────
+# ── Integration: setup_system with bad input ────────────────────────────────
 
-test_that("setup_simulator catches non-contiguous time series", {
+test_that("setup_system catches non-contiguous time series", {
   dt <- make_panel()
   dt <- dt[!(gwcode == 1 & year == 2005)]
   models <- list(build_model("linear", formula = y ~ lag(x)))
   expect_error(
-    setup_simulator(
+    setup_system(
       models = models, data = dt,
       train_start = 2000, test_start = 2008, horizon = 2,
       groupvar = "gwcode", timevar = "year", inner_sims = 1
@@ -245,11 +245,11 @@ test_that("setup_simulator catches non-contiguous time series", {
   )
 })
 
-test_that("setup_simulator catches unclosed system", {
+test_that("setup_system catches unclosed system", {
   dt <- make_panel()
   models <- list(build_model("linear", formula = y ~ lag(missing_var)))
   expect_error(
-    setup_simulator(
+    setup_system(
       models = models, data = dt,
       train_start = 2000, test_start = 2008, horizon = 2,
       groupvar = "gwcode", timevar = "year", inner_sims = 1
@@ -258,12 +258,12 @@ test_that("setup_simulator catches unclosed system", {
   )
 })
 
-test_that("setup_simulator errors on an unmodeled same-period predictor with guidance", {
+test_that("setup_system errors on an unmodeled same-period predictor with guidance", {
   dt <- make_panel()
   dt$region <- ifelse(dt$gwcode == 1, "A", "B")
   models <- list(build_model("linear", formula = y ~ region + lag(x)))
   expect_error(
-    setup_simulator(
+    setup_system(
       models = models, data = dt,
       train_start = 2000, test_start = 2008, horizon = 2,
       groupvar = "gwcode", timevar = "year", inner_sims = 1

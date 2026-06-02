@@ -1,7 +1,6 @@
 #' Draw a random training window
 #'
-#' Used by `setup_simulator()` (and the inner refit loop in
-#' `simulate_endogenr()`) to draw a random training window for `linear`,
+#' Used by [fit_system()] to draw a random training window for `linear`,
 #' `glm`, and `heterolm` models when `min_window` is set. The window is
 #' anchored inside `[earliest_train_start, test_start - 1]`, with random
 #' (possibly zero) padding on either side, and is guaranteed to be at

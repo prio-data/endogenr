@@ -17,8 +17,8 @@ A fitted endogenmodel object.
 }
 \description{
 Generic function that dispatches to type-specific fitting methods based on
-the spec's class. Called internally by \code{\link[=setup_simulator]{setup_simulator()}} and
-\code{\link[=inner_simulation]{inner_simulation()}}.
+Generic function that dispatches to type-specific fitting methods based on
+the spec's class. Called internally by \code{\link[=fit_system]{fit_system()}}.
 }
 \seealso{
 Other build:

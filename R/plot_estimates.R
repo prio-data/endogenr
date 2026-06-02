@@ -4,9 +4,9 @@
 #' in a cross-validated simulation setup, optionally appended with a table
 #' of goodness-of-fit statistics (R-squared and N).
 #'
-#' @param models A named list (keyed by test start year) of
-#'   [setup_simulator()] outputs. Typically loaded from a saved
-#'   `models.rds` file.
+#' @param models A named list (keyed by test start year) of [fit_system()]
+#'   outputs (each carrying a representative `$fitted_models`). Typically
+#'   loaded from a saved `models.rds` file.
 #' @param outcome_labels An optional named character vector mapping outcome
 #'   variable names to display labels (e.g.,
 #'   `c(dem = "Democracy", yjbest = "Conflict")`). If `NULL`, raw outcome
@@ -165,4 +165,100 @@ plot_estimates <- function(
   pw <- patchwork::wrap_plots(p_coef, p_gof, widths = widths) &
     ggplot2::theme(axis.title.x = ggplot2::element_blank())
   pw
+}
+
+#' Extract across-draw coefficients from a fitted system
+#'
+#' Walks the stored coefficient draws of a [fit_system()] output and returns a
+#' tidy table of the regression coefficients that were actually used in the
+#' simulation, tagged by draw and outcome. Only `linear` and `glm` models
+#' carry coefficients (via [broom::tidy()]); other model types are skipped.
+#'
+#' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
+#'
+#' @return A `data.table` with columns `.draw` (integer, `1..nsim`), `outcome`,
+#'   `term`, `estimate`, `std.error`, `statistic`, and `p.value`. Zero rows if
+#'   no model carries coefficients.
+#' @seealso [fit_system()], [plot_coefficients()], [plot_estimates()]
+#' @family postprocess
+#' @export
+get_coefficients <- function(fitted_system) {
+  if (!inherits(fitted_system, "endogenr_fitted_system")) {
+    stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
+  }
+
+  draws <- fitted_system$fitted_draws
+  rows <- vector("list", length(draws))
+
+  for (d in seq_along(draws)) {
+    draw_rows <- list()
+    for (model in draws[[d]]) {
+      if (is.null(model) || is.null(model$coefs)) next
+      ct <- data.table::as.data.table(model$coefs)
+      ct[, `:=`(.draw = d, outcome = model$outcome)]
+      draw_rows[[length(draw_rows) + 1L]] <- ct
+    }
+    if (length(draw_rows) > 0L) {
+      rows[[d]] <- data.table::rbindlist(draw_rows, use.names = TRUE, fill = TRUE)
+    }
+  }
+
+  out <- data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)
+  if (nrow(out) == 0L) return(out)
+
+  lead <- c(".draw", "outcome", "term", "estimate", "std.error", "statistic", "p.value")
+  data.table::setcolorder(out, c(intersect(lead, names(out)),
+                                 setdiff(names(out), lead)))
+  out[]
+}
+
+#' Plot the across-draw distribution of system coefficients
+#'
+#' Visualises the spread of each regression coefficient across the `nsim`
+#' draws stored by [fit_system()]. With refit specs (`min_window` set), the
+#' draws differ and the boxplots show genuine sampling spread; without refits
+#' every draw is identical and each box collapses to a point. The intercept is
+#' dropped. Built on [get_coefficients()], so it covers `linear`/`glm` models.
+#'
+#' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
+#' @param outcome_labels An optional named character vector mapping outcome
+#'   variable names to display labels. If `NULL`, raw outcome names are used.
+#' @param base_size Numeric. Base font size passed to [ggplot2::theme_bw()].
+#'   Default `9`.
+#'
+#' @return A `ggplot` object.
+#' @seealso [fit_system()], [get_coefficients()], [plot_estimates()]
+#' @family postprocess
+#' @export
+plot_coefficients <- function(fitted_system, outcome_labels = NULL, base_size = 9) {
+  coefs <- get_coefficients(fitted_system)
+  if (nrow(coefs) == 0L) {
+    stop("No coefficients to plot: only `linear`/`glm` models carry coefficients.",
+         call. = FALSE)
+  }
+
+  coefs <- coefs[coefs$term != "(Intercept)", ]
+  if (nrow(coefs) == 0L) {
+    stop("No non-intercept coefficients to plot.", call. = FALSE)
+  }
+
+  oc <- as.character(coefs$outcome)
+  if (!is.null(outcome_labels)) {
+    hit <- oc %in% names(outcome_labels)
+    oc[hit] <- outcome_labels[oc[hit]]
+    lvls <- unname(outcome_labels)
+  } else {
+    lvls <- unique(oc)
+  }
+  coefs[, outcome := factor(oc, levels = lvls)]
+
+  ggplot2::ggplot(coefs, ggplot2::aes(x = .data$estimate, y = "")) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 5) +
+    ggplot2::geom_boxplot() +
+    ggplot2::facet_wrap(
+      ggplot2::vars(.data$outcome, .data$term),
+      scales = "free_x"
+    ) +
+    ggplot2::labs(x = "Estimate (across draws)", y = NULL) +
+    ggplot2::theme_bw(base_size = base_size)
 }

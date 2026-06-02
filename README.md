@@ -34,7 +34,7 @@ the “Build” tab, and press “Install”.
 
 ## Example
 
-`setup_simulator()` accepts a plain `data.frame` or `data.table` — no
+`setup_system()` accepts a plain `data.frame` or `data.table` — no
 `tsibble` conversion is required. Formula RHS terms can use `lag()`,
 `zoo::rollmean()`, or any function you define yourself (pass user
 functions through the `globals` argument).
@@ -81,8 +81,8 @@ model_system <- list(
 
 ### Validation
 
-`setup_simulator()` runs `validate_panel()` and
-`validate_system_closure()` on your inputs before fitting anything.
+`setup_system()` runs `validate_panel()` and `validate_system_closure()`
+on your inputs and builds the dependency graph (no models are fit yet).
 These check that the panel is balanced, time is contiguous and
 integer-valued, the initial state at `test_start - 1` has no NAs in any
 modelled outcome, and every variable referenced by a formula is either
@@ -91,7 +91,7 @@ modelled or supplied as a column. See `?validate_panel` and
 panel.
 
 ``` r
-simulator_setup <- setup_simulator(
+sys <- setup_system(
   models      = model_system,
   data        = df,
   train_start = 1970,
@@ -104,18 +104,73 @@ simulator_setup <- setup_simulator(
 )
 ```
 
-### Parallel execution and progress
+### Fit the system
 
-The simulator no longer manages a `future` plan internally. Set one
-yourself before calling `simulate_endogenr()`, and wrap the call in
-`progressr::with_progress()` if you want a progress bar:
+`fit_system()` estimates the models and **stores** the fitted objects,
+so the coefficients that drive the simulation can be inspected with
+`get_coefficients()` or plotted with `plot_coefficients()`. `nsim` lives
+here: it is the number of coefficient draws. Because this example sets
+`min_window`, the bootstrapped linear model is refit on a random
+training window for each draw, so the stored coefficients vary across
+draws.
 
 ``` r
 future::plan(future::multisession, workers = 2)
 
 set.seed(42)
+fit <- fit_system(sys, nsim = 2)
+
+# The coefficients actually used across draws
+get_coefficients(fit)
+#>     .draw outcome                                          term      estimate
+#>     <int>  <char>                                        <char>         <num>
+#>  1:     1    best                                   (Intercept)  3.426502e+02
+#>  2:     1    best                                      lag_best  3.767427e-01
+#>  3:     1    best                                 lag_log_gdppc -4.406651e+01
+#>  4:     1    best                            lag_log_population  3.539008e+01
+#>  5:     1    best                                  lag_psecprop  1.036039e+03
+#>  6:     1    best                             lag_v2x_polyarchy -1.779253e+02
+#>  7:     1    best                                lag_gdppc_grwt  2.463622e+03
+#>  8:     1    best lag_zoo_rollmean_best_k_5_fill_na_align_right  3.489623e-01
+#>  9:     2    best                                   (Intercept) -8.430086e+02
+#> 10:     2    best                                      lag_best  6.619216e-01
+#> 11:     2    best                                 lag_log_gdppc  1.302106e+02
+#> 12:     2    best                            lag_log_population  1.280010e+02
+#> 13:     2    best                                  lag_psecprop  6.686443e+02
+#> 14:     2    best                             lag_v2x_polyarchy -1.283131e+03
+#> 15:     2    best                                lag_gdppc_grwt -1.387291e+03
+#> 16:     2    best lag_zoo_rollmean_best_k_5_fill_na_align_right  6.765428e-02
+#>        std.error  statistic       p.value
+#>            <num>      <num>         <num>
+#>  1: 4.876389e+02  0.7026719  4.823053e-01
+#>  2: 2.035664e-02 18.5071116  3.785206e-73
+#>  3: 5.986201e+01 -0.7361349  4.616961e-01
+#>  4: 3.115072e+01  1.1360920  2.559930e-01
+#>  5: 9.693822e+02  1.0687621  2.852479e-01
+#>  6: 2.050505e+02 -0.8677147  3.856078e-01
+#>  7: 7.655523e+02  3.2180975  1.301786e-03
+#>  8: 2.186694e-02 15.9584422  1.833862e-55
+#>  9: 8.902369e+02 -0.9469485  3.437913e-01
+#> 10: 2.339521e-02 28.2930395 3.698411e-146
+#> 11: 1.078525e+02  1.2073030  2.274731e-01
+#> 12: 5.984988e+01  2.1387009  3.259326e-02
+#> 13: 2.639668e+03  0.2533062  8.000603e-01
+#> 14: 3.964505e+02 -3.2365470  1.231689e-03
+#> 15: 1.508337e+03 -0.9197488  3.578265e-01
+#> 16: 2.654208e-02  2.5489444  1.088676e-02
+```
+
+### Parallel execution and progress
+
+The simulator no longer manages a `future` plan internally and no longer
+refits anything: `simulate_system()` predicts using the stored draws and
+derives `nsim` from them. Set a plan yourself before calling, and wrap
+the call in `progressr::with_progress()` if you want a progress bar:
+
+``` r
+set.seed(42)
 progressr::with_progress({
-  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+  res <- simulate_system(fit)
 })
 
 future::plan(future::sequential)
@@ -123,13 +178,13 @@ future::plan(future::sequential)
 
 ### Scoring and plotting
 
-`simulate_endogenr()` stamps `panel_unit` / `panel_time` attributes on
-the result so `get_accuracy()` and `plotsim()` can infer the panel
-context without any further configuration. Filter to the forecast window
-using a plain `data.table` predicate.
+`simulate_system()` stamps `panel_unit` / `panel_time` attributes on the
+result so `get_accuracy()` and `plotsim()` can infer the panel context
+without any further configuration. Filter to the forecast window using a
+plain `data.table` predicate.
 
 ``` r
-res <- res[res$year >= simulator_setup$test_start, ]
+res <- res[res$year >= sys$test_start, ]
 
 acc <- get_accuracy(res, "gdppc_grwt", df)
 acc |>
@@ -140,7 +195,7 @@ acc |>
 
 |      crps |       mae |   winkler |
 |----------:|----------:|----------:|
-| 0.0348409 | 0.0435349 | 0.1434817 |
+| 0.0354269 | 0.0441132 | 0.1456342 |
 
 ``` r
 
@@ -235,7 +290,7 @@ model_system <- list(
   build_model("exogen", formula = ~population)
 )
 
-simulator_setup <- setup_simulator(
+sys <- setup_system(
   models      = model_system,
   data        = df,
   train_start = 1970,
@@ -249,24 +304,28 @@ simulator_setup <- setup_simulator(
 
 future::plan(future::multisession, workers = 2)
 set.seed(42)
+fit <- fit_system(sys, nsim = 2)
+set.seed(42)
 progressr::with_progress({
-  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+  res <- simulate_system(fit)
 })
 future::plan(future::sequential)
 ```
 
 ## Long-horizon comparison
 
-For each horizon `h`, the long-horizon API fits a single *direct* regression of
-the h-step-ahead outcome on covariates observed at the forecast origin
-(`test_start - 1`, the last observed period — the same information the dynamic
-simulator conditions on). It is a reduced-form benchmark for the dynamic
-simulator. See `?cv_long_horizon` for the cross-validated entry point.
+For each horizon `h`, the long-horizon API fits a single *direct*
+regression of the h-step-ahead outcome on covariates observed at the
+forecast origin (`test_start - 1`, the last observed period — the same
+information the dynamic simulator conditions on). It is a reduced-form
+benchmark for the dynamic simulator. See `?cv_long_horizon` for the
+cross-validated entry point.
 
-The outcome on the formula LHS must be wrapped in `lead_horizon()`; the horizon
-`h` is supplied internally per horizon. The RHS is evaluated at the origin, so
-write the covariates *unlagged* for the standard benchmark (use `lag()` only
-when you deliberately want history older than the origin).
+The outcome on the formula LHS must be wrapped in `lead_horizon()`; the
+horizon `h` is supplied internally per horizon. The RHS is evaluated at
+the origin, so write the covariates *unlagged* for the standard
+benchmark (use `lag()` only when you deliberately want history older
+than the origin).
 
 ``` r
 formulas <- list(
@@ -301,7 +360,7 @@ compare_approaches(lh_acc, sim_acc) |>
   dplyr::arrange(horizon, approach)
 ```
 
-
-For a transformed outcome (e.g. `lead_horizon(asinh(gdppc)) ~ ...`), score on
-the modelled scale with `get_lh_accuracy(..., scale = "model")`, or on the
-native scale with `scale = "native", inverse = sinh`.
+For a transformed outcome (e.g. `lead_horizon(asinh(gdppc)) ~ ...`),
+score on the modelled scale with
+`get_lh_accuracy(..., scale = "model")`, or on the native scale with
+`scale = "native", inverse = sinh`.

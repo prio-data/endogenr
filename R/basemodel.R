@@ -20,7 +20,7 @@ new_endogenmodel <- function(formula){
 #' Creates a model specification that will become part of a simulation system.
 #' The spec is a lightweight object storing the model type, formula, and
 #' arguments. Actual fitting happens later via [fit_model()] (called
-#' internally by [setup_simulator()]).
+#' internally by [fit_system()]).
 #'
 #' @section Model types and required arguments:
 #'
@@ -60,7 +60,7 @@ new_endogenmodel <- function(formula){
 #' @param ... Model-specific arguments. See the model-type section.
 #'
 #' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`).
-#' @seealso [setup_simulator()], [simulate_endogenr()], [fit_model()]
+#' @seealso [setup_system()], [fit_system()], [simulate_system()], [fit_model()]
 #' @family build
 #' @export
 #'
@@ -97,8 +97,8 @@ build_model <- function(type, formula, ...) {
 #' Fit a model from a specification
 #'
 #' Generic function that dispatches to type-specific fitting methods based on
-#' the spec's class. Called internally by [setup_simulator()] and
-#' [inner_simulation()].
+#' Generic function that dispatches to type-specific fitting methods based on
+#' the spec's class. Called internally by [fit_system()].
 #'
 #' @param spec An `endogenr_spec` object from [build_model()].
 #' @param ... Arguments passed to the type-specific method (typically `data`,

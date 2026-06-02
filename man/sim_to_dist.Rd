@@ -7,13 +7,13 @@
 sim_to_dist(simulation_results, outputs, ctx = NULL, sim_var = ".sim")
 }
 \arguments{
-\item{simulation_results}{A data.table from \code{\link[=simulate_endogenr]{simulate_endogenr()}}.}
+\item{simulation_results}{A data.table from \code{\link[=simulate_system]{simulate_system()}}.}
 
 \item{outputs}{Character vector of column names to nest.}
 
 \item{ctx}{A \code{panel_context} object. Optional; inferred from
 \code{simulation_results} if it carries \code{panel_unit} / \code{panel_time} attributes
-(e.g. produced by \code{\link[=simulate_endogenr]{simulate_endogenr()}} or \code{paneltools::as_panel()}).}
+(e.g. produced by \code{\link[=simulate_system]{simulate_system()}} or \code{paneltools::as_panel()}).}
 
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 }
@@ -27,6 +27,8 @@ into a list of draws per cell.
 \seealso{
 Other postprocess:
 \code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficients]{plot_coefficients()}},
 \code{\link[=plot_estimates]{plot_estimates()}},
 \code{\link[=plotsim]{plotsim()}}
 }

@@ -45,7 +45,7 @@ find the "Build" tab, and press "Install".
 
 ## Example
 
-`setup_simulator()` accepts a plain `data.frame` or `data.table` — no
+`setup_system()` accepts a plain `data.frame` or `data.table` — no
 `tsibble` conversion is required. Formula RHS terms can use `lag()`,
 `zoo::rollmean()`, or any function you define yourself (pass user functions
 through the `globals` argument).
@@ -84,16 +84,17 @@ model_system <- list(
 
 ### Validation
 
-`setup_simulator()` runs `validate_panel()` and `validate_system_closure()`
-on your inputs before fitting anything. These check that the panel is
-balanced, time is contiguous and integer-valued, the initial state at
-`test_start - 1` has no NAs in any modelled outcome, and every variable
-referenced by a formula is either modelled or supplied as a column. See
-`?validate_panel` and `?validate_system_closure` if you want to run them
-ad-hoc on a candidate panel.
+`setup_system()` runs `validate_panel()` and `validate_system_closure()`
+on your inputs and builds the dependency graph (no models are fit yet).
+These check that the panel is balanced, time is contiguous and
+integer-valued, the initial state at `test_start - 1` has no NAs in any
+modelled outcome, and every variable referenced by a formula is either
+modelled or supplied as a column. See `?validate_panel` and
+`?validate_system_closure` if you want to run them ad-hoc on a candidate
+panel.
 
 ```{r setup}
-simulator_setup <- setup_simulator(
+sys <- setup_system(
   models      = model_system,
   data        = df,
   train_start = 1970,
@@ -106,18 +107,36 @@ simulator_setup <- setup_simulator(
 )
 ```
 
-### Parallel execution and progress
+### Fit the system
 
-The simulator no longer manages a `future` plan internally. Set one
-yourself before calling `simulate_endogenr()`, and wrap the call in
-`progressr::with_progress()` if you want a progress bar:
+`fit_system()` estimates the models and **stores** the fitted objects, so the
+coefficients that drive the simulation can be inspected with
+`get_coefficients()` or plotted with `plot_coefficients()`. `nsim` lives here:
+it is the number of coefficient draws. Because this example sets `min_window`,
+the bootstrapped linear model is refit on a random training window for each
+draw, so the stored coefficients vary across draws.
 
-```{r simulate}
+```{r fit}
 future::plan(future::multisession, workers = 2)
 
 set.seed(42)
+fit <- fit_system(sys, nsim = 2)
+
+# The coefficients actually used across draws
+get_coefficients(fit)
+```
+
+### Parallel execution and progress
+
+The simulator no longer manages a `future` plan internally and no longer
+refits anything: `simulate_system()` predicts using the stored draws and
+derives `nsim` from them. Set a plan yourself before calling, and wrap the
+call in `progressr::with_progress()` if you want a progress bar:
+
+```{r simulate}
+set.seed(42)
 progressr::with_progress({
-  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+  res <- simulate_system(fit)
 })
 
 future::plan(future::sequential)
@@ -125,13 +144,13 @@ future::plan(future::sequential)
 
 ### Scoring and plotting
 
-`simulate_endogenr()` stamps `panel_unit` / `panel_time` attributes on the
+`simulate_system()` stamps `panel_unit` / `panel_time` attributes on the
 result so `get_accuracy()` and `plotsim()` can infer the panel context
 without any further configuration. Filter to the forecast window using a
 plain `data.table` predicate.
 
 ```{r postprocess}
-res <- res[res$year >= simulator_setup$test_start, ]
+res <- res[res$year >= sys$test_start, ]
 
 acc <- get_accuracy(res, "gdppc_grwt", df)
 acc |>
@@ -214,7 +233,7 @@ model_system <- list(
   build_model("exogen", formula = ~population)
 )
 
-simulator_setup <- setup_simulator(
+sys <- setup_system(
   models      = model_system,
   data        = df,
   train_start = 1970,
@@ -228,8 +247,10 @@ simulator_setup <- setup_simulator(
 
 future::plan(future::multisession, workers = 2)
 set.seed(42)
+fit <- fit_system(sys, nsim = 2)
+set.seed(42)
 progressr::with_progress({
-  res <- simulate_endogenr(nsim = 2, simulator_setup = simulator_setup)
+  res <- simulate_system(fit)
 })
 future::plan(future::sequential)
 ```

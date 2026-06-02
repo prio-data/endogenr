@@ -22,8 +22,7 @@ A list with \code{start}, \code{end}, and \code{window} (the latter \code{NULL}
 when \code{min_window} is \code{NULL}).
 }
 \description{
-Used by \code{setup_simulator()} (and the inner refit loop in
-\code{simulate_endogenr()}) to draw a random training window for \code{linear},
+Used by \code{\link[=fit_system]{fit_system()}} to draw a random training window for \code{linear},
 \code{glm}, and \code{heterolm} models when \code{min_window} is set. The window is
 anchored inside \verb{[earliest_train_start, test_start - 1]}, with random
 (possibly zero) padding on either side, and is guaranteed to be at

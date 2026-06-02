@@ -22,7 +22,7 @@ An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb
 Creates a model specification that will become part of a simulation system.
 The spec is a lightweight object storing the model type, formula, and
 arguments. Actual fitting happens later via \code{\link[=fit_model]{fit_model()}} (called
-internally by \code{\link[=setup_simulator]{setup_simulator()}}).
+internally by \code{\link[=fit_system]{fit_system()}}).
 }
 \section{Model types and required arguments}{
 
@@ -72,7 +72,7 @@ model_system <- list(
 )
 }
 \seealso{
-\code{\link[=setup_simulator]{setup_simulator()}}, \code{\link[=simulate_endogenr]{simulate_endogenr()}}, \code{\link[=fit_model]{fit_model()}}
+\code{\link[=setup_system]{setup_system()}}, \code{\link[=fit_system]{fit_system()}}, \code{\link[=simulate_system]{simulate_system()}}, \code{\link[=fit_model]{fit_model()}}
 
 Other build:
 \code{\link[=fit_model]{fit_model()}},

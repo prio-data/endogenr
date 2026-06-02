@@ -271,7 +271,7 @@ fit_lh_model <- function(formula, aligned_data, h, groupvar, timevar,
 #' @param test_start Numeric. First forecast year. Training uses only rows whose
 #'   h-step target falls strictly before `test_start`, so `test_start` itself is
 #'   the first out-of-sample target. Same meaning as `test_start` in
-#'   [setup_simulator()].
+#'   [setup_system()].
 #' @param boot Character or NULL. Bootstrap type: `"resid"`, `"wild"`, or `NULL`.
 #' @param ts_fns Character vector or NULL. Extra within-unit time-series function
 #'   names, passed to [fit_lh_model()] (see its Time-series functions section).
@@ -403,24 +403,24 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
 #' step, so taking several cheap predictive draws per refit (`inner_sims > 1`)
 #' is an efficiency lever, not an extra source of randomness. With `boot = NULL`
 #' (plain OLS) there is a single fit and only the product `nsim * inner_sims`
-#' matters. These arguments deliberately mirror `nsim` in [simulate_endogenr()]
-#' and `inner_sims` in [setup_simulator()]; pass the same values to both
+#' matters. These arguments deliberately mirror `nsim` in [fit_system()]
+#' and `inner_sims` in [setup_system()]; pass the same values to both
 #' approaches to keep a benchmark apples-to-apples.
 #'
 #' @param lh_setup A setup object from [setup_long_horizon()].
 #' @param data The full dataset (original, not aligned). Used to extract
 #'   baseline covariates at the origin.
 #' @param test_start Numeric or NULL. The first forecast year (same convention as
-#'   [simulate_endogenr()]). Covariates are observed at `test_start - 1`, horizon
+#'   [simulate_system()]). Covariates are observed at `test_start - 1`, horizon
 #'   h=1 targets `test_start`, h=2 targets `test_start + 1`, etc. Defaults to the
 #'   `test_start` stored in `lh_setup`; a value below it triggers a leakage
 #'   warning.
 #' @param nsim Integer. Number of bootstrap refits (parameter uncertainty) when
 #'   `boot` is set; with plain OLS it only scales the total draw count. Mirrors
-#'   `nsim` in [simulate_endogenr()].
+#'   `nsim` in [fit_system()].
 #' @param inner_sims Integer. Number of predictive draws drawn per refit
 #'   (residual uncertainty). Total draws per unit and horizon are
-#'   `nsim * inner_sims`. Mirrors `inner_sims` in [setup_simulator()].
+#'   `nsim * inner_sims`. Mirrors `inner_sims` in [setup_system()].
 #'
 #' @return A data.table with columns: `groupvar`, `test_start`, `horizon`,
 #'   `year_target`, `variant`, `.draws` (list-column of numeric vectors). The

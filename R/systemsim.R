@@ -132,12 +132,13 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 }
 
 
-#' Set up an endogenr simulator
+#' Set up an endogenr system
 #'
-#' Validates the input panel, validates that the model system is closed, fits
-#' all model specs once on the training window, builds the dependency graph,
-#' and prepares the simulation grid. The returned setup object is the input
-#' to [simulate_endogenr()].
+#' Validates the input panel, validates that the model system is closed,
+#' builds the dependency graph from the model specifications, and prepares
+#' the simulation grid. No models are fit here: fitting (including bootstrap
+#' refits on random windows) is a separate step performed by [fit_system()].
+#' The returned setup object is the input to [fit_system()].
 #'
 #' @details
 #' During setup the following happens, in order:
@@ -151,26 +152,25 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #'     produced either by another model or by a data column, that all
 #'     formula-referenced columns exist in `data`, and that no two models
 #'     share an outcome.
-#'   \item Each spec is fit via [fit_model()] once (or with a randomly drawn
-#'     window from [get_train_window()] for `linear`/`glm`/`heterolm` when
-#'     `min_window` is set).
-#'   \item The dependency graph is built and a topological execution order is
-#'     computed via [get_execution_order()].
+#'   \item The dependency graph is built directly from the specs (no fitting
+#'     is required to determine variable dependencies) and a topological
+#'     execution order is computed via [get_execution_order()].
 #'   \item The cross-join simulation grid is created via
 #'     `prepare_simulation_data()`.
 #' }
 #'
 #' The returned list carries two contexts: `ctx` (with `sim = "sim"`, used at
-#' predict time) and `fit_ctx` (without `sim`, used by inner refits). Both
-#' are produced by [panel_context()].
+#' predict time) and `fit_ctx` (without `sim`, used when fitting). Both are
+#' produced by [panel_context()].
 #'
-#' `min_window` triggers a random training window per outer simulation for
-#' the parametric regression families. Leave it `NULL` for a fixed window
-#' `[train_start, test_start - 1]`.
+#' `min_window` is recorded on the setup and consumed later by [fit_system()]:
+#' when set, the parametric regression families (`linear`/`glm`/`heterolm`)
+#' are refit on a random training window per coefficient draw. Leave it `NULL`
+#' for a fixed window `[train_start, test_start - 1]` (one shared fit).
 #'
 #' `globals` is forwarded as-is to `future.apply::future_lapply()` so that
 #' user-defined functions referenced by formulas (e.g. closure helpers) are
-#' visible on parallel workers.
+#' visible on parallel workers in both [fit_system()] and [simulate_system()].
 #'
 #' @param models A list of model specs created by [build_model()].
 #' @param data A data.frame, data.table, or tsibble. Must contain all
@@ -184,12 +184,13 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #' @param inner_sims Integer. Number of inner simulations per outer sim.
 #' @param min_window Integer or `NULL`. If set, `linear`/`glm`/`heterolm`
 #'   models are refit on a random training window of at least this length
-#'   per outer simulation.
+#'   per coefficient draw in [fit_system()].
 #' @param globals Named list of user functions to export to parallel workers.
 #'
-#' @return A list of setup parameters for [simulate_endogenr()].
-#' @seealso [build_model()], [simulate_endogenr()], [validate_panel()],
-#'   [validate_system_closure()]
+#' @return An `endogenr_system_setup` object (a list) to pass to
+#'   [fit_system()].
+#' @seealso [build_model()], [fit_system()], [simulate_system()],
+#'   [validate_panel()], [validate_system_closure()]
 #' @family simulation
 #' @export
 #'
@@ -203,13 +204,15 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #'               formula = ~gdppc_grwt, distribution = "norm"),
 #'   build_model("exogen", formula = ~population)
 #' )
-#' setup <- setup_simulator(system, df,
+#' sys <- setup_system(system, df,
 #'   train_start = 1970, test_start = 2010, horizon = 5,
 #'   groupvar = "gwcode", timevar = "year", inner_sims = 2)
+#' fit <- fit_system(sys, nsim = 10)
+#' res <- simulate_system(fit)
 #' }
-setup_simulator <- function(models, data, train_start, test_start, horizon, groupvar, timevar,
-                            inner_sims, min_window = NULL, globals = NULL) {
-  # Create panel context
+setup_system <- function(models, data, train_start, test_start, horizon, groupvar, timevar,
+                         inner_sims, min_window = NULL, globals = NULL) {
+  # Create panel context (without sim dimension, used when fitting)
   ctx <- panel_context(unit = groupvar, time = timevar)
 
   # Convert to data.table
@@ -240,30 +243,13 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
   # Validate system closure (before fitting)
   validate_system_closure(specs, names(data))
 
-  # Fit all models from specs
-  fit_one <- function(spec) {
-    type <- spec$type
-    subset <- if (!is.null(min_window) && type %in% c("linear", "glm", "heterolm"))
-      get_train_window(train_start, test_start, min_window) else NULL
-
-    switch(type,
-      "deterministic" = fit_model(spec, ctx = ctx),
-      "linear" =, "glm" =, "heterolm" =
-        fit_model(spec, data = train, ctx = ctx, subset = subset),
-      "exogen" = fit_model(spec, newdata = data, ctx = ctx,
-                           test_start = test_start, inner_sims = inner_sims),
-      "parametric_distribution" =, "univariate_fable" =
-        fit_model(spec, data = train, ctx = ctx),
-      "spatial_lag" = fit_model(spec, ctx = ctx),
-      stop("Unknown spec type: ", type)
-    )
-  }
-  fitted_models <- lapply(specs, fit_one)
-
-  # Build dependency graph
+  # Build the dependency graph directly from the specs. parse_formula() only
+  # needs the formula, the class token, and (for heterolm) the variance
+  # formula, so the graph is identical to one built from fitted models without
+  # paying for any fitting.
   dependency_graph <- igraph::make_empty_graph(directed = TRUE)
-  for (model in fitted_models) {
-    dependency_graph <- update_dependency_graph(model, dependency_graph)
+  for (spec in specs) {
+    dependency_graph <- update_dependency_graph(.spec_to_node(spec), dependency_graph)
   }
   execution_order <- get_execution_order(dependency_graph)
 
@@ -272,81 +258,228 @@ setup_simulator <- function(models, data, train_start, test_start, horizon, grou
 
   simulation_data <- prepare_simulation_data(data, sim_ctx, train_start, test_start, horizon, inner_sims)
 
-  return(list(
-    "simulation_data" = simulation_data,
-    "specs" = specs,
-    "fitted_models" = fitted_models,
-    "train_data" = train,
-    "full_data" = data,
-    "train_start" = train_start,
-    "test_start" = test_start,
-    "horizon" = horizon,
-    "execution_order" = execution_order,
-    "ctx" = sim_ctx,
-    "fit_ctx" = ctx,
-    "groupvar" = groupvar,
-    "timevar" = timevar,
-    "inner_sims" = inner_sims,
-    "min_window" = min_window,
-    "globals" = globals
-  ))
+  structure(
+    list(
+      "simulation_data" = simulation_data,
+      "specs" = specs,
+      "train_data" = train,
+      "full_data" = data,
+      "train_start" = train_start,
+      "test_start" = test_start,
+      "horizon" = horizon,
+      "execution_order" = execution_order,
+      "ctx" = sim_ctx,
+      "fit_ctx" = ctx,
+      "groupvar" = groupvar,
+      "timevar" = timevar,
+      "inner_sims" = inner_sims,
+      "min_window" = min_window,
+      "globals" = globals
+    ),
+    class = "endogenr_system_setup"
+  )
 }
 
-
-#' The inner simulation loop
+#' Build a lightweight dependency-graph node from a model spec
 #'
-#' @param i Simulation index.
-#' @param specs List of endogenr_spec objects.
-#' @param pre_fitted List of pre-fitted model objects.
-#' @param train_data A data.table with training data.
-#' @param simulation_data A data.table.
-#' @param ctx A panel_context object (with sim dimension, for predict).
-#' @param fit_ctx A panel_context object (without sim, for fitting).
-#' @param test_start Integer.
-#' @param horizon Integer.
-#' @param execution_order Character vector.
-#' @param inner_sims Integer.
-#' @param min_window Integer or NULL.
-#' @param train_start Integer.
+#' Produces the minimal object [parse_formula()] needs to derive the
+#' input/output dependency edges without fitting the model: the formula, the
+#' model-type class token, and (for heterolm) the variance formula.
 #'
-#' @return A data.table with simulation results.
+#' @param spec An `endogenr_spec` from [build_model()].
+#' @return A list classed `c(spec$type, "endogenmodel")`.
 #' @keywords internal
-inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
-                             ctx, fit_ctx, test_start, horizon, execution_order,
-                             inner_sims, min_window, train_start) {
-  refit_types <- c("linear", "glm", "heterolm")
-
-  fitted_models <- lapply(seq_along(specs), function(j) {
-    spec <- specs[[j]]
-    if (spec$type %in% refit_types && !is.null(min_window)) {
-      subset <- get_train_window(train_start, test_start, min_window)
-      fit_model(spec, data = train_data, ctx = fit_ctx, subset = subset)
-    } else {
-      pre_fitted[[j]]
-    }
-  })
-
-  sim <- data.table::copy(simulation_data)
-  sim <- process_independent_models(sim, fitted_models, ctx, test_start, horizon, inner_sims)
-  sim <- process_dependent_models(sim, fitted_models, ctx, test_start, horizon, execution_order)
-  return(sim)
+.spec_to_node <- function(spec) {
+  structure(
+    list(formula = spec$formula, variance_formula = spec$args$variance),
+    class = c(spec$type, "endogenmodel")
+  )
 }
 
-#' Run the dynamic simulation of an endogenr system
+#' Fit a single spec for the system
 #'
-#' Estimates models, sequences the forecast according to the dependency
-#' graph computed in [setup_simulator()], and simulates outcomes for all
-#' units across the forecast horizon. Returns one long `data.table` with a
-#' `.sim` column identifying each draw.
+#' Dispatches a single model spec to [fit_model()] with the arguments each
+#' type expects, reading the shared training/forecast data and contexts from
+#' the setup object. Extracted so it can be called once for the shared
+#' baseline and once per refit draw.
+#'
+#' @param spec An `endogenr_spec` from [build_model()].
+#' @param sys An `endogenr_system_setup` (or trimmed copy) carrying
+#'   `fit_ctx`, `train_data`, `full_data`, `test_start`, and `inner_sims`.
+#' @param subset Optional list with `start`/`end` for a training window,
+#'   applied to the `linear`/`glm`/`heterolm` families.
+#' @return A fitted endogenmodel object.
+#' @keywords internal
+.fit_spec <- function(spec, sys, subset = NULL) {
+  type <- spec$type
+  switch(type,
+    "deterministic" = fit_model(spec, ctx = sys$fit_ctx),
+    "linear" =, "glm" =, "heterolm" =
+      fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx, subset = subset),
+    "exogen" = fit_model(spec, newdata = sys$full_data, ctx = sys$fit_ctx,
+                         test_start = sys$test_start, inner_sims = sys$inner_sims),
+    "parametric_distribution" =, "univariate_fable" =
+      fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx),
+    "spatial_lag" = fit_model(spec, ctx = sys$fit_ctx),
+    stop("Unknown spec type: ", type)
+  )
+}
+
+#' Drop the cached training frame from a fitted model
+#'
+#' Regression model objects (`linear`/`glm`/`heterolm`) cache the full
+#' materialized training frame in `$data` for fitting only; `predict.*` never
+#' reads it. Dropping it keeps the stored coefficient draws small and shrinks
+#' the per-worker payload in [simulate_system()]. A no-op for model types that
+#' carry no `$data`.
+#'
+#' @param model A fitted endogenmodel.
+#' @return The model with `$data` removed.
+#' @keywords internal
+.strip_fit_data <- function(model) {
+  model$data <- NULL
+  model
+}
+
+#' Fit and store the coefficient draws of an endogenr system
+#'
+#' Fits the model system set up by [setup_system()] and stores the resulting
+#' model objects so the coefficients actually used in the simulation can be
+#' inspected (see [get_coefficients()]) and plotted (see
+#' [plot_coefficients()]). Produces `nsim` independent coefficient draws that
+#' map one-to-one to the outer simulations later run by [simulate_system()].
 #'
 #' @details
+#' Each spec is classified as a *refit* spec when its type is one of
+#' `"linear"`, `"glm"`, or `"heterolm"` **and** `min_window` was set on the
+#' setup. Behaviour per class:
+#' \itemize{
+#'   \item Refit specs are fit `nsim` times, each on a fresh random training
+#'     window from [get_train_window()] combined with the spec's `boot`
+#'     resampling. The draws therefore differ from one another.
+#'   \item Non-refit specs (and all specs when `min_window` is `NULL`) are fit
+#'     once and that single fit is shared across every draw.
+#'   \item Independent models (`exogen`/`parametric_distribution`/
+#'     `univariate_fable`) are fit once here; their predictive randomness is
+#'     drawn later, per outer sim, in [simulate_system()].
+#' }
+#'
+#' The fitted regression objects have their cached training frame dropped via
+#' an internal helper — `predict()`/`model.matrix()` keep working because they
+#' rely on the model's `terms`/`qr`/`xlevels`/`coefficients`, not on the cached
+#' frame.
+#'
+#' Parallel execution (when any refit specs are present) is controlled by the
+#' user via the `future` package; set a plan before calling. `future.seed =
+#' TRUE` is used so the random windows and bootstrap resamples are
+#' reproducible. The window/bootstrap randomness is consumed here, while the
+#' predictive draws are consumed in [simulate_system()]; results are therefore
+#' not bit-identical to the previous single-call simulator, by construction.
+#'
+#' @param system_setup An `endogenr_system_setup` from [setup_system()].
+#' @param nsim Integer. Number of coefficient draws (outer simulations).
+#'
+#' @return An `endogenr_fitted_system` object: the input setup augmented with
+#'   `fitted_draws` (a length-`nsim` list of model lists), `fitted_models` (a
+#'   representative draw, for [plot_estimates()]), and `nsim`.
+#' @seealso [setup_system()], [simulate_system()], [get_coefficients()],
+#'   [plot_coefficients()]
+#' @family simulation
+#' @export
+fit_system <- function(system_setup, nsim = 1L) {
+  if (!inherits(system_setup, "endogenr_system_setup")) {
+    stop("`system_setup` must be the output of setup_system().", call. = FALSE)
+  }
+  nsim <- as.integer(nsim)
+  if (length(nsim) != 1L || is.na(nsim) || nsim < 1L) {
+    stop("`nsim` must be a single positive integer.", call. = FALSE)
+  }
+
+  specs <- system_setup$specs
+  min_window <- system_setup$min_window
+  refit_types <- c("linear", "glm", "heterolm")
+  is_refit <- vapply(specs, function(spec)
+    spec$type %in% refit_types && !is.null(min_window), logical(1))
+
+  # Fitting never needs the (large) simulation grid; drop it from the payload.
+  fit_inputs <- system_setup
+  fit_inputs$simulation_data <- NULL
+
+  # Shared baseline: fit every non-refit spec once. Refit slots are filled per
+  # draw below, so leave them empty here.
+  baseline <- lapply(seq_along(specs), function(j) {
+    if (is_refit[j]) return(NULL)
+    .strip_fit_data(.fit_spec(specs[[j]], fit_inputs))
+  })
+
+  if (any(is_refit)) {
+    refit_idx <- which(is_refit)
+
+    future_globals <- list(fit_inputs = fit_inputs, baseline = baseline,
+                           refit_idx = refit_idx)
+    if (!is.null(system_setup$globals)) {
+      for (fn_name in names(system_setup$globals)) {
+        future_globals[[fn_name]] <- system_setup$globals[[fn_name]]
+      }
+    }
+
+    p <- if (requireNamespace("progressr", quietly = TRUE)) {
+      progressr::progressor(steps = nsim)
+    } else {
+      function(...) invisible(NULL)
+    }
+
+    fitted_draws <- future.apply::future_lapply(
+      seq_len(nsim),
+      function(i) {
+        draw <- baseline
+        for (j in refit_idx) {
+          subset <- get_train_window(fit_inputs$train_start, fit_inputs$test_start,
+                                     fit_inputs$min_window)
+          draw[[j]] <- .strip_fit_data(.fit_spec(fit_inputs$specs[[j]], fit_inputs, subset = subset))
+        }
+        p()
+        draw
+      },
+      future.seed = TRUE,
+      future.globals = future_globals,
+      future.packages = c("endogenr", "data.table"),
+      future.chunk.size = max(1L, ceiling(nsim / future::nbrOfWorkers()))
+    )
+  } else {
+    # No refits: every draw is the same shared baseline (shared references).
+    fitted_draws <- rep(list(baseline), nsim)
+  }
+
+  out <- system_setup
+  out$fitted_draws <- fitted_draws
+  out$fitted_models <- fitted_draws[[1L]]
+  out$nsim <- nsim
+  class(out) <- c("endogenr_fitted_system", class(system_setup))
+  out
+}
+
+#' Run the dynamic simulation of a fitted endogenr system
+#'
+#' Takes the stored coefficient draws from [fit_system()] and simulates
+#' outcomes for all units across the forecast horizon. No fitting happens here:
+#' each outer simulation predicts using its pre-fitted draw, sequenced
+#' according to the dependency graph computed in [setup_system()]. Returns one
+#' long `data.table` with a `.sim` column identifying each draw.
+#'
+#' @details
+#' The number of outer simulations is taken from
+#' `length(fitted_system$fitted_draws)` (i.e. the `nsim` passed to
+#' [fit_system()]). Predictive randomness (residual draws, distribution
+#' samples) is consumed here with `future.seed = TRUE`.
+#'
 #' Parallel execution is controlled by the user via the `future` package.
-#' Set a plan before calling `simulate_endogenr()`:
+#' Set a plan before calling `simulate_system()`:
 #'
 #' ```r
 #' future::plan(future::multisession, workers = 6)
 #' progressr::with_progress({
-#'   res <- simulate_endogenr(nsim = 50, simulator_setup = setup)
+#'   res <- simulate_system(fit)
 #' })
 #' future::plan(future::sequential)
 #' ```
@@ -365,26 +498,28 @@ inner_simulation <- function(i, specs, pre_fitted, train_data, simulation_data,
 #' TRUE`, register a temporary `future::multisession` plan that is restored
 #' on exit. Prefer setting the plan yourself.
 #'
-#' @param nsim Integer. Number of outer-loop simulations.
-#' @param simulator_setup A list from [setup_simulator()].
+#' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #' @param parallel Logical. Deprecated. Use [future::plan()] before calling.
 #' @param ncores Integer. Deprecated. Use [future::plan()] before calling.
 #'
 #' @return A `data.table` with all simulation columns plus `.sim` (integer
 #'   `1..nsim * inner_sims`). Carries `panel_unit` and `panel_time`
 #'   attributes.
-#' @seealso [setup_simulator()], [get_accuracy()], [plotsim()],
+#' @seealso [setup_system()], [fit_system()], [get_accuracy()], [plotsim()],
 #'   [sim_to_dist()]
 #' @family simulation
 #' @export
-simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 6) {
+simulate_system <- function(fitted_system, parallel = FALSE, ncores = 6) {
+  if (!inherits(fitted_system, "endogenr_fitted_system")) {
+    stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
+  }
   if (!missing(parallel) || !missing(ncores)) {
     .Deprecated(
       msg = paste0(
         "The `parallel` and `ncores` arguments are deprecated.\n",
-        "Set your own plan before calling simulate_endogenr(), e.g.:\n",
+        "Set your own plan before calling simulate_system(), e.g.:\n",
         "  future::plan(future::multisession, workers = 6)\n",
-        "  result <- simulate_endogenr(nsim, setup)\n",
+        "  result <- simulate_system(fit)\n",
         "  future::plan(future::sequential)"
       )
     )
@@ -395,11 +530,29 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
     }
   }
 
-  # Build globals for future workers
-  future_globals <- list(simulator_setup = simulator_setup)
-  if (!is.null(simulator_setup$globals)) {
-    for (fn_name in names(simulator_setup$globals)) {
-      future_globals[[fn_name]] <- simulator_setup$globals[[fn_name]]
+  fitted_draws <- fitted_system$fitted_draws
+  nsim <- length(fitted_draws)
+
+  # The (large) simulation grid and the predict-time context ride as globals so
+  # they ship once per worker; the per-iteration payload is one draw's models.
+  simulation_data <- fitted_system$simulation_data
+  ctx <- fitted_system$ctx
+  test_start <- fitted_system$test_start
+  horizon <- fitted_system$horizon
+  execution_order <- fitted_system$execution_order
+  inner_sims <- fitted_system$inner_sims
+
+  future_globals <- list(
+    simulation_data = simulation_data,
+    ctx = ctx,
+    test_start = test_start,
+    horizon = horizon,
+    execution_order = execution_order,
+    inner_sims = inner_sims
+  )
+  if (!is.null(fitted_system$globals)) {
+    for (fn_name in names(fitted_system$globals)) {
+      future_globals[[fn_name]] <- fitted_system$globals[[fn_name]]
     }
   }
 
@@ -411,25 +564,13 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
   }
 
   simulation_results <- future.apply::future_lapply(
-    seq_len(nsim),
-    function(i) {
-      result <- inner_simulation(
-        i,
-        specs = simulator_setup$specs,
-        pre_fitted = simulator_setup$fitted_models,
-        train_data = simulator_setup$train_data,
-        simulation_data = simulator_setup$simulation_data,
-        ctx = simulator_setup$ctx,
-        fit_ctx = simulator_setup$fit_ctx,
-        test_start = simulator_setup$test_start,
-        horizon = simulator_setup$horizon,
-        execution_order = simulator_setup$execution_order,
-        inner_sims = simulator_setup$inner_sims,
-        min_window = simulator_setup$min_window,
-        train_start = simulator_setup$train_start
-      )
+    fitted_draws,
+    function(models) {
+      sim <- data.table::copy(simulation_data)
+      sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
+      sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
       p()
-      result
+      sim
     },
     future.seed = TRUE,
     future.globals = future_globals,
@@ -448,8 +589,8 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
 
   # Stamp panel attributes (paneltools::as_panel convention) so downstream
   # helpers can infer the panel context without the user passing it.
-  data.table::setattr(results, "panel_unit", ctx_unit(simulator_setup$ctx))
-  data.table::setattr(results, "panel_time", ctx_time(simulator_setup$ctx))
+  data.table::setattr(results, "panel_unit", ctx_unit(fitted_system$ctx))
+  data.table::setattr(results, "panel_time", ctx_time(fitted_system$ctx))
   results[]
 
   return(results)
@@ -460,11 +601,11 @@ simulate_endogenr <- function(nsim, simulator_setup, parallel = FALSE, ncores = 
 #' Groups simulation results by (unit, time) and collapses each output variable
 #' into a list of draws per cell.
 #'
-#' @param simulation_results A data.table from [simulate_endogenr()].
+#' @param simulation_results A data.table from [simulate_system()].
 #' @param outputs Character vector of column names to nest.
 #' @param ctx A `panel_context` object. Optional; inferred from
 #'   `simulation_results` if it carries `panel_unit` / `panel_time` attributes
-#'   (e.g. produced by [simulate_endogenr()] or `paneltools::as_panel()`).
+#'   (e.g. produced by [simulate_system()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A data.table with one row per (unit, time), output columns as list-columns.
@@ -523,7 +664,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #' lines up with [get_lh_accuracy()] and [compare_approaches()]). `transform`
 #' applies a function to both draws and truth before scoring.
 #'
-#' @param simulation_results A data.table from [simulate_endogenr()], filtered to
+#' @param simulation_results A data.table from [simulate_system()], filtered to
 #'   the forecast period.
 #' @param outcome Character. Name of the outcome variable to score.
 #' @param truth A data.frame/data.table with observed values. Must contain the
@@ -531,7 +672,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #' @param ctx A `panel_context` object. Optional; inferred from
 #'   `simulation_results` first, then `truth`, if either carries
 #'   `panel_unit` / `panel_time` attributes (e.g. produced by
-#'   [simulate_endogenr()] or `paneltools::as_panel()`).
+#'   [simulate_system()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #' @param test_start Numeric or NULL. When supplied, a `horizon` column is added
@@ -610,7 +751,7 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
 #' Computes quantile ribbons from simulation draws and plots them alongside
 #' observed truth data.
 #'
-#' @param simulation_results A data.table from [simulate_endogenr()], filtered to
+#' @param simulation_results A data.table from [simulate_system()], filtered to
 #'   the forecast period.
 #' @param outcome Character. Name of the outcome variable to plot.
 #' @param units Vector of unit IDs to include.
@@ -618,7 +759,7 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
 #' @param ctx A `panel_context` object. Optional; inferred from
 #'   `simulation_results` first, then `true_data`, if either carries
 #'   `panel_unit` / `panel_time` attributes (e.g. produced by
-#'   [simulate_endogenr()] or `paneltools::as_panel()`).
+#'   [simulate_system()] or `paneltools::as_panel()`).
 #' @param sim_var Character. Name of the simulation ID column (default ".sim").
 #'
 #' @return A ggplot object.

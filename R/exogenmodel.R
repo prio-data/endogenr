@@ -2,10 +2,10 @@
 #'
 #' Creates a model that copies pre-existing data (e.g. population projections)
 #' into the simulation grid. The exogenous variable must already be present in
-#' the data passed to [setup_simulator()].
+#' the data passed to [setup_system()].
 #'
 #' Use [build_model()] with `type = "exogen"` and a one-sided formula such as
-#' `~population`. Required arguments are forwarded by [setup_simulator()].
+#' `~population`. Required arguments are forwarded by [fit_system()].
 #'
 #' @param spec An `exogen_spec` object from [build_model()]. The formula
 #'   (e.g. `~population`) names the exogenous variable.

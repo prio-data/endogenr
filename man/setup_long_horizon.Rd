@@ -32,7 +32,7 @@ single variant; unnamed (or partially named) list entries are auto-named
 \item{test_start}{Numeric. First forecast year. Training uses only rows whose
 h-step target falls strictly before \code{test_start}, so \code{test_start} itself is
 the first out-of-sample target. Same meaning as \code{test_start} in
-\code{\link[=setup_simulator]{setup_simulator()}}.}
+\code{\link[=setup_system]{setup_system()}}.}
 
 \item{boot}{Character or NULL. Bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}.}
 

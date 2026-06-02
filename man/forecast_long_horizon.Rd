@@ -19,18 +19,18 @@ forecast_long_horizon(
 baseline covariates at the origin.}
 
 \item{test_start}{Numeric or NULL. The first forecast year (same convention as
-\code{\link[=simulate_endogenr]{simulate_endogenr()}}). Covariates are observed at \code{test_start - 1}, horizon
+\code{\link[=simulate_system]{simulate_system()}}). Covariates are observed at \code{test_start - 1}, horizon
 h=1 targets \code{test_start}, h=2 targets \code{test_start + 1}, etc. Defaults to the
 \code{test_start} stored in \code{lh_setup}; a value below it triggers a leakage
 warning.}
 
 \item{nsim}{Integer. Number of bootstrap refits (parameter uncertainty) when
 \code{boot} is set; with plain OLS it only scales the total draw count. Mirrors
-\code{nsim} in \code{\link[=simulate_endogenr]{simulate_endogenr()}}.}
+\code{nsim} in \code{\link[=fit_system]{fit_system()}}.}
 
 \item{inner_sims}{Integer. Number of predictive draws drawn per refit
 (residual uncertainty). Total draws per unit and horizon are
-\code{nsim * inner_sims}. Mirrors \code{inner_sims} in \code{\link[=setup_simulator]{setup_simulator()}}.}
+\code{nsim * inner_sims}. Mirrors \code{inner_sims} in \code{\link[=setup_system]{setup_system()}}.}
 }
 \value{
 A data.table with columns: \code{groupvar}, \code{test_start}, \code{horizon},
@@ -52,8 +52,8 @@ draws \emph{per refit} (residual / sampling uncertainty), for a total of
 step, so taking several cheap predictive draws per refit (\code{inner_sims > 1})
 is an efficiency lever, not an extra source of randomness. With \code{boot = NULL}
 (plain OLS) there is a single fit and only the product \code{nsim * inner_sims}
-matters. These arguments deliberately mirror \code{nsim} in \code{\link[=simulate_endogenr]{simulate_endogenr()}}
-and \code{inner_sims} in \code{\link[=setup_simulator]{setup_simulator()}}; pass the same values to both
+matters. These arguments deliberately mirror \code{nsim} in \code{\link[=fit_system]{fit_system()}}
+and \code{inner_sims} in \code{\link[=setup_system]{setup_system()}}; pass the same values to both
 approaches to keep a benchmark apples-to-apples.
 }
 \seealso{

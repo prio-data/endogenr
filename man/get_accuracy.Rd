@@ -17,7 +17,7 @@ get_accuracy(
 )
 }
 \arguments{
-\item{simulation_results}{A data.table from \code{\link[=simulate_endogenr]{simulate_endogenr()}}, filtered to
+\item{simulation_results}{A data.table from \code{\link[=simulate_system]{simulate_system()}}, filtered to
 the forecast period.}
 
 \item{outcome}{Character. Name of the outcome variable to score.}
@@ -28,7 +28,7 @@ groupvar, timevar, and outcome columns.}
 \item{ctx}{A \code{panel_context} object. Optional; inferred from
 \code{simulation_results} first, then \code{truth}, if either carries
 \code{panel_unit} / \code{panel_time} attributes (e.g. produced by
-\code{\link[=simulate_endogenr]{simulate_endogenr()}} or \code{paneltools::as_panel()}).}
+\code{\link[=simulate_system]{simulate_system()}} or \code{paneltools::as_panel()}).}
 
 \item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
 
@@ -60,6 +60,8 @@ applies a function to both draws and truth before scoring.
 }
 \seealso{
 Other postprocess:
+\code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficients]{plot_coefficients()}},
 \code{\link[=plot_estimates]{plot_estimates()}},
 \code{\link[=plotsim]{plotsim()}},
 \code{\link[=sim_to_dist]{sim_to_dist()}}

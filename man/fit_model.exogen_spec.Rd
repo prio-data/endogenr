@@ -35,17 +35,18 @@ An endogenmodel of class \code{exogen}.
 \description{
 Creates a model that copies pre-existing data (e.g. population projections)
 into the simulation grid. The exogenous variable must already be present in
-the data passed to \code{\link[=setup_simulator]{setup_simulator()}}.
+the data passed to \code{\link[=setup_system]{setup_system()}}.
 }
 \details{
 Use \code{\link[=build_model]{build_model()}} with \code{type = "exogen"} and a one-sided formula such as
-\code{~population}. Required arguments are forwarded by \code{\link[=setup_simulator]{setup_simulator()}}.
+\code{~population}. Required arguments are forwarded by \code{\link[=fit_system]{fit_system()}}.
 }
 \seealso{
 Other simulation:
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=fit_system]{fit_system()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
 \code{\link[=predict.exogen]{predict.exogen()}},
 \code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
@@ -53,7 +54,7 @@ Other simulation:
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
-\code{\link[=setup_simulator]{setup_simulator()}},
-\code{\link[=simulate_endogenr]{simulate_endogenr()}}
+\code{\link[=setup_system]{setup_system()}},
+\code{\link[=simulate_system]{simulate_system()}}
 }
 \concept{simulation}

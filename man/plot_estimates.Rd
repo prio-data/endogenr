@@ -16,9 +16,9 @@ plot_estimates(
 )
 }
 \arguments{
-\item{models}{A named list (keyed by test start year) of
-\code{\link[=setup_simulator]{setup_simulator()}} outputs. Typically loaded from a saved
-\code{models.rds} file.}
+\item{models}{A named list (keyed by test start year) of \code{\link[=fit_system]{fit_system()}}
+outputs (each carrying a representative \verb{$fitted_models}). Typically
+loaded from a saved \code{models.rds} file.}
 
 \item{outcome_labels}{An optional named character vector mapping outcome
 variable names to display labels (e.g.,
@@ -54,6 +54,8 @@ of goodness-of-fit statistics (R-squared and N).
 \seealso{
 Other postprocess:
 \code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficients]{plot_coefficients()}},
 \code{\link[=plotsim]{plotsim()}},
 \code{\link[=sim_to_dist]{sim_to_dist()}}
 }
