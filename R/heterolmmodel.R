@@ -36,7 +36,11 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
 
   model <- new_endogenmodel(formula)
   model$independent <- FALSE
-  model$variance_formula <- if (is.null(variance)) 1 else variance
+  # Default to an intercept-only log-variance. Keep this a one-sided formula
+  # (not the literal `1`) so terms()/.max_lag_depth()/.edges_from_formula() all
+  # accept it; `labels(terms(~1))` is empty, which the naive-name logic below
+  # already maps to the intercept "1".
+  model$variance_formula <- if (is.null(variance)) ~1 else variance
   model$fit_args <- rlang::list2(...)
 
   # Get panel metadata from context
