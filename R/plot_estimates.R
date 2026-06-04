@@ -277,3 +277,80 @@ plot_coefficients <- function(fitted_system, outcome_labels = NULL, base_size = 
     ggplot2::labs(x = "Estimate (across draws)", y = NULL) +
     ggplot2::theme_bw(base_size = base_size)
 }
+
+#' Plot forecasted coefficient trajectories
+#'
+#' Visualises the output of [forecast_coefficients()]: the observed coefficient
+#' path estimated from expanding/rolling training windows, the forward random-walk
+#' (optionally drifting) projection of each coefficient, and its fanning
+#' uncertainty band. A dashed vertical line marks the forecast origin
+#' (`test_start - 1`). One facet per `(outcome, term)`, with free y-axes so
+#' coefficients on different scales remain readable.
+#'
+#' @param object Either a `coef_forecast` table from [forecast_coefficients()],
+#'   or an `endogenr_fitted_system`/`endogenr_system_setup` (in which case
+#'   [forecast_coefficients()] is called on it with `...`).
+#' @param terms Optional character vector restricting which terms are plotted.
+#' @param drop_intercept Logical. Drop the `(Intercept)` facet (default `TRUE`,
+#'   matching [plot_coefficients()]).
+#' @param base_size Numeric. Base font size passed to [ggplot2::theme_bw()].
+#'   Default `9`.
+#' @param ... Passed to [forecast_coefficients()] when `object` is a system
+#'   (e.g. `method`, `window`, `horizon`).
+#'
+#' @return A `ggplot` object.
+#' @seealso [forecast_coefficients()], [plot_coefficients()], [get_coefficients()]
+#' @family postprocess
+#' @export
+plot_coefficient_forecast <- function(object, terms = NULL, drop_intercept = TRUE,
+                                      base_size = 9, ...) {
+  fc <- if (inherits(object, "coef_forecast")) {
+    object
+  } else if (inherits(object, "endogenr_system_setup")) {
+    forecast_coefficients(object, ...)
+  } else {
+    stop("`object` must be a coef_forecast (forecast_coefficients()) or an ",
+         "endogenr system from setup_system()/fit_system().", call. = FALSE)
+  }
+  origin <- attr(fc, "cf_test_start", exact = TRUE)
+  fc <- data.table::as.data.table(fc)
+
+  if (isTRUE(drop_intercept)) fc <- fc[fc$term != "(Intercept)"]
+  if (!is.null(terms)) fc <- fc[fc$term %in% terms]
+  if (nrow(fc) == 0L) {
+    stop("No coefficients to plot after filtering.", call. = FALSE)
+  }
+
+  obs  <- fc[fc$.type == "observed"]
+  fcst <- fc[fc$.type == "forecast"]
+
+  p <- ggplot2::ggplot(mapping = ggplot2::aes(x = .data[[".time"]]))
+  if (nrow(fcst) > 0L) {
+    p <- p +
+      ggplot2::geom_ribbon(
+        data = fcst,
+        mapping = ggplot2::aes(ymin = .data[[".q05"]], ymax = .data[[".q95"]]),
+        fill = "steelblue", alpha = 0.25
+      ) +
+      ggplot2::geom_line(
+        data = fcst, mapping = ggplot2::aes(y = .data[[".q50"]]),
+        colour = "steelblue4"
+      )
+  }
+  if (nrow(obs) > 0L) {
+    p <- p +
+      ggplot2::geom_line(data = obs, mapping = ggplot2::aes(y = .data[[".mean"]]),
+                         colour = "grey30") +
+      ggplot2::geom_point(data = obs, mapping = ggplot2::aes(y = .data[[".mean"]]),
+                          colour = "grey30", size = 0.7)
+  }
+  if (!is.null(origin) && length(origin) == 1L) {
+    p <- p + ggplot2::geom_vline(xintercept = origin - 0.5, linetype = 5,
+                                 colour = "grey50")
+  }
+  p +
+    ggplot2::facet_wrap(ggplot2::vars(.data[["outcome"]], .data[["term"]]),
+                        scales = "free_y") +
+    ggplot2::labs(x = NULL, y = "Coefficient") +
+    ggplot2::theme_bw(base_size = base_size)
+}

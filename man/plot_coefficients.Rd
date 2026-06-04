@@ -29,8 +29,10 @@ dropped. Built on \code{\link[=get_coefficients]{get_coefficients()}}, so it cov
 \code{\link[=fit_system]{fit_system()}}, \code{\link[=get_coefficients]{get_coefficients()}}, \code{\link[=plot_estimates]{plot_estimates()}}
 
 Other postprocess:
+\code{\link[=forecast_coefficients]{forecast_coefficients()}},
 \code{\link[=get_accuracy]{get_accuracy()}},
 \code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficient_forecast]{plot_coefficient_forecast()}},
 \code{\link[=plot_estimates]{plot_estimates()}},
 \code{\link[=plotsim]{plotsim()}},
 \code{\link[=sim_to_dist]{sim_to_dist()}}

@@ -25,13 +25,13 @@ df$region <- factor(df$region)
 df[!complete.cases(df),]
 
 df$region <- factor(df$region)
-e1 <- gdppc_grwt ~ region + lag(dem) + lag(yjbest) + lag(log(gdppc)) + lag(psecprop)
+e1 <- gdppc_grwt ~ lag(log(gdppc))
 
 model_system <- list(
   build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
   build_model("linear", formula = e1, boot = "resid"),
-  build_model("exogen", formula = ~yjbest),
   build_model("exogen", formula = ~dem),
+  build_model("exogen", formula = ~yjbest),
   build_model("exogen", formula = ~psecprop),
   build_model("exogen", formula = ~population),
   build_model("exogen", formula = ~region)
@@ -61,7 +61,19 @@ my_coefs$window_size <- my_coefs$.window_end - my_coefs$.window_start
 
 library(ggplot2)
 ggplot(my_coefs, aes(x = window_size, y = p.value)) + geom_point()
-ggplot(my_coefs, aes(x = .window_end, y = estimate)) + geom_point() + facet_wrap(~term)
+ggplot(my_coefs, aes(x = .window_end, y = estimate)) + geom_point() + facet_wrap(~outcome + term) + geom_smooth()
+
+# Coefficient-trajectory forecasting ----------------------------------------
+# get_coefficients() shows where each coefficient sat across the random
+# bootstrap windows. forecast_coefficients() turns that idea into a forward
+# projection: it refits the linear model on a deterministic grid of expanding
+# (or rolling) windows to get a clean coefficient time series, then projects
+# each coefficient over the horizon as a random walk (the empirical analogue of
+# a time-varying-parameter / state-space model). Use method = "drift" to let the
+# central path continue the recent trend; "rw" (default) only fans out.
+cf <- forecast_coefficients(fit, method = "rw")        # or window = "rolling"
+plot_coefficient_forecast(cf)                          # observed path + forecast fan
+plot_coefficient_forecast(fit, method = "drift")       # forecast directly from a fit
 
 start <- Sys.time()
 future::plan(future::multisession, workers = 8)
@@ -112,13 +124,23 @@ compare_approaches(lh_acc,
 # results stack into one long data.table that plugs into get_experiment_accuracy().
 
 # Vary the gdppc_grwt equation: swap just the `linear` spec into the base system.
-e2 <- gdppc_grwt ~ region + lag(dem) + lag(log(gdppc))
-e3 <- gdppc_grwt ~ region + lag(yjbest) + lag(log(gdppc)) + lag(psecprop)
+e1 <- gdppc_grwt ~ lag(log(gdppc))
+e2 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop)
+e3 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop) + lag(dem)
+e4 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop) + lag(yjbest)
+e5 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop) + lag(yjbest) + lag(dem)
+
+e1r <- gdppc_grwt ~ region + lag(log(gdppc))
+e2r <- gdppc_grwt ~ region + lag(log(gdppc)) + lag(psecprop)
+e3r <- gdppc_grwt ~ region + lag(log(gdppc)) + lag(psecprop) + lag(dem)
+e4r <- gdppc_grwt ~ region + lag(log(gdppc)) + lag(psecprop) + lag(yjbest)
+e5r <- gdppc_grwt ~ region + lag(log(gdppc)) + lag(psecprop) + lag(yjbest) + lag(dem)
+
 
 systems <- vary_model(model_system, list(
   e1 = build_model("linear", formula = e1, boot = "resid"),
   e2 = build_model("linear", formula = e2, boot = "resid"),
-  e3 = build_model("linear", formula = e3, boot = "resid")
+  d2 = build_model("univariate_fable", formula = dem ~ error("A") + trend("N") + season("N"), method = "ets")
 ))
 
 # Parallelise ACROSS experiments (the default): set one plan; each experiment's
@@ -126,19 +148,19 @@ systems <- vary_model(model_system, list(
 # with 2 forecast starts -> 6 experiments. Keep test_start + horizon - 1 within
 # the data range (<= 2024).
 start <- Sys.time()
-future::plan(future::multisession, workers = 8)
+future::plan(future::multisession, workers = 6)
 set.seed(42)
 progressr::with_progress({
   exp_res <- run_experiments(
     data        = df,
     models      = systems,
     train_start = 1970,
-    test_start  = c(2006, 2010),
+    test_start  = 2010,
     horizon     = 12,
     groupvar    = "gwcode",
     timevar     = "year",
-    inner_sims  = 30,
-    nsim        = 64,
+    inner_sims  = 10,
+    nsim        = 3,
     min_window  = 20
   )
 })

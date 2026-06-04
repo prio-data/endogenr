@@ -60,7 +60,9 @@ applies a function to both draws and truth before scoring.
 }
 \seealso{
 Other postprocess:
+\code{\link[=forecast_coefficients]{forecast_coefficients()}},
 \code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficient_forecast]{plot_coefficient_forecast()}},
 \code{\link[=plot_coefficients]{plot_coefficients()}},
 \code{\link[=plot_estimates]{plot_estimates()}},
 \code{\link[=plotsim]{plotsim()}},
