@@ -169,25 +169,69 @@ plot_estimates <- function(
 
 #' Extract across-draw coefficients from a fitted system
 #'
-#' Walks the stored coefficient draws of a [fit_system()] output and returns a
-#' tidy table of the regression coefficients that were actually used in the
-#' simulation, tagged by draw and outcome. Only `linear` and `glm` models
-#' carry coefficients (via [broom::tidy()]); other model types are skipped.
+#' Walks the stored coefficient fits of a [fit_system()] output and returns a
+#' tidy table of the regression coefficients that were actually used (or are
+#' available) for the simulation, tagged by draw, window, and outcome. Only
+#' `linear` and `glm` models carry coefficients (via [broom::tidy()]); other
+#' model types (including `heterolm`) are skipped.
+#'
+#' For sliding-window fits (`window = "rolling"`/`"expanding"`) the table covers
+#' the full window-end grid — one row block per `(window, draw)` for bootstrapped
+#' specs, or one block per window for non-bootstrapped specs (a single fit per
+#' window) — so the coefficient trajectory across windows can be inspected before
+#' choosing a [simulate_system()] `window_policy`.
 #'
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #'
-#' @return A `data.table` with columns `.draw` (integer, `1..nsim`),
-#'   `.window_start`/`.window_end` (the training window that produced the
-#'   draw), `outcome`, `term`, `estimate`, `std.error`, `statistic`, and
-#'   `p.value`. For shared/non-refit fits the window is the full
-#'   `[train_start, test_start - 1]` range. Zero rows if no model carries
-#'   coefficients.
-#' @seealso [fit_system()], [plot_coefficients()], [plot_estimates()]
+#' @return A `data.table` with columns `.draw` (integer),
+#'   `.window_start`/`.window_end` (the training window that produced the fit),
+#'   `outcome`, `term`, `estimate`, `std.error`, `statistic`, and `p.value`. For
+#'   shared/non-refit fits the window is the full `[train_start, test_start - 1]`
+#'   range. Zero rows if no model carries coefficients.
+#' @seealso [fit_system()], [plot_coefficients()], [plot_estimates()],
+#'   [forecast_coefficients()]
 #' @family postprocess
 #' @export
 get_coefficients <- function(fitted_system) {
   if (!inherits(fitted_system, "endogenr_fitted_system")) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
+  }
+
+  lead <- c(".draw", ".window_start", ".window_end", "outcome", "term",
+            "estimate", "std.error", "statistic", "p.value")
+
+  tidy_rows <- function(model, d, w_start, w_end) {
+    ct <- data.table::as.data.table(model$coefs)
+    ct[, `:=`(.draw = d, .window_start = w_start, .window_end = w_end,
+              outcome = model$outcome)]
+    ct
+  }
+
+  # Sliding-window fits: surface every (window, draw) coefficient fit. Each fit
+  # records its own window on $subset.
+  if (!is.null(fitted_system$window_fits)) {
+    specs <- fitted_system$specs
+    wf <- fitted_system$window_fits
+    rows <- list()
+    for (j in seq_along(wf)) {
+      per_spec <- wf[[j]]
+      if (is.null(per_spec)) next
+      has_boot <- !is.null(specs[[j]]$args$boot)
+      for (per_window in per_spec) {
+        draw_idx <- if (has_boot) seq_along(per_window) else 1L
+        for (d in draw_idx) {
+          model <- per_window[[d]]
+          if (is.null(model) || is.null(model$coefs)) next
+          win <- model$subset
+          rows[[length(rows) + 1L]] <- tidy_rows(model, d, win$start, win$end)
+        }
+      }
+    }
+    out <- data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)
+    if (nrow(out) == 0L) return(out)
+    data.table::setcolorder(out, c(intersect(lead, names(out)),
+                                   setdiff(names(out), lead)))
+    return(out[])
   }
 
   # Window for fits that did not draw a random one (subset = NULL): the full
@@ -203,14 +247,10 @@ get_coefficients <- function(fitted_system) {
     for (model in draws[[d]]) {
       if (is.null(model) || is.null(model$coefs)) next
       win <- model$subset
-      ct <- data.table::as.data.table(model$coefs)
-      ct[, `:=`(
-        .draw = d,
-        .window_start = if (is.null(win$start)) full_start else win$start,
-        .window_end   = if (is.null(win$end))   full_end   else win$end,
-        outcome = model$outcome
-      )]
-      draw_rows[[length(draw_rows) + 1L]] <- ct
+      draw_rows[[length(draw_rows) + 1L]] <- tidy_rows(
+        model, d,
+        if (is.null(win$start)) full_start else win$start,
+        if (is.null(win$end))   full_end   else win$end)
     }
     if (length(draw_rows) > 0L) {
       rows[[d]] <- data.table::rbindlist(draw_rows, use.names = TRUE, fill = TRUE)
@@ -220,8 +260,6 @@ get_coefficients <- function(fitted_system) {
   out <- data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)
   if (nrow(out) == 0L) return(out)
 
-  lead <- c(".draw", ".window_start", ".window_end", "outcome", "term",
-            "estimate", "std.error", "statistic", "p.value")
   data.table::setcolorder(out, c(intersect(lead, names(out)),
                                  setdiff(names(out), lead)))
   out[]

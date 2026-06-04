@@ -99,22 +99,32 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
 #' @param test_start Integer.
 #' @param horizon Integer.
 #' @param execution_order Character vector of model outcomes in topological order.
+#' @param schedules Optional named list (keyed by outcome) of length-`horizon`
+#'   model lists. When an outcome has a schedule, the model used at forecast
+#'   step `h` is `schedules[[outcome]][[h]]`, overriding the single model in
+#'   `models`. Used by the sliding-window simulation; `NULL` reproduces the
+#'   single-model behaviour.
 #'
 #' @return The simulation_data data.table, updated by reference.
 #' @keywords internal
-process_dependent_models <- function(simulation_data, models, ctx, test_start, horizon, execution_order) {
+process_dependent_models <- function(simulation_data, models, ctx, test_start, horizon,
+                                     execution_order, schedules = NULL) {
   dependent_models <- models[vapply(models, function(x) !x$independent, logical(1))]
   outcomes <- vapply(dependent_models, function(x) parse_formula(x)$outcome, character(1))
   names(dependent_models) <- outcomes
 
-  execution_order <- execution_order[execution_order %in% outcomes]
-  dependent_models <- dependent_models[execution_order]
+  # Sliding-window schedules contribute their own (per-step) outcomes; union
+  # them with the single-model outcomes and keep topological order.
+  all_outcomes <- union(outcomes, names(schedules))
+  execution_order <- execution_order[execution_order %in% all_outcomes]
 
   join_keys <- c(ctx_keys(ctx), ctx_time(ctx))
 
   for (t in test_start:(test_start + horizon - 1)) {
-    for (model_name in names(dependent_models)) {
-      model <- dependent_models[[model_name]]
+    h <- t - test_start + 1L
+    for (model_name in execution_order) {
+      model <- if (!is.null(schedules[[model_name]])) schedules[[model_name]][[h]]
+               else dependent_models[[model_name]]
       pred <- tryCatch(
         predict(model, t = t, data = simulation_data, ctx = ctx),
         error = function(e) {
@@ -333,6 +343,78 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   model
 }
 
+#' Fit the refit specs on a deterministic window-end grid
+#'
+#' For the sliding-window mode of [fit_system()]: refits each `linear`/`glm`/
+#' `heterolm` spec on every window anchor in `taus`. Each window is fit `nsim`
+#' times when the spec carries a `boot` resampler (distinct draws) and once
+#' (shared across draws) otherwise. Parallelised over windows via the `future`
+#' package.
+#'
+#' @param sys A trimmed `endogenr_system_setup` (no simulation grid) carrying
+#'   the fit inputs (`train_data`, `full_data`, `fit_ctx`, `train_start`, ...).
+#' @param specs The list of model specs.
+#' @param refit_idx Integer positions of the refit specs within `specs`.
+#' @param taus Integer window-end anchors from `.cf_anchor_grid()`.
+#' @param window `"rolling"` or `"expanding"`.
+#' @param width Integer rolling-window length.
+#' @param nsim Integer number of draws.
+#' @param globals Optional named list of user functions for parallel workers.
+#'
+#' @return A list aligned with `specs`: `NULL` at non-refit positions, and at
+#'   each refit position a list over windows, each a length-`nsim` list of
+#'   fitted models.
+#' @keywords internal
+.fit_window_grid <- function(sys, specs, refit_idx, taus, window, width, nsim, globals = NULL) {
+  train_start <- sys$train_start
+
+  future_globals <- list(sys = sys, specs = specs, refit_idx = refit_idx,
+                         taus = taus, window = window, width = width,
+                         nsim = nsim, train_start = train_start)
+  if (!is.null(globals)) {
+    for (fn_name in names(globals)) future_globals[[fn_name]] <- globals[[fn_name]]
+  }
+
+  p <- if (requireNamespace("progressr", quietly = TRUE)) {
+    progressr::progressor(steps = length(taus))
+  } else {
+    function(...) invisible(NULL)
+  }
+
+  per_window <- future.apply::future_lapply(
+    seq_along(taus),
+    function(w) {
+      tau <- taus[w]
+      sub <- if (window == "rolling") list(start = tau - width + 1L, end = tau)
+             else list(start = train_start, end = tau)
+      fits <- vector("list", length(specs))
+      for (j in refit_idx) {
+        spec <- specs[[j]]
+        if (!is.null(spec$args$boot)) {
+          fits[[j]] <- lapply(seq_len(nsim), function(i)
+            .strip_fit_data(.fit_spec(spec, sys, subset = sub)))
+        } else {
+          one <- .strip_fit_data(.fit_spec(spec, sys, subset = sub))
+          fits[[j]] <- rep(list(one), nsim)
+        }
+      }
+      p()
+      fits
+    },
+    future.seed = TRUE,
+    future.globals = future_globals,
+    future.packages = c("endogenr", "data.table"),
+    future.chunk.size = max(1L, ceiling(length(taus) / future::nbrOfWorkers()))
+  )
+
+  # Transpose: per_window[[w]][[j]] -> window_fits[[j]][[w]]
+  window_fits <- vector("list", length(specs))
+  for (j in refit_idx) {
+    window_fits[[j]] <- lapply(seq_along(taus), function(w) per_window[[w]][[j]])
+  }
+  window_fits
+}
+
 #' Fit and store the coefficient draws of an endogenr system
 #'
 #' Fits the model system set up by [setup_system()] and stores the resulting
@@ -342,60 +424,140 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #' map one-to-one to the outer simulations later run by [simulate_system()].
 #'
 #' @details
-#' Each spec is classified as a *refit* spec when its type is one of
-#' `"linear"`, `"glm"`, or `"heterolm"` **and** `min_window` was set on the
-#' setup. Behaviour per class:
-#' \itemize{
-#'   \item Refit specs are fit `nsim` times, each on a fresh random training
-#'     window from [get_train_window()] combined with the spec's `boot`
-#'     resampling. The draws therefore differ from one another.
-#'   \item Non-refit specs (and all specs when `min_window` is `NULL`) are fit
-#'     once and that single fit is shared across every draw.
-#'   \item Independent models (`exogen`/`parametric_distribution`/
-#'     `univariate_fable`) are fit once here; their predictive randomness is
-#'     drawn later, per outer sim, in [simulate_system()].
-#' }
+#' Two fitting modes are available via `window`:
+#'
+#' \strong{Random windows} (`window = "random"`, the default) reproduce the
+#' historical behaviour. A spec is a *refit* spec when its type is one of
+#' `"linear"`, `"glm"`, or `"heterolm"` \strong{and} `min_window` was set on the
+#' setup. Refit specs are fit `nsim` times, each on a fresh random training
+#' window from [get_train_window()] combined with the spec's `boot` resampling,
+#' so the draws differ. Non-refit specs (and all specs when `min_window` is
+#' `NULL`) are fit once and shared across draws.
+#'
+#' \strong{Sliding windows} (`window = "rolling"` or `"expanding"`) refit each
+#' `linear`/`glm`/`heterolm` spec on a deterministic grid of training windows
+#' anchored at the window \emph{end} (the same grid used by
+#' [forecast_coefficients()]), giving one fit per window-end so the coefficient
+#' series is a clean function of time rather than of a random window. The grid
+#' runs from the first valid anchor to the forecast origin (`test_start - 1`) in
+#' steps of `step`; `"rolling"` uses a fixed `width`-length window
+#' `[tau - width + 1, tau]`, `"expanding"` uses `[train_start, tau]`. Each window
+#' is fit `nsim` times when the spec has a `boot` resampler (distinct draws) or
+#' once and shared otherwise. The per-window fits are stored in `window_fits`;
+#' [simulate_system()] then mixes them per its `window_policy`. Unlike
+#' [forecast_coefficients()], `heterolm` is included (no tidy coefficients are
+#' required to simulate). The grid uses `min_window` as the minimum training
+#' length / default rolling `width` (falling back to `10` when unset).
 #'
 #' The fitted regression objects have their cached training frame dropped via
 #' an internal helper — `predict()`/`model.matrix()` keep working because they
 #' rely on the model's `terms`/`qr`/`xlevels`/`coefficients`, not on the cached
 #' frame.
 #'
-#' Parallel execution (when any refit specs are present) is controlled by the
-#' user via the `future` package; set a plan before calling. `future.seed =
-#' TRUE` is used so the random windows and bootstrap resamples are
-#' reproducible. The window/bootstrap randomness is consumed here, while the
-#' predictive draws are consumed in [simulate_system()]; results are therefore
-#' not bit-identical to the previous single-call simulator, by construction.
+#' Parallel execution is controlled by the user via the `future` package; set a
+#' plan before calling. `future.seed = TRUE` is used so the random windows and
+#' bootstrap resamples are reproducible. The window/bootstrap randomness is
+#' consumed here, while the predictive draws are consumed in [simulate_system()];
+#' results are therefore not bit-identical to the previous single-call
+#' simulator, by construction.
 #'
 #' @param system_setup An `endogenr_system_setup` from [setup_system()].
 #' @param nsim Integer. Number of coefficient draws (outer simulations).
+#' @param window One of `"random"` (default; random training windows gated by
+#'   `min_window`), `"rolling"` (deterministic fixed-width windows), or
+#'   `"expanding"` (deterministic windows growing from `train_start`). The two
+#'   sliding modes refit `linear`/`glm`/`heterolm` specs on a window-end grid.
+#' @param width Integer or `NULL`. Rolling-window length (ignored for
+#'   `"random"`/`"expanding"`). Defaults to `min_window` (or `10`).
+#' @param step Integer. Spacing (in time units) between window-end anchors for
+#'   the sliding modes. Default `1`.
 #'
 #' @return An `endogenr_fitted_system` object: the input setup augmented with
 #'   `fitted_draws` (a length-`nsim` list of model lists), `fitted_models` (a
-#'   representative draw, for [plot_estimates()]), and `nsim`.
+#'   representative draw, for [plot_estimates()]), `nsim`, and `fit_mode`. In a
+#'   sliding mode it additionally carries `window`, `window_taus` (the
+#'   window-end anchors), `window_width`, `window_step`, `window_fits` (per
+#'   refit spec, a list over windows of length-`nsim` model lists), and
+#'   `baseline` (the shared non-refit fits).
 #' @seealso [setup_system()], [simulate_system()], [get_coefficients()],
-#'   [plot_coefficients()]
+#'   [plot_coefficients()], [forecast_coefficients()]
 #' @family simulation
 #' @export
-fit_system <- function(system_setup, nsim = 1L) {
+fit_system <- function(system_setup, nsim = 1L,
+                       window = c("random", "rolling", "expanding"),
+                       width = NULL, step = 1L) {
   if (!inherits(system_setup, "endogenr_system_setup")) {
     stop("`system_setup` must be the output of setup_system().", call. = FALSE)
   }
+  window <- match.arg(window)
   nsim <- as.integer(nsim)
   if (length(nsim) != 1L || is.na(nsim) || nsim < 1L) {
     stop("`nsim` must be a single positive integer.", call. = FALSE)
   }
 
   specs <- system_setup$specs
-  min_window <- system_setup$min_window
   refit_types <- c("linear", "glm", "heterolm")
-  is_refit <- vapply(specs, function(spec)
-    spec$type %in% refit_types && !is.null(min_window), logical(1))
 
   # Fitting never needs the (large) simulation grid; drop it from the payload.
   fit_inputs <- system_setup
   fit_inputs$simulation_data <- NULL
+
+  out <- system_setup
+
+  if (window != "random") {
+    # ── Sliding-window mode ─────────────────────────────────────────────────
+    is_refit <- vapply(specs, function(spec) spec$type %in% refit_types, logical(1))
+    if (!any(is_refit)) {
+      stop("Sliding-window fitting (window = \"", window, "\") needs at least one ",
+           "linear/glm/heterolm spec; none found.", call. = FALSE)
+    }
+    refit_idx <- which(is_refit)
+
+    min_train <- if (!is.null(system_setup$min_window)) as.integer(system_setup$min_window) else 10L
+    width <- if (is.null(width)) min_train else as.integer(width)
+    step  <- as.integer(step)
+    if (is.na(step) || step < 1L)   stop("`step` must be a positive integer.", call. = FALSE)
+    if (is.na(width) || width < 1L) stop("`width` must be a positive integer.", call. = FALSE)
+
+    taus <- .cf_anchor_grid(system_setup$train_start, system_setup$test_start,
+                            window, min_train, width, step)
+
+    # Baseline: non-refit specs once; refit slots filled from window_fits below.
+    baseline <- lapply(seq_along(specs), function(j) {
+      if (is_refit[j]) return(NULL)
+      .strip_fit_data(.fit_spec(specs[[j]], fit_inputs))
+    })
+
+    window_fits <- .fit_window_grid(fit_inputs, specs, refit_idx, taus, window,
+                                    width, nsim, system_setup$globals)
+
+    # Compatibility draws use the most-recent window (the forecast origin) so
+    # plot_estimates()/fitted_models keep working.
+    last_w <- length(taus)
+    fitted_draws <- lapply(seq_len(nsim), function(i) {
+      draw <- baseline
+      for (j in refit_idx) draw[[j]] <- window_fits[[j]][[last_w]][[i]]
+      draw
+    })
+
+    out$fit_mode     <- "sliding"
+    out$window       <- window
+    out$window_width <- width
+    out$window_step  <- step
+    out$window_taus  <- taus
+    out$window_fits  <- window_fits
+    out$baseline     <- baseline
+    out$fitted_draws <- fitted_draws
+    out$fitted_models <- fitted_draws[[1L]]
+    out$nsim <- nsim
+    class(out) <- c("endogenr_fitted_system", class(system_setup))
+    return(out)
+  }
+
+  # ── Random-window mode (historical behaviour) ─────────────────────────────
+  min_window <- system_setup$min_window
+  is_refit <- vapply(specs, function(spec)
+    spec$type %in% refit_types && !is.null(min_window), logical(1))
 
   # Shared baseline: fit every non-refit spec once. Refit slots are filled per
   # draw below, so leave them empty here.
@@ -443,12 +605,90 @@ fit_system <- function(system_setup, nsim = 1L) {
     fitted_draws <- rep(list(baseline), nsim)
   }
 
-  out <- system_setup
+  out$fit_mode <- "random"
   out$fitted_draws <- fitted_draws
   out$fitted_models <- fitted_draws[[1L]]
   out$nsim <- nsim
   class(out) <- c("endogenr_fitted_system", class(system_setup))
   out
+}
+
+#' Build the per-step window-selection weight matrix
+#'
+#' Produces a `horizon x n_window` matrix of selection probabilities used by the
+#' sliding-window [simulate_system()]: row `h` gives the probability of choosing
+#' each window at forecast step `h`. Windows are ordered as in `taus`
+#' (ascending; the last is the most recent). `age` is `0` for the most recent
+#' window and increases into the past.
+#'
+#' @param policy One of `"latest"`, `"equal"`, `"decay"`.
+#' @param horizon Integer number of forecast steps.
+#' @param taus Integer window-end anchors (ascending).
+#' @param decay Numeric in `(0, 1]`. Per-step retention at horizon 1 for the
+#'   `"decay"` policy.
+#' @param weights Optional override: a `function(h, age)` returning unnormalised
+#'   weights, or a `horizon x n_window` numeric matrix.
+#'
+#' @return A row-normalised `horizon x n_window` numeric matrix.
+#' @keywords internal
+.window_weight_matrix <- function(policy, horizon, taus, decay = 0.5, weights = NULL) {
+  nwin <- length(taus)
+  age <- nwin - seq_len(nwin)              # 0 for most recent (last), older = larger
+
+  normalize_rows <- function(W) {
+    rs <- rowSums(W)
+    if (any(!is.finite(rs)) || any(rs <= 0)) {
+      stop("Window weights must be non-negative with a positive row sum.", call. = FALSE)
+    }
+    W / rs
+  }
+
+  if (!is.null(weights)) {
+    if (is.function(weights)) {
+      W <- matrix(0, horizon, nwin)
+      for (h in seq_len(horizon)) {
+        v <- as.numeric(weights(h, age))
+        if (length(v) != nwin) {
+          stop("`weights(h, age)` must return a length-", nwin, " vector.", call. = FALSE)
+        }
+        W[h, ] <- v
+      }
+    } else if (is.matrix(weights)) {
+      if (!all(dim(weights) == c(horizon, nwin))) {
+        stop("`weights` matrix must be ", horizon, " x ", nwin,
+             " (horizon x n_window).", call. = FALSE)
+      }
+      W <- weights
+    } else {
+      stop("`weights` must be a function(h, age) or a horizon x n_window matrix.",
+           call. = FALSE)
+    }
+    if (any(W < 0)) stop("Window weights must be non-negative.", call. = FALSE)
+    return(normalize_rows(W))
+  }
+
+  switch(policy,
+    "latest" = {
+      m <- matrix(0, horizon, nwin)
+      m[, nwin] <- 1
+      m
+    },
+    "equal" = matrix(1 / nwin, horizon, nwin),
+    "decay" = {
+      if (!is.numeric(decay) || length(decay) != 1L || is.na(decay) ||
+          decay <= 0 || decay > 1) {
+        stop("`decay` must be a single number in (0, 1].", call. = FALSE)
+      }
+      m <- matrix(0, horizon, nwin)
+      for (h in seq_len(horizon)) {
+        r <- decay^(1 / h)
+        v <- r^age
+        m[h, ] <- v / sum(v)
+      }
+      m
+    },
+    stop("Unknown window_policy: ", policy, call. = FALSE)
+  )
 }
 
 #' Run the dynamic simulation of a fitted endogenr system
@@ -490,7 +730,34 @@ fit_system <- function(system_setup, nsim = 1L) {
 #' TRUE`, register a temporary `future::multisession` plan that is restored
 #' on exit. Prefer setting the plan yourself.
 #'
+#' @section Sliding-window policies:
+#' When `fitted_system` came from a sliding-window [fit_system()]
+#' (`window = "rolling"`/`"expanding"`), `window_policy` decides how the
+#' per-window fits drive each forecast step. The window applied at step `h` of
+#' each simulated trajectory is drawn from row `h` of a weight matrix
+#' `W[h, window]` (per-step stochastic mixture, so the marginal at each
+#' `(unit, time)` is the policy-weighted mixture of the window fits):
+#' \itemize{
+#'   \item `"latest"`: always the most recent window (the forecast origin).
+#'   \item `"equal"`: every window with equal probability.
+#'   \item `"decay"`: horizon-flattening geometric decay — proximate horizons
+#'     strongly favour recent windows; weights flatten toward uniform as the
+#'     horizon grows. Tuned by `decay` (per-step recency retention at `h = 1`).
+#' }
+#' Pass `weights` for full control: either a `function(h, age)` returning
+#' unnormalised weights (`age` is `0` for the most recent window, increasing into
+#' the past) or a precomputed `horizon x n_window` matrix; rows are normalised to
+#' sum to one. `window_policy`/`decay`/`weights` are ignored (with a warning when
+#' explicitly set) for random/fixed-window fits.
+#'
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
+#' @param window_policy One of `"latest"` (default), `"equal"`, or `"decay"`.
+#'   Only used for sliding-window fits; see the Sliding-window policies section.
+#' @param decay Numeric in `(0, 1]`. Per-step recency retention for
+#'   `window_policy = "decay"` at horizon 1 (smaller = steeper recency
+#'   preference). Default `0.5`.
+#' @param weights Optional custom window weights overriding `window_policy`: a
+#'   `function(h, age)` or a `horizon x n_window` matrix.
 #' @param parallel Logical. Deprecated. Use [future::plan()] before calling.
 #' @param ncores Integer. Deprecated. Use [future::plan()] before calling.
 #'
@@ -501,10 +768,16 @@ fit_system <- function(system_setup, nsim = 1L) {
 #'   [sim_to_dist()]
 #' @family simulation
 #' @export
-simulate_system <- function(fitted_system, parallel = FALSE, ncores = 6) {
+simulate_system <- function(fitted_system,
+                            window_policy = c("latest", "equal", "decay"),
+                            decay = 0.5, weights = NULL,
+                            parallel = FALSE, ncores = 6) {
   if (!inherits(fitted_system, "endogenr_fitted_system")) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
   }
+  policy_set <- !missing(window_policy) || !missing(weights)
+  window_policy <- match.arg(window_policy)
+
   if (!missing(parallel) || !missing(ncores)) {
     .Deprecated(
       msg = paste0(
@@ -522,8 +795,15 @@ simulate_system <- function(fitted_system, parallel = FALSE, ncores = 6) {
     }
   }
 
-  fitted_draws <- fitted_system$fitted_draws
-  nsim <- length(fitted_draws)
+  is_sliding <- !is.null(fitted_system$window_fits)
+  if (!is_sliding && policy_set) {
+    warning("`window_policy`/`weights` are ignored unless `fitted_system` was fit ",
+            "with a sliding window (window = \"rolling\"/\"expanding\").",
+            call. = FALSE)
+  }
+
+  nsim <- fitted_system$nsim
+  if (is.null(nsim)) nsim <- length(fitted_system$fitted_draws)
 
   # The (large) simulation grid and the predict-time context ride as globals so
   # they ship once per worker; the per-iteration payload is one draw's models.
@@ -534,20 +814,6 @@ simulate_system <- function(fitted_system, parallel = FALSE, ncores = 6) {
   execution_order <- fitted_system$execution_order
   inner_sims <- fitted_system$inner_sims
 
-  future_globals <- list(
-    simulation_data = simulation_data,
-    ctx = ctx,
-    test_start = test_start,
-    horizon = horizon,
-    execution_order = execution_order,
-    inner_sims = inner_sims
-  )
-  if (!is.null(fitted_system$globals)) {
-    for (fn_name in names(fitted_system$globals)) {
-      future_globals[[fn_name]] <- fitted_system$globals[[fn_name]]
-    }
-  }
-
   # progressr support: users opt in via progressr::with_progress()
   p <- if (requireNamespace("progressr", quietly = TRUE)) {
     progressr::progressor(steps = nsim)
@@ -555,20 +821,80 @@ simulate_system <- function(fitted_system, parallel = FALSE, ncores = 6) {
     function(...) invisible(NULL)
   }
 
-  simulation_results <- future.apply::future_lapply(
-    fitted_draws,
-    function(models) {
-      sim <- data.table::copy(simulation_data)
-      sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
-      sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
-      p()
-      sim
-    },
-    future.seed = TRUE,
-    future.globals = future_globals,
-    future.packages = c("endogenr", "data.table"),
-    future.chunk.size = max(1L, ceiling(nsim / future::nbrOfWorkers()))
-  )
+  if (is_sliding) {
+    window_fits <- fitted_system$window_fits
+    baseline    <- fitted_system$baseline
+    taus        <- fitted_system$window_taus
+    nwin        <- length(taus)
+    refit_idx   <- which(!vapply(window_fits, is.null, logical(1)))
+    refit_plan  <- lapply(refit_idx, function(j)
+      list(j = j, oc = window_fits[[j]][[1L]][[1L]]$outcome))
+
+    W <- .window_weight_matrix(window_policy, horizon, taus, decay, weights)
+
+    future_globals <- list(
+      simulation_data = simulation_data, ctx = ctx, test_start = test_start,
+      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
+      window_fits = window_fits, baseline = baseline, refit_plan = refit_plan,
+      W = W, nwin = nwin
+    )
+    if (!is.null(fitted_system$globals)) {
+      for (fn_name in names(fitted_system$globals)) {
+        future_globals[[fn_name]] <- fitted_system$globals[[fn_name]]
+      }
+    }
+
+    simulation_results <- future.apply::future_lapply(
+      seq_len(nsim),
+      function(i) {
+        sim <- data.table::copy(simulation_data)
+        models <- Filter(Negate(is.null), baseline)
+        sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
+        schedules <- list()
+        for (rp in refit_plan) {
+          wsel <- vapply(seq_len(horizon),
+                         function(h) sample.int(nwin, 1L, prob = W[h, ]), integer(1))
+          schedules[[rp$oc]] <- lapply(seq_len(horizon),
+                                       function(h) window_fits[[rp$j]][[wsel[h]]][[i]])
+        }
+        sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
+                                        execution_order, schedules = schedules)
+        p()
+        sim
+      },
+      future.seed = TRUE,
+      future.globals = future_globals,
+      future.packages = c("endogenr", "data.table"),
+      future.chunk.size = max(1L, ceiling(nsim / future::nbrOfWorkers()))
+    )
+  } else {
+    fitted_draws <- fitted_system$fitted_draws
+
+    future_globals <- list(
+      simulation_data = simulation_data, ctx = ctx, test_start = test_start,
+      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims
+    )
+    if (!is.null(fitted_system$globals)) {
+      for (fn_name in names(fitted_system$globals)) {
+        future_globals[[fn_name]] <- fitted_system$globals[[fn_name]]
+      }
+    }
+
+    simulation_results <- future.apply::future_lapply(
+      fitted_draws,
+      function(models) {
+        sim <- data.table::copy(simulation_data)
+        sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
+        sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
+        p()
+        sim
+      },
+      future.seed = TRUE,
+      future.globals = future_globals,
+      future.packages = c("endogenr", "data.table"),
+      future.chunk.size = max(1L, ceiling(nsim / future::nbrOfWorkers()))
+    )
+  }
 
   # Bind results and create .sim ID
   results <- data.table::rbindlist(simulation_results, idcol = ".id")

@@ -87,6 +87,47 @@ Sys.time() - start
 sim_acc <- get_accuracy(res, "gdppc", df, test_start = 2010, by = "horizon")
 plotsim(res, "gdppc", c(2, 20, 530), df) + ggplot2::facet_wrap(~gwcode, scales = "free_y")
 
+# Sliding-window simulation -------------------------------------------------
+# The random-window fit above (min_window) draws a random start AND end per
+# draw, which confounds recency with sample size. A *sliding* fit instead
+# refits each linear/glm/heterolm spec on a deterministic grid of window-end
+# anchors (the same grid as forecast_coefficients()), so each fit is tied to a
+# point in time. simulate_system() then decides, per forecast step, which window
+# drives the coefficients via `window_policy`:
+#   - "latest": always the most recent window (the forecast origin);
+#   - "equal" : every window with equal probability;
+#   - "decay" : recent windows dominate proximate horizons, flattening toward
+#               uniform further out (tune with `decay`); or pass a custom
+#               `weights` function(h, age) / horizon-by-window matrix.
+future::plan(future::multisession, workers = 8)
+set.seed(42)
+fit_slide <- fit_system(sys, nsim = 128, window = "rolling", width = 20, step = 1)
+
+# Inspect how the coefficients move across windows BEFORE picking a policy.
+slide_coefs <- get_coefficients(fit_slide)
+ggplot(slide_coefs[term != "(Intercept)"],
+       aes(x = .window_end, y = estimate)) +
+  geom_point(alpha = 0.2) + geom_smooth() +
+  facet_wrap(~ outcome + term, scales = "free_y")
+
+set.seed(42)
+progressr::with_progress({
+  res_latest <- simulate_system(fit_slide, window_policy = "latest")
+  res_equal  <- simulate_system(fit_slide, window_policy = "equal")
+  res_decay  <- simulate_system(fit_slide, window_policy = "decay", decay = 0.5)
+})
+future::plan(future::sequential)
+
+acc_latest <- get_accuracy(res_latest, "gdppc", df, test_start = 2010, by = "horizon")
+acc_equal  <- get_accuracy(res_equal,  "gdppc", df, test_start = 2010, by = "horizon")
+acc_decay  <- get_accuracy(res_decay,  "gdppc", df, test_start = 2010, by = "horizon")
+
+ggplot() +
+  geom_line(data = acc_latest[horizon >= 1], aes(horizon, crps), colour = "black") +
+  geom_line(data = acc_equal[horizon >= 1],  aes(horizon, crps), colour = "red") +
+  geom_line(data = acc_decay[horizon >= 1],  aes(horizon, crps), colour = "blue") +
+  labs(subtitle = "CRPS by horizon: latest (black) / equal (red) / decay (blue)")
+
 lh_setup <- endogenr::setup_long_horizon(
   data      = df,
   formulas  = list("y_h|y" = lead_horizon(log(gdppc)) ~ factor(region) + log(gdppc),

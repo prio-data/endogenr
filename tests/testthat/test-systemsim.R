@@ -676,3 +676,168 @@ test_that("get_accuracy errors helpfully when ctx cannot be inferred", {
     "Could not infer panel context"
   )
 })
+
+# ── Sliding-window fitting + policies ───────────────────────────────────────
+
+make_sliding_setup <- function(boot = "resid", min_window = 10, horizon = 4,
+                               inner_sims = 1) {
+  df <- expand.grid(gwcode = c(1, 2, 3), year = 2000:2030)
+  set.seed(11)
+  df$x <- stats::rnorm(nrow(df))
+  df$y <- 0.5 * df$x + stats::rnorm(nrow(df), sd = 0.3)
+  dt <- data.table::as.data.table(df)
+  lin <- if (is.null(boot)) build_model("linear", formula = y ~ lag(x))
+         else build_model("linear", formula = y ~ lag(x), boot = boot)
+  setup_system(
+    models = list(lin, build_model("exogen", formula = ~x)),
+    data = dt, train_start = 2000, test_start = 2025, horizon = horizon,
+    groupvar = "gwcode", timevar = "year", inner_sims = inner_sims,
+    min_window = min_window
+  )
+}
+
+test_that(".window_weight_matrix builds normalized presets", {
+  taus <- c(1990L, 1995L, 2000L, 2005L)   # ascending; last is most recent
+  Wl <- endogenr:::.window_weight_matrix("latest", 3, taus)
+  We <- endogenr:::.window_weight_matrix("equal", 3, taus)
+  Wd <- endogenr:::.window_weight_matrix("decay", 5, taus, decay = 0.5)
+
+  expect_equal(dim(Wl), c(3L, 4L))
+  expect_equal(rowSums(Wl), rep(1, 3))
+  expect_equal(Wl[1, ], c(0, 0, 0, 1))        # mass on most-recent window
+  expect_equal(We[1, ], rep(0.25, 4))
+  expect_equal(rowSums(Wd), rep(1, 5))
+  expect_gt(Wd[1, 4], Wd[1, 1])               # decay favours recent at h = 1
+
+  ent <- function(p) { p <- p[p > 0]; -sum(p * log(p)) }
+  expect_gt(ent(Wd[5, ]), ent(Wd[1, ]))       # flattens with horizon
+})
+
+test_that(".window_weight_matrix honours custom weights and validates", {
+  taus <- c(1L, 2L, 3L)
+
+  # function form: pin the oldest window (largest age)
+  Wf <- endogenr:::.window_weight_matrix(
+    "equal", 2, taus, weights = function(h, age) as.numeric(age == max(age)))
+  expect_equal(Wf[1, ], c(1, 0, 0))
+
+  # matrix form passthrough (row-normalized)
+  m <- rbind(c(1, 1, 2), c(0, 1, 3))
+  Wm <- endogenr:::.window_weight_matrix("equal", 2, taus, weights = m)
+  expect_equal(rowSums(Wm), c(1, 1))
+  expect_equal(Wm[1, ], c(1, 1, 2) / 4)
+  expect_equal(Wm[2, ], c(0, 1, 3) / 4)
+
+  expect_error(
+    endogenr:::.window_weight_matrix("equal", 2, taus, weights = matrix(1, 3, 3)),
+    "horizon x n_window"
+  )
+  expect_error(
+    endogenr:::.window_weight_matrix("decay", 2, taus, decay = 0),
+    "in \\(0, 1\\]"
+  )
+})
+
+test_that("fit_system sliding (rolling) fits a window grid", {
+  setup <- make_sliding_setup(boot = "resid")
+  set.seed(1)
+  fit <- fit_system(setup, nsim = 3, window = "rolling", width = 10, step = 5)
+
+  expect_equal(fit$fit_mode, "sliding")
+  expect_equal(fit$window, "rolling")
+  expect_gte(length(fit$window_taus), 3L)
+  expect_equal(max(fit$window_taus), 2024L)   # most recent anchor = origin
+
+  # refit spec (pos 1) populated; exogen (pos 2) NULL
+  expect_false(is.null(fit$window_fits[[1]]))
+  expect_null(fit$window_fits[[2]])
+  expect_length(fit$window_fits[[1]], length(fit$window_taus))  # per window
+  expect_length(fit$window_fits[[1]][[1]], 3L)                  # per draw (boot)
+
+  # back-compat fields still present
+  expect_length(fit$fitted_draws, 3L)
+  expect_false(is.null(fit$fitted_models))
+
+  # coefficients move across windows
+  gc <- get_coefficients(fit)
+  wins <- unique(gc[, .(.window_start, .window_end)])
+  expect_equal(nrow(wins), length(fit$window_taus))
+  by_win <- gc[term == "lag_x", mean(estimate), by = .window_end]
+  expect_gt(stats::sd(by_win$V1), 0)
+})
+
+test_that("fit_system sliding (expanding) anchors at train_start", {
+  setup <- make_sliding_setup(boot = NULL)            # no bootstrap
+  set.seed(2)
+  fit <- fit_system(setup, nsim = 2, window = "expanding", step = 5)
+
+  gc <- get_coefficients(fit)
+  expect_true(all(gc$.window_start == 2000))          # expanding from train_start
+  expect_gt(length(unique(gc$.window_end)), 1L)
+
+  # non-boot: one fit per window (no per-draw multiplication)
+  n_terms <- length(unique(gc$term))
+  expect_equal(nrow(gc), length(fit$window_taus) * n_terms)
+})
+
+test_that("fit_system sliding errors without a refit-capable spec", {
+  df <- expand.grid(gwcode = c(1, 2), year = 2000:2009)
+  df$g <- 0.02
+  df$v <- 100
+  dt <- data.table::as.data.table(df)
+  setup <- setup_system(
+    models = list(
+      build_model("deterministic", formula = v ~ I(lag(v) + g)),
+      build_model("exogen", formula = ~g)
+    ),
+    data = dt, train_start = 2000, test_start = 2008, horizon = 2,
+    groupvar = "gwcode", timevar = "year", inner_sims = 1
+  )
+  expect_error(fit_system(setup, nsim = 1, window = "rolling"),
+               "needs at least one")
+})
+
+test_that("simulate_system sliding policies return valid mixtures", {
+  setup <- make_sliding_setup(boot = "resid", horizon = 4, inner_sims = 2)
+  set.seed(3)
+  fit <- fit_system(setup, nsim = 4, window = "rolling", width = 10, step = 5)
+
+  for (pol in c("latest", "equal", "decay")) {
+    set.seed(9)
+    res <- simulate_system(fit, window_policy = pol)
+    expect_s3_class(res, "data.table")
+    expect_true(".sim" %in% names(res))
+    expect_equal(attr(res, "panel_unit"), "gwcode")
+    expect_equal(attr(res, "panel_time"), "year")
+    expect_true(all(c("y", "x") %in% names(res)))
+    expect_false(any(is.na(res[year >= 2025]$y)))     # forecast cells populated
+  }
+})
+
+test_that("simulate_system window weights route the per-step schedule", {
+  setup <- make_sliding_setup(boot = "resid", horizon = 3, inner_sims = 1)
+  set.seed(4)
+  fit <- fit_system(setup, nsim = 6, window = "rolling", width = 10, step = 5)
+  nwin <- length(fit$window_taus)
+  H <- fit$horizon
+
+  pin_old <- matrix(0, H, nwin); pin_old[, 1L]    <- 1
+  pin_new <- matrix(0, H, nwin); pin_new[, nwin]  <- 1
+
+  set.seed(5); res_old    <- simulate_system(fit, weights = pin_old)
+  set.seed(5); res_new    <- simulate_system(fit, weights = pin_new)
+  set.seed(5); res_latest <- simulate_system(fit, window_policy = "latest")
+
+  # pinning the most-recent window reproduces the "latest" policy
+  expect_equal(res_new$y, res_latest$y)
+  # pinning the oldest window diverges from pinning the newest
+  expect_false(isTRUE(all.equal(res_old$y, res_new$y)))
+})
+
+test_that("window_policy warns and is ignored for random-window fits", {
+  setup <- make_sliding_setup(boot = "resid", horizon = 2, inner_sims = 1)
+  set.seed(6)
+  fit <- fit_system(setup, nsim = 2)                  # random mode (default)
+  expect_equal(fit$fit_mode, "random")
+  expect_warning(simulate_system(fit, window_policy = "equal"), "ignored unless")
+})

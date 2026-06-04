@@ -10,7 +10,8 @@ process_dependent_models(
   ctx,
   test_start,
   horizon,
-  execution_order
+  execution_order,
+  schedules = NULL
 )
 }
 \arguments{
@@ -25,6 +26,12 @@ process_dependent_models(
 \item{horizon}{Integer.}
 
 \item{execution_order}{Character vector of model outcomes in topological order.}
+
+\item{schedules}{Optional named list (keyed by outcome) of length-\code{horizon}
+model lists. When an outcome has a schedule, the model used at forecast
+step \code{h} is \code{schedules[[outcome]][[h]]}, overriding the single model in
+\code{models}. Used by the sliding-window simulation; \code{NULL} reproduces the
+single-model behaviour.}
 }
 \value{
 The simulation_data data.table, updated by reference.

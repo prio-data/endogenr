@@ -4,17 +4,38 @@
 \alias{fit_system}
 \title{Fit and store the coefficient draws of an endogenr system}
 \usage{
-fit_system(system_setup, nsim = 1L)
+fit_system(
+  system_setup,
+  nsim = 1L,
+  window = c("random", "rolling", "expanding"),
+  width = NULL,
+  step = 1L
+)
 }
 \arguments{
 \item{system_setup}{An \code{endogenr_system_setup} from \code{\link[=setup_system]{setup_system()}}.}
 
 \item{nsim}{Integer. Number of coefficient draws (outer simulations).}
+
+\item{window}{One of \code{"random"} (default; random training windows gated by
+\code{min_window}), \code{"rolling"} (deterministic fixed-width windows), or
+\code{"expanding"} (deterministic windows growing from \code{train_start}). The two
+sliding modes refit \code{linear}/\code{glm}/\code{heterolm} specs on a window-end grid.}
+
+\item{width}{Integer or \code{NULL}. Rolling-window length (ignored for
+\code{"random"}/\code{"expanding"}). Defaults to \code{min_window} (or \code{10}).}
+
+\item{step}{Integer. Spacing (in time units) between window-end anchors for
+the sliding modes. Default \code{1}.}
 }
 \value{
 An \code{endogenr_fitted_system} object: the input setup augmented with
 \code{fitted_draws} (a length-\code{nsim} list of model lists), \code{fitted_models} (a
-representative draw, for \code{\link[=plot_estimates]{plot_estimates()}}), and \code{nsim}.
+representative draw, for \code{\link[=plot_estimates]{plot_estimates()}}), \code{nsim}, and \code{fit_mode}. In a
+sliding mode it additionally carries \code{window}, \code{window_taus} (the
+window-end anchors), \code{window_width}, \code{window_step}, \code{window_fits} (per
+refit spec, a list over windows of length-\code{nsim} model lists), and
+\code{baseline} (the shared non-refit fits).
 }
 \description{
 Fits the model system set up by \code{\link[=setup_system]{setup_system()}} and stores the resulting
@@ -24,34 +45,46 @@ inspected (see \code{\link[=get_coefficients]{get_coefficients()}}) and plotted 
 map one-to-one to the outer simulations later run by \code{\link[=simulate_system]{simulate_system()}}.
 }
 \details{
-Each spec is classified as a \emph{refit} spec when its type is one of
+Two fitting modes are available via \code{window}:
+
+\strong{Random windows} (\code{window = "random"}, the default) reproduce the
+historical behaviour. A spec is a \emph{refit} spec when its type is one of
 \code{"linear"}, \code{"glm"}, or \code{"heterolm"} \strong{and} \code{min_window} was set on the
-setup. Behaviour per class:
-\itemize{
-\item Refit specs are fit \code{nsim} times, each on a fresh random training
-window from \code{\link[=get_train_window]{get_train_window()}} combined with the spec's \code{boot}
-resampling. The draws therefore differ from one another.
-\item Non-refit specs (and all specs when \code{min_window} is \code{NULL}) are fit
-once and that single fit is shared across every draw.
-\item Independent models (\code{exogen}/\code{parametric_distribution}/
-\code{univariate_fable}) are fit once here; their predictive randomness is
-drawn later, per outer sim, in \code{\link[=simulate_system]{simulate_system()}}.
-}
+setup. Refit specs are fit \code{nsim} times, each on a fresh random training
+window from \code{\link[=get_train_window]{get_train_window()}} combined with the spec's \code{boot} resampling,
+so the draws differ. Non-refit specs (and all specs when \code{min_window} is
+\code{NULL}) are fit once and shared across draws.
+
+\strong{Sliding windows} (\code{window = "rolling"} or \code{"expanding"}) refit each
+\code{linear}/\code{glm}/\code{heterolm} spec on a deterministic grid of training windows
+anchored at the window \emph{end} (the same grid used by
+\code{\link[=forecast_coefficients]{forecast_coefficients()}}), giving one fit per window-end so the coefficient
+series is a clean function of time rather than of a random window. The grid
+runs from the first valid anchor to the forecast origin (\code{test_start - 1}) in
+steps of \code{step}; \code{"rolling"} uses a fixed \code{width}-length window
+\verb{[tau - width + 1, tau]}, \code{"expanding"} uses \verb{[train_start, tau]}. Each window
+is fit \code{nsim} times when the spec has a \code{boot} resampler (distinct draws) or
+once and shared otherwise. The per-window fits are stored in \code{window_fits};
+\code{\link[=simulate_system]{simulate_system()}} then mixes them per its \code{window_policy}. Unlike
+\code{\link[=forecast_coefficients]{forecast_coefficients()}}, \code{heterolm} is included (no tidy coefficients are
+required to simulate). The grid uses \code{min_window} as the minimum training
+length / default rolling \code{width} (falling back to \code{10} when unset).
 
 The fitted regression objects have their cached training frame dropped via
 an internal helper — \code{predict()}/\code{model.matrix()} keep working because they
 rely on the model's \code{terms}/\code{qr}/\code{xlevels}/\code{coefficients}, not on the cached
 frame.
 
-Parallel execution (when any refit specs are present) is controlled by the
-user via the \code{future} package; set a plan before calling. \code{future.seed = TRUE} is used so the random windows and bootstrap resamples are
-reproducible. The window/bootstrap randomness is consumed here, while the
-predictive draws are consumed in \code{\link[=simulate_system]{simulate_system()}}; results are therefore
-not bit-identical to the previous single-call simulator, by construction.
+Parallel execution is controlled by the user via the \code{future} package; set a
+plan before calling. \code{future.seed = TRUE} is used so the random windows and
+bootstrap resamples are reproducible. The window/bootstrap randomness is
+consumed here, while the predictive draws are consumed in \code{\link[=simulate_system]{simulate_system()}};
+results are therefore not bit-identical to the previous single-call
+simulator, by construction.
 }
 \seealso{
 \code{\link[=setup_system]{setup_system()}}, \code{\link[=simulate_system]{simulate_system()}}, \code{\link[=get_coefficients]{get_coefficients()}},
-\code{\link[=plot_coefficients]{plot_coefficients()}}
+\code{\link[=plot_coefficients]{plot_coefficients()}}, \code{\link[=forecast_coefficients]{forecast_coefficients()}}
 
 Other simulation:
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},

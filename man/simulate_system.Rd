@@ -4,10 +4,27 @@
 \alias{simulate_system}
 \title{Run the dynamic simulation of a fitted endogenr system}
 \usage{
-simulate_system(fitted_system, parallel = FALSE, ncores = 6)
+simulate_system(
+  fitted_system,
+  window_policy = c("latest", "equal", "decay"),
+  decay = 0.5,
+  weights = NULL,
+  parallel = FALSE,
+  ncores = 6
+)
 }
 \arguments{
 \item{fitted_system}{An \code{endogenr_fitted_system} from \code{\link[=fit_system]{fit_system()}}.}
+
+\item{window_policy}{One of \code{"latest"} (default), \code{"equal"}, or \code{"decay"}.
+Only used for sliding-window fits; see the Sliding-window policies section.}
+
+\item{decay}{Numeric in \verb{(0, 1]}. Per-step recency retention for
+\code{window_policy = "decay"} at horizon 1 (smaller = steeper recency
+preference). Default \code{0.5}.}
+
+\item{weights}{Optional custom window weights overriding \code{window_policy}: a
+\verb{function(h, age)} or a \verb{horizon x n_window} matrix.}
 
 \item{parallel}{Logical. Deprecated. Use \code{\link[future:plan]{future::plan()}} before calling.}
 
@@ -54,6 +71,28 @@ context automatically.
 compatibility; they emit a deprecation message and, when \code{parallel = TRUE}, register a temporary \code{future::multisession} plan that is restored
 on exit. Prefer setting the plan yourself.
 }
+\section{Sliding-window policies}{
+
+When \code{fitted_system} came from a sliding-window \code{\link[=fit_system]{fit_system()}}
+(\code{window = "rolling"}/\code{"expanding"}), \code{window_policy} decides how the
+per-window fits drive each forecast step. The window applied at step \code{h} of
+each simulated trajectory is drawn from row \code{h} of a weight matrix
+\code{W[h, window]} (per-step stochastic mixture, so the marginal at each
+\verb{(unit, time)} is the policy-weighted mixture of the window fits):
+\itemize{
+\item \code{"latest"}: always the most recent window (the forecast origin).
+\item \code{"equal"}: every window with equal probability.
+\item \code{"decay"}: horizon-flattening geometric decay — proximate horizons
+strongly favour recent windows; weights flatten toward uniform as the
+horizon grows. Tuned by \code{decay} (per-step recency retention at \code{h = 1}).
+}
+Pass \code{weights} for full control: either a \verb{function(h, age)} returning
+unnormalised weights (\code{age} is \code{0} for the most recent window, increasing into
+the past) or a precomputed \verb{horizon x n_window} matrix; rows are normalised to
+sum to one. \code{window_policy}/\code{decay}/\code{weights} are ignored (with a warning when
+explicitly set) for random/fixed-window fits.
+}
+
 \seealso{
 \code{\link[=setup_system]{setup_system()}}, \code{\link[=fit_system]{fit_system()}}, \code{\link[=get_accuracy]{get_accuracy()}}, \code{\link[=plotsim]{plotsim()}},
 \code{\link[=sim_to_dist]{sim_to_dist()}}

@@ -10,21 +10,29 @@ get_coefficients(fitted_system)
 \item{fitted_system}{An \code{endogenr_fitted_system} from \code{\link[=fit_system]{fit_system()}}.}
 }
 \value{
-A \code{data.table} with columns \code{.draw} (integer, \verb{1..nsim}),
-\code{.window_start}/\code{.window_end} (the training window that produced the
-draw), \code{outcome}, \code{term}, \code{estimate}, \code{std.error}, \code{statistic}, and
-\code{p.value}. For shared/non-refit fits the window is the full
-\verb{[train_start, test_start - 1]} range. Zero rows if no model carries
-coefficients.
+A \code{data.table} with columns \code{.draw} (integer),
+\code{.window_start}/\code{.window_end} (the training window that produced the fit),
+\code{outcome}, \code{term}, \code{estimate}, \code{std.error}, \code{statistic}, and \code{p.value}. For
+shared/non-refit fits the window is the full \verb{[train_start, test_start - 1]}
+range. Zero rows if no model carries coefficients.
 }
 \description{
-Walks the stored coefficient draws of a \code{\link[=fit_system]{fit_system()}} output and returns a
-tidy table of the regression coefficients that were actually used in the
-simulation, tagged by draw and outcome. Only \code{linear} and \code{glm} models
-carry coefficients (via \code{\link[broom:tidy]{broom::tidy()}}); other model types are skipped.
+Walks the stored coefficient fits of a \code{\link[=fit_system]{fit_system()}} output and returns a
+tidy table of the regression coefficients that were actually used (or are
+available) for the simulation, tagged by draw, window, and outcome. Only
+\code{linear} and \code{glm} models carry coefficients (via \code{\link[broom:tidy]{broom::tidy()}}); other
+model types (including \code{heterolm}) are skipped.
+}
+\details{
+For sliding-window fits (\code{window = "rolling"}/\code{"expanding"}) the table covers
+the full window-end grid — one row block per \verb{(window, draw)} for bootstrapped
+specs, or one block per window for non-bootstrapped specs (a single fit per
+window) — so the coefficient trajectory across windows can be inspected before
+choosing a \code{\link[=simulate_system]{simulate_system()}} \code{window_policy}.
 }
 \seealso{
-\code{\link[=fit_system]{fit_system()}}, \code{\link[=plot_coefficients]{plot_coefficients()}}, \code{\link[=plot_estimates]{plot_estimates()}}
+\code{\link[=fit_system]{fit_system()}}, \code{\link[=plot_coefficients]{plot_coefficients()}}, \code{\link[=plot_estimates]{plot_estimates()}},
+\code{\link[=forecast_coefficients]{forecast_coefficients()}}
 
 Other postprocess:
 \code{\link[=forecast_coefficients]{forecast_coefficients()}},
