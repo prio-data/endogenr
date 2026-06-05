@@ -10,7 +10,8 @@ prepare_simulation_data(
   train_start,
   test_start,
   horizon,
-  inner_sims
+  inner_sims,
+  keep_cols = NULL
 )
 }
 \arguments{
@@ -25,6 +26,9 @@ prepare_simulation_data(
 \item{horizon}{Integer.}
 
 \item{inner_sims}{Integer.}
+
+\item{keep_cols}{Optional character vector of column names to keep from the
+merged training data (in addition to unit/time/sim). \code{NULL} keeps all.}
 }
 \value{
 A data.table with CJ grid of (unit, time, sim) filled with training data.

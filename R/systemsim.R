@@ -7,10 +7,13 @@
 #' @param test_start Integer.
 #' @param horizon Integer.
 #' @param inner_sims Integer.
+#' @param keep_cols Optional character vector of column names to keep from the
+#'   merged training data (in addition to unit/time/sim). `NULL` keeps all.
 #'
 #' @return A data.table with CJ grid of (unit, time, sim) filled with training data.
 #' @keywords internal
-prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon, inner_sims) {
+prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon, inner_sims,
+                                    keep_cols = NULL) {
   unit_col <- ctx_unit(ctx)
   time_col <- ctx_time(ctx)
 
@@ -22,8 +25,8 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   all_times <- seq(train_start, test_start + horizon - 1)
 
   # Memory warning for large grids
+  ncols <- if (is.null(keep_cols)) ncol(train) else length(keep_cols)
   grid_rows <- length(all_units) * length(all_times) * inner_sims
-  ncols <- ncol(train)
   est_mb <- grid_rows * ncols * 8 / 1e6  # rough estimate: 8 bytes per cell
   if (est_mb > 1000) {
     warning("Simulation grid will have ~", format(grid_rows, big.mark = ","),
@@ -40,7 +43,11 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   )
   data.table::setnames(grid, c("unit_placeholder", "time_placeholder"), c(unit_col, time_col))
 
-  # Merge training data onto grid
+  # Merge training data onto grid (only needed columns if keep_cols supplied)
+  if (!is.null(keep_cols)) {
+    merge_cols <- union(c(unit_col, time_col), intersect(keep_cols, names(train)))
+    train <- train[, ..merge_cols]
+  }
   result <- merge(grid, train, by = c(unit_col, time_col), all.x = TRUE, allow.cartesian = TRUE)
 
   # Sort by unit, sim, time for positional lag correctness
@@ -258,7 +265,18 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   # Create a simulation context WITH sim dimension
   sim_ctx <- panel_context(unit = groupvar, time = timevar, sim = "sim")
 
-  simulation_data <- prepare_simulation_data(data, sim_ctx, train_start, test_start, horizon, inner_sims)
+  # Compute the columns the simulation actually needs: keys, time, sim, plus all
+  # variables referenced in any spec's formula or variance formula. This prunes
+  # every column that no model reads, shrinking the grid and every per-draw copy.
+  formula_vars <- unique(unlist(lapply(specs, function(spec) {
+    v <- all.vars(spec$formula)
+    if (!is.null(spec$args$variance)) v <- c(v, all.vars(spec$args$variance))
+    v
+  })))
+  keep_cols <- union(c(groupvar, timevar, "sim"), formula_vars)
+
+  simulation_data <- prepare_simulation_data(data, sim_ctx, train_start, test_start, horizon,
+                                             inner_sims, keep_cols = keep_cols)
 
   structure(
     list(
@@ -327,19 +345,45 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   )
 }
 
-#' Drop the cached training frame from a fitted model
+#' Drop the cached training frame and fitting-only payloads from a fitted model
 #'
 #' Regression model objects (`linear`/`glm`/`heterolm`) cache the full
 #' materialized training frame in `$data` for fitting only; `predict.*` never
-#' reads it. Dropping it keeps the stored coefficient draws small and shrinks
-#' the per-worker payload in [simulate_system()]. A no-op for model types that
-#' carry no `$data`.
+#' reads it. Additionally strips large fitting-only fields from the inner
+#' `$fitted` object:
+#' - `lm`: removes `$model`, `$effects`, `$fitted.values`.
+#' - `glm`: additionally removes `$linear.predictors` and `$y`.
+#' - `hetero_fit`: removes `$frame$X`, `$frame$Z`, `$frame$y`; retains the
+#'   normalization vectors (`X_center`/`X_scale`/`Z_center`/`Z_scale`) and
+#'   `$frame$parsed` needed by `predict.hetero_fit(newdata = ...)`.
 #'
 #' @param model A fitted endogenmodel.
-#' @return The model with `$data` removed.
+#' @return The model with fitting-only payloads removed.
 #' @keywords internal
 .strip_fit_data <- function(model) {
   model$data <- NULL
+  fit <- model$fitted
+  if (!is.null(fit)) {
+    if (inherits(fit, "glm")) {
+      # glm inherits lm; strip lm bulk then glm-specific bulk.
+      fit$model             <- NULL
+      fit$effects           <- NULL
+      fit$fitted.values     <- NULL
+      fit$linear.predictors <- NULL
+      fit$y                 <- NULL
+    } else if (inherits(fit, "lm")) {
+      fit$model         <- NULL
+      fit$effects       <- NULL
+      fit$fitted.values <- NULL
+    } else if (inherits(fit, "hetero_fit")) {
+      if (!is.null(fit$frame)) {
+        fit$frame$X <- NULL
+        fit$frame$Z <- NULL
+        fit$frame$y <- NULL
+      }
+    }
+    model$fitted <- fit
+  }
   model
 }
 
@@ -859,6 +903,7 @@ simulate_system <- function(fitted_system,
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
                                         execution_order, schedules = schedules)
+        .tc <- ctx_time(ctx); sim <- sim[get(.tc) >= test_start]
         p()
         sim
       },
@@ -886,6 +931,7 @@ simulate_system <- function(fitted_system,
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
+        .tc <- ctx_time(ctx); sim <- sim[get(.tc) >= test_start]
         p()
         sim
       },

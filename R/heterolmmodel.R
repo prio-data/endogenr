@@ -169,7 +169,7 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
 
   # Re-materialise ts columns per (unit, sim) group.
   env <- rlang::f_env(model$combined_formula)
-  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env)
+  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
   old <- intersect(names(model$pt_alias_map), names(mat))
   if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 

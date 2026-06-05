@@ -180,7 +180,7 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   # stored ts_map, then rename `.pt#` to readable aliases so newdata column
   # names match those in the fitted model.
   env <- rlang::f_env(model$formula)
-  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env)
+  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
   old <- intersect(names(model$pt_alias_map), names(mat))
   if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 

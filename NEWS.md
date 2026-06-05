@@ -92,6 +92,35 @@
   assumption). Unsupported families fall back to the previous link-scale-only
   draw with a one-time warning.
 
+## Performance
+
+* **`simulate_system()` now returns forecast-only rows** (time ≥ `test_start`).
+  Previously the result included the full training period replicated across
+  every draw; all in-repo consumers (`get_accuracy()`, `sim_to_dist()`,
+  `plotsim()`) already filtered to the forecast window, so their behaviour is
+  unchanged. The per-worker trim shrinks peak `rbindlist` allocation and
+  `object.size(res)` proportionally to `horizon / n_times_total`
+  (≈ 2–4× for typical horizons).
+
+* **Simulation grid is pruned to referenced columns.** `setup_system()` now
+  collects every variable named in any model formula or variance formula and
+  keeps only those columns (plus group/time/sim keys) in the simulation data.
+  Columns present in the input panel but not referenced by any model are
+  dropped, shrinking the grid, each per-draw copy, and the final result.
+
+* **Stored lm/glm/heterolm fits shed fitting-only payloads.** `.strip_fit_data()`
+  now removes `$model`, `$effects`, and `$fitted.values` from the inner `lm`
+  object; `$linear.predictors` and `$y` from `glm`; and `$frame$X`, `$frame$Z`,
+  `$frame$y` from `hetero_fit` (the training design matrices). The fields needed
+  by `predict.*(..., se.fit = TRUE)` and `predict.hetero_fit(newdata = ...)` are
+  preserved; parity is verified by new tests.
+
+* **`.apply_ts_map()` gains a `copy = FALSE` path** for the predict route.
+  `predict.linear()`, `predict.glm_endogenr()`, and `predict.heterolm()` all
+  call `.history_subset()` before `.apply_ts_map()`, which already returns a
+  fresh subset; the second deep-copy is now skipped on those paths. The
+  `panel_materialize()` fit-time path continues to copy by default.
+
 ## Documentation
 
 * `?endogenr` now carries a "Known issues" / statistical-roadmap section

@@ -462,8 +462,9 @@ test_that("simulate_system runs and returns expected output", {
   expect_true("gwcode" %in% names(res))
   expect_true("year" %in% names(res))
 
-  # Should have rows for both training and forecast periods
+  # simulate_system() returns forecast rows only (test_start = 2013, horizon = 2).
   expect_true(all(c(2013, 2014) %in% res$year))
+  expect_true(all(res$year >= 2013))
 })
 
 test_that("simulate_system derives .sim count from nsim * inner_sims", {
@@ -483,6 +484,109 @@ test_that("simulate_system derives .sim count from nsim * inner_sims", {
 
   res <- make_results(setup, nsim = 3)
   expect_equal(length(unique(res$.sim)), 3L * 2L)
+})
+
+# ── new: output trimming & pruning invariants ─────────────────────────────
+
+test_that("simulate_system returns forecast-only rows (time >= test_start)", {
+  dt <- make_test_data()
+  setup <- setup_system(
+    models      = list(build_model("linear", formula = y ~ lag(x)),
+                       build_model("exogen", formula = ~x)),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 2
+  )
+  res <- make_results(setup, nsim = 2)
+  expect_true(min(res$year) == 2013L)
+  expect_true(all(res$year >= 2013L))
+})
+
+test_that("simulate_system drops unreferenced columns, keeps referenced ones", {
+  dt <- make_test_data()
+  dt$unused_col <- stats::rnorm(nrow(dt))   # never in any formula
+  setup <- setup_system(
+    models      = list(build_model("linear", formula = y ~ lag(x)),
+                       build_model("exogen", formula = ~x)),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 1
+  )
+  res <- make_results(setup, nsim = 1)
+  # Keys, time, and formula variables must be present.
+  expect_true(all(c("gwcode", "year", ".sim", "y", "x") %in% names(res)))
+  # Column that appears in no formula must be absent.
+  expect_false("unused_col" %in% names(res))
+})
+
+test_that(".strip_fit_data parity: lm predict se.fit unchanged after stripping", {
+  # Directly verify that removing $model/$effects/$fitted.values does not
+  # affect predict.lm(se.fit = TRUE) results.
+  df <- data.frame(y = c(1.1, 2.0, 3.3, 4.1, 5.0),
+                   x = c(0.5, 1.0, 1.5, 2.0, 2.5))
+  raw_fit <- stats::lm(y ~ x, data = df)
+
+  stripped              <- raw_fit
+  stripped$model        <- NULL
+  stripped$effects      <- NULL
+  stripped$fitted.values <- NULL
+
+  nd <- data.frame(x = c(0.1, 0.8, -0.3))
+  pp_raw      <- predict(raw_fit,  newdata = nd, se.fit = TRUE)
+  pp_stripped <- predict(stripped, newdata = nd, se.fit = TRUE)
+
+  expect_equal(pp_stripped$fit,    pp_raw$fit,    tolerance = 1e-10)
+  expect_equal(pp_stripped$se.fit, pp_raw$se.fit, tolerance = 1e-10)
+})
+
+test_that(".strip_fit_data parity: glm predict se.fit unchanged after stripping", {
+  # Verify that removing glm-specific bulk does not break predict.glm(se.fit=TRUE).
+  df <- data.frame(y = c(1.1, 2.0, 3.3, 4.1, 5.0),
+                   x = c(0.5, 1.0, 1.5, 2.0, 2.5))
+  raw_fit <- stats::glm(y ~ x, data = df, family = stats::gaussian())
+
+  stripped                   <- raw_fit
+  stripped$model             <- NULL
+  stripped$effects           <- NULL
+  stripped$fitted.values     <- NULL
+  stripped$linear.predictors <- NULL
+  stripped$y                 <- NULL
+
+  nd <- data.frame(x = c(0.1, 0.8, -0.3))
+  pp_raw      <- predict(raw_fit,  newdata = nd, type = "link", se.fit = TRUE)
+  pp_stripped <- predict(stripped, newdata = nd, type = "link", se.fit = TRUE)
+
+  expect_equal(pp_stripped$fit,    pp_raw$fit,    tolerance = 1e-10)
+  expect_equal(pp_stripped$se.fit, pp_raw$se.fit, tolerance = 1e-10)
+})
+
+test_that("simulate_system (sliding) produces finite forecast draws", {
+  dt <- make_test_data()
+  setup <- setup_system(
+    models      = list(build_model("linear", formula = y ~ lag(x), boot = "resid"),
+                       build_model("exogen", formula = ~x)),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 1,
+    min_window  = 5
+  )
+  set.seed(77)
+  fit <- fit_system(setup, nsim = 2, window = "rolling")
+  res <- simulate_system(fit)
+  expect_true(all(is.finite(res$y)))
+  expect_true(all(res$year >= 2013L))
 })
 
 # ── sim_to_dist ──────────────────────────────────────────────────────────

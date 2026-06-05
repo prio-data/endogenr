@@ -98,9 +98,12 @@ test_that("an independent output is populated before a dependent model reads it"
   expect_false(anyNA(fc$w))
 
   # w at t equals v at t-1 within the same (unit, sim) trajectory.
+  # simulate_system() returns forecast-only rows; the boundary step (time = 15)
+  # has no preceding row in the result, so skip it and verify the inner steps
+  # where both t and t-1 are in the forecast window.
   data.table::setkey(res, unit, .sim, time)
   res[, v_lag := data.table::shift(v, 1L), by = c("unit", ".sim")]
-  chk <- res[time >= 15]
+  chk <- res[time > 15]   # time > test_start: v[t-1] is present in the result
   expect_equal(chk$w, chk$v_lag)
 })
 

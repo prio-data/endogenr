@@ -102,11 +102,12 @@ test_that("run_experiments varies test_start: labels + per-experiment spans", {
 
   expect_setequal(unique(res$.experiment), c("test2010", "test2015"))
 
-  # Each experiment spans [train_start, test_start + horizon - 1].
+  # Each experiment spans [test_start, test_start + horizon - 1] (forecast-only).
   span <- res[, .(lo = min(year), hi = max(year)), by = .experiment]
   expect_equal(span[.experiment == "test2010", hi], 2012)  # 2010 + 3 - 1
   expect_equal(span[.experiment == "test2015", hi], 2017)  # 2015 + 3 - 1
-  expect_true(all(span$lo == 2000))
+  expect_equal(span[.experiment == "test2010", lo], 2010)
+  expect_equal(span[.experiment == "test2015", lo], 2015)
 
   meta <- attr(res, "experiments")
   expect_setequal(meta$test_start, c(2010, 2015))

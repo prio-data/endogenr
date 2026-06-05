@@ -108,15 +108,18 @@
   as.call(parts)
 }
 
-# Materialise a `.pt#` map into per-group, time-ordered columns. Returns a copy
-# of `data` (keyed by group then time) with one new column per map entry. `env`
-# is the formula environment used to resolve time-series functions other than
-# `lag` (which is overridden with the positional shift).
-.apply_ts_map <- function(map, data, groupvar, timevar, env = parent.frame()) {
+# Materialise a `.pt#` map into per-group, time-ordered columns. Returns `data`
+# (keyed by group then time) with one new column per map entry. When `copy =
+# TRUE` (default) a deep copy is made first so the caller's data is not
+# modified. Pass `copy = FALSE` when the caller already owns a private copy
+# (e.g. `.history_subset()` output on the predict path) to avoid the redundant
+# allocation.
+.apply_ts_map <- function(map, data, groupvar, timevar, env = parent.frame(), copy = TRUE) {
   if (!data.table::is.data.table(data)) {
     data <- data.table::as.data.table(as.data.frame(data))
+    copy <- FALSE  # as.data.table already produced a new object
   }
-  data <- data.table::copy(data)
+  if (copy) data <- data.table::copy(data)
   data.table::setkeyv(data, c(groupvar, timevar))
   if (length(map) == 0L) return(data)
 
