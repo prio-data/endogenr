@@ -945,3 +945,35 @@ test_that("window_policy warns and is ignored for random-window fits", {
   expect_equal(fit$fit_mode, "random")
   expect_warning(simulate_system(fit, window_policy = "equal"), "ignored unless")
 })
+
+test_that("boot = 'resid' without min_window produces distinct coefficient draws", {
+  # Regression: previously is_refit was gated on !is.null(min_window), so a
+  # boot spec with min_window = NULL was silently fit once and shared across
+  # all nsim draws (bootstrap was a no-op). Each draw must now yield a distinct
+  # fit (different bootstrapped coefficients), verified by checking that the
+  # per-draw intercepts are not all identical.
+  dt <- make_test_data()
+  setup <- setup_system(
+    models      = list(build_model("linear", formula = y ~ lag(x), boot = "resid"),
+                       build_model("exogen", formula = ~x)),
+    data        = dt,
+    train_start = 2000,
+    test_start  = 2013,
+    horizon     = 2,
+    groupvar    = "gwcode",
+    timevar     = "year",
+    inner_sims  = 1
+    # min_window deliberately omitted (NULL)
+  )
+  set.seed(11)
+  fit <- fit_system(setup, nsim = 10)
+  expect_equal(fit$fit_mode, "random")
+
+  # Each draw should have been independently bootstrapped; extract intercepts.
+  intercepts <- vapply(fit$fitted_draws, function(draw) {
+    coef(draw[[1]]$fitted)[["(Intercept)"]]
+  }, numeric(1))
+  # At least some intercepts must differ across draws.
+  expect_true(length(unique(round(intercepts, 10))) > 1L,
+              info = "boot=resid with min_window=NULL must produce distinct draws")
+})

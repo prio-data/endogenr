@@ -601,7 +601,8 @@ fit_system <- function(system_setup, nsim = 1L,
   # ── Random-window mode (historical behaviour) ─────────────────────────────
   min_window <- system_setup$min_window
   is_refit <- vapply(specs, function(spec)
-    spec$type %in% refit_types && !is.null(min_window), logical(1))
+    spec$type %in% refit_types && (!is.null(min_window) || !is.null(spec$args$boot)),
+    logical(1))
 
   # Shared baseline: fit every non-refit spec once. Refit slots are filled per
   # draw below, so leave them empty here.
