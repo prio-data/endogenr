@@ -871,15 +871,34 @@ simulate_system <- function(fitted_system,
     taus        <- fitted_system$window_taus
     nwin        <- length(taus)
     refit_idx   <- which(!vapply(window_fits, is.null, logical(1)))
-    refit_plan  <- lapply(refit_idx, function(j)
-      list(j = j, oc = window_fits[[j]][[1L]][[1L]]$outcome))
+
+    # Outcome names for each refit spec (worker only needs the name, not the
+    # position index into window_fits).
+    refit_oc <- vapply(refit_idx, function(j) window_fits[[j]][[1L]][[1L]]$outcome,
+                       character(1))
+
+    # Precompute the shared non-refit models once (avoids Filter() per draw).
+    models <- Filter(Negate(is.null), baseline)
 
     W <- .window_weight_matrix(window_policy, horizon, taus, decay, weights)
+
+    # Pre-slice window_fits by draw: draw_fits[[i]][[k]][[w]] is the fit for
+    # draw i, refit spec k (in refit_idx order), window w. Building this list
+    # in the main process is cheap (only references are copied, not the model
+    # objects themselves). Crucially, draw_fits is passed as the iterated X
+    # argument to future_lapply, so future.apply partitions it across workers
+    # rather than broadcasting the entire nsim store to every worker.
+    # window_fits and baseline are deliberately excluded from future.globals.
+    draw_fits <- lapply(seq_len(nsim), function(i)
+      lapply(seq_along(refit_idx), function(k) {
+        j <- refit_idx[k]
+        lapply(seq_len(nwin), function(w) window_fits[[j]][[w]][[i]])
+      }))
 
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
       horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
-      window_fits = window_fits, baseline = baseline, refit_plan = refit_plan,
+      models = models, refit_oc = refit_oc,
       W = W, nwin = nwin
     )
     if (!is.null(fitted_system$globals)) {
@@ -889,17 +908,15 @@ simulate_system <- function(fitted_system,
     }
 
     simulation_results <- future.apply::future_lapply(
-      seq_len(nsim),
-      function(i) {
+      draw_fits,
+      function(dwf) {
         sim <- data.table::copy(simulation_data)
-        models <- Filter(Negate(is.null), baseline)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         schedules <- list()
-        for (rp in refit_plan) {
+        for (k in seq_along(refit_oc)) {
           wsel <- vapply(seq_len(horizon),
                          function(h) sample.int(nwin, 1L, prob = W[h, ]), integer(1))
-          schedules[[rp$oc]] <- lapply(seq_len(horizon),
-                                       function(h) window_fits[[rp$j]][[wsel[h]]][[i]])
+          schedules[[refit_oc[k]]] <- lapply(seq_len(horizon), function(h) dwf[[k]][[wsel[h]]])
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
                                         execution_order, schedules = schedules)
