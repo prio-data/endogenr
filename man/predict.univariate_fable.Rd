@@ -25,8 +25,18 @@
 A data.table with columns: unit, sim, time, outcome.
 }
 \description{
-Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
-separately, you should use fable directly!
+Generates predictions from a univariate_fable endogenmodel. Only use in
+dynamic simulation. If you want to use separately, you should use fable
+directly!
+}
+\details{
+Sample paths are drawn with \code{\link[fabletools:generate]{fabletools::generate()}}, which simulates the
+fitted ETS/ARIMA forward step by step with correlated innovations. Each
+returned \verb{(unit, sim)} series is therefore one internally-coherent
+trajectory whose temporal structure (trend persistence, autocorrelation) is
+preserved — unlike stitching independent per-horizon draws from the marginal
+\code{\link[fabletools:forecast]{fabletools::forecast()}} distributions, which destroys that structure and
+then feeds an incoherent path into the endogenous equations via \code{lag()}.
 }
 \seealso{
 Other simulation:

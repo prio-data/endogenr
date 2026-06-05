@@ -325,18 +325,23 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   env         <- rlang::f_env(fit_formula)
 
   # Covariates are observed at the forecast origin (test_start - 1), the last
-  # observed period; keep enough history per unit for any lag() on the RHS.
-  origin <- test_start - 1L
-  recent <- data[data[[timevar]] <= origin]
-  data.table::setkeyv(recent, c(groupvar, timevar))
-  recent <- recent[, utils::tail(.SD, 20L), by = c(groupvar)]
-
-  # Stage 1 at predict time: materialise only the time-series terms the
-  # (rewritten) RHS references, using each unit's recent history. Filtering by
-  # the RHS variables skips any LHS-only `.pt#` (which would reference `.target`,
-  # absent here).
+  # observed period. Stage 1 at predict time materialises only the time-series
+  # terms the (rewritten) RHS references; filtering by the RHS variables skips
+  # any LHS-only `.pt#` (which would reference `.target`, absent here).
+  origin   <- test_start - 1L
   rhs_vars <- all.vars(rlang::f_rhs(fit_formula))
   pred_map <- lh_model$ts_map[intersect(names(lh_model$ts_map), rhs_vars)]
+
+  # Keep enough per-unit history for the deepest time-series term the RHS
+  # needs; composed/cumulative transforms can reach past any fixed window.
+  need <- if (length(pred_map) == 0L) 0
+          else max(vapply(pred_map, .req_hist_expr, numeric(1)))
+
+  recent <- data[data[[timevar]] <= origin]
+  data.table::setkeyv(recent, c(groupvar, timevar))
+  if (is.finite(need)) {
+    recent <- recent[, utils::tail(.SD, need + 1L), by = c(groupvar)]
+  }
   recent2  <- .apply_ts_map(pred_map, recent, groupvar, timevar, env)
 
   # Newdata at the origin; drop rows with any NA in an RHS term.

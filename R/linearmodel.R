@@ -86,8 +86,7 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, su
   model$gof <- broom::glance(model$fitted)
 
   model$outcome <- parse_formula(model)$outcome
-  model$max_history <- .max_lag_depth(model$formula)
-  if (model$max_history < 1L) model$max_history <- 1L
+  model$required_history <- .required_history(model$formula)
 
   return(model)
 }
@@ -154,10 +153,9 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)
   grp <- ctx_unit(ctx)
   all_keys <- ctx_keys(ctx)
-  max_history <- model$max_history
 
-  # Subset to relevant history window
-  data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
+  # Subset to the per-unit history window the RHS actually needs
+  data <- .history_subset(data, idx, t, model$required_history)
 
   # Materialize formula (use cached helpers to skip update/inject/clean_names)
   data <- materialize_formula(model$formula, data, ctx,

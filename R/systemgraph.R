@@ -270,6 +270,170 @@ update_dependency_graph <- function(model, dependency_graph) {
   if (length(depths) == 0L) 0L else max(depths)
 }
 
+# Time-series function name sets used by .required_history(). Kept alongside
+# .pt_ts_fns (R/panel_transform.R) so the depth walk and the materialisation
+# walk recognise the same functions.
+.rh_cum_fns <- c(
+  "cumsum", "cumprod", "cummax", "cummin",
+  "decay_since_event", "time_since_event", "intensity_decay"
+)
+.rh_roll_fns <- c(
+  "rollmean", "rollmeanr", "rollmeanl",
+  "rollsum", "rollsumr", "rollsuml",
+  "rollmax", "rollmaxr", "rollmaxl",
+  "rollmedian", "rollmedianr", "rollmedianl",
+  "rollapply", "rollapplyr", "rollapplyl",
+  "frollmean", "frollsum", "frollapply", "frollmax", "frollmin"
+)
+
+# Fetch a call argument by name (preferred) or by positional index among the
+# unnamed arguments. `pos = NULL` restricts the lookup to a named match.
+.rh_get <- function(call, name, pos) {
+  args <- as.list(call)[-1L]
+  if (length(args) == 0L) return(NULL)
+  nms <- names(args)
+  if (!is.null(nms) && any(nzchar(nms)) && name %in% nms[nzchar(nms)]) {
+    return(args[[which(nms == name)[1L]]])
+  }
+  if (is.null(pos)) return(NULL)
+  unnamed <- if (is.null(nms)) seq_along(args) else which(!nzchar(nms))
+  if (length(unnamed) >= pos) return(args[[unnamed[pos]]])
+  NULL
+}
+
+# Resolve a count/window argument to a numeric. NULL -> `default`; a numeric
+# literal or evaluable constant -> its value; anything undeterminable -> Inf
+# (so the caller falls back to the full series, never under-reads).
+.rh_count <- function(x, default) {
+  if (is.null(x)) return(default)
+  if (is.numeric(x) && length(x) == 1L) return(as.numeric(x))
+  v <- tryCatch(eval(x, baseenv()), error = function(e) NULL)
+  if (is.numeric(v) && length(v) == 1L) return(as.numeric(v))
+  Inf
+}
+
+# Backward reach of a rolling window given the function name and an optional
+# explicit `align` argument (zoo `*r` = right, `*l` = left, bare = center;
+# data.table `froll*` = right by default).
+.rh_alignment <- function(fname, align_arg, is_f) {
+  if (is.character(align_arg) && length(align_arg) == 1L && nzchar(align_arg)) {
+    a <- substr(align_arg, 1L, 1L)
+    if (a == "r") return("right")
+    if (a == "l") return("left")
+    if (a == "c") return("center")
+  }
+  if (is_f) return("right")
+  if (endsWith(fname, "r")) return("right")
+  if (endsWith(fname, "l")) return("left")
+  "center"
+}
+
+# Max required history over a non-time-series call's arguments (head dropped).
+.rh_max_args <- function(expr) {
+  parts <- as.list(expr)[-1L]
+  if (length(parts) == 0L) return(0)
+  max(vapply(parts, .req_hist_expr, numeric(1)))
+}
+
+# Required history (rows strictly before t) for one language object. See
+# .required_history() for the composition rules.
+.req_hist_expr <- function(expr) {
+  if (!is.call(expr)) return(0)                 # symbol or literal
+  fname <- .pt_call_name(expr)
+  if (is.na(fname)) return(.rh_max_args(expr))
+
+  if (fname %in% .rh_cum_fns) return(Inf)
+
+  if (fname %in% c("lag", "shift")) {
+    inner <- expr[[2L]]
+    if (fname == "shift") {
+      type <- .rh_get(expr, "type", NULL)
+      if (is.character(type) && identical(as.character(type), "lead")) {
+        return(.req_hist_expr(inner))
+      }
+    }
+    n <- .rh_count(.rh_get(expr, "n", 2L), default = 1)
+    return(n + .req_hist_expr(inner))
+  }
+
+  if (fname %in% c("lead", "lead_horizon")) {
+    return(.req_hist_expr(expr[[2L]]))
+  }
+
+  if (fname == "diff") {
+    inner <- expr[[2L]]
+    lag_n <- .rh_count(.rh_get(expr, "lag", 2L), default = 1)
+    dif_n <- .rh_count(.rh_get(expr, "differences", 3L), default = 1)
+    return(lag_n * dif_n + .req_hist_expr(inner))
+  }
+
+  if (fname %in% .rh_roll_fns) {
+    inner <- expr[[2L]]
+    is_f  <- startsWith(fname, "froll")
+    wname <- if (grepl("apply", fname)) "width" else if (is_f) "n" else "k"
+    k <- .rh_count(.rh_get(expr, wname, 2L), default = NA_real_)
+    if (!is.finite(k)) return(Inf)
+    align <- .rh_alignment(fname, .rh_get(expr, "align", NULL), is_f)
+    back <- switch(align, right = k - 1, center = floor(k / 2), left = 0)
+    return(back + .req_hist_expr(inner))
+  }
+
+  .rh_max_args(expr)
+}
+
+#' Compute the history depth a formula's RHS needs before time `t`
+#'
+#' Walks the right-hand-side AST and composes nested time-series depths so that
+#' materialising the RHS over the `need` rows ending at `t` reproduces the value
+#' it would take over the full per-unit series. Unlike [.max_lag_depth()] (which
+#' takes the maximum of individual depths), nested transforms are summed, so
+#' `lag(lag(x))` needs 2 and `lag(rollmeanr(x, 5), 2)` needs 6.
+#'
+#' Composition rules:
+#' \itemize{
+#'   \item `lag(expr, n)` / `shift(expr, n)` -> `n + required(expr)` (default
+#'     `n = 1`; `shift(type = "lead")` is forward, contributing only
+#'     `required(expr)`).
+#'   \item `lead(expr, n)` / `lead_horizon(expr, h)` -> `required(expr)`.
+#'   \item `diff(expr, lag, differences)` -> `lag * differences + required(expr)`
+#'     (defaults `1, 1`).
+#'   \item rolling (`roll*`, `froll*`) -> `required(expr)` plus the window's
+#'     backward reach (right: `k - 1`, center: `floor(k / 2)`, left: `0`).
+#'     Alignment defaults follow the function name and an explicit `align`
+#'     argument overrides it.
+#'   \item `cumsum`/`cumprod`/`cummax`/`cummin` and the `*_since_event` helpers
+#'     depend on the entire prior series -> `Inf`.
+#'   \item any other call -> max over its arguments; symbols/literals -> `0`.
+#' }
+#'
+#' An undeterminable lag count or rolling window yields `Inf` (use the full
+#' series), which never under-reads.
+#'
+#' @param formula An R formula (its RHS is walked) or a language object.
+#' @return A non-negative numeric scalar, possibly `Inf`.
+#' @keywords internal
+.required_history <- function(formula) {
+  expr <- if (inherits(formula, "formula")) rlang::f_rhs(formula) else formula
+  .req_hist_expr(expr)
+}
+
+# Subset `data` to the per-unit history window ending at time `t` that
+# .required_history() reports the RHS needs. A finite `need` keeps the rows in
+# `(t - need, t]` (floored so at least the `(t - 1, t]` window survives); an
+# infinite `need` keeps the entire per-unit history up to `t`.
+.history_subset <- function(data, idx, t, need) {
+  # Build the row index outside the data.table scope so a time column literally
+  # named like an argument (e.g. `t`) cannot shadow it.
+  tcol <- data[[idx]]
+  keep <- if (is.finite(need)) {
+    need <- max(need, 1)
+    tcol <= t & tcol > (t - need - 1)
+  } else {
+    tcol <= t
+  }
+  data[keep]
+}
+
 #' Gives you the independent model types
 #'
 #' @return Character vector of model-type names that are independent of the

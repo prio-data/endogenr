@@ -4,7 +4,7 @@
 \alias{getpi_glm}
 \title{Get the predictive distribution from a GLM}
 \usage{
-getpi_glm(glmpred, family, df, nsamples = 1)
+getpi_glm(glmpred, family, df, dispersion = 1, nsamples = 1)
 }
 \arguments{
 \item{glmpred}{prediction object from predict.glm with se.fit = TRUE and type = "link"}
@@ -13,13 +13,20 @@ getpi_glm(glmpred, family, df, nsamples = 1)
 
 \item{df}{residual degrees of freedom}
 
+\item{dispersion}{Estimated response-scale dispersion (1 for poisson/binomial).}
+
 \item{nsamples}{Integer. Number of draws from the predictive distribution.}
 }
 \value{
 A numeric vector (or matrix if \code{nsamples > 1}) of samples on the response scale.
 }
 \description{
-Samples nsamples points from the predictive distribution on the response scale.
-Sampling is done on the link scale and then transformed via the inverse link function.
+Samples \code{nsamples} points from the predictive distribution on the response
+scale. Parameter uncertainty enters on the link scale (a t-distributed draw
+around the linear predictor using \code{se.fit}); the response is then sampled
+from the family's distribution at the resulting mean, using the estimated
+\code{dispersion}. This restores \code{lm} parity for gaussian GLMs (link draw +
+residual scale) and yields realistic counts/positive/proportion draws for
+the other supported families.
 }
 \keyword{internal}

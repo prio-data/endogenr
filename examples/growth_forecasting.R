@@ -52,7 +52,7 @@ sys <- setup_system(
 start <- Sys.time()
 future::plan(future::multisession, workers = 8)
 set.seed(42)
-fit <- fit_system(sys, nsim = 128)
+fit <- fit_system(sys, nsim = 32, window = "rolling")
 future::plan(future::sequential)
 Sys.time() - start
 

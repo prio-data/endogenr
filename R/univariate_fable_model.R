@@ -47,7 +47,9 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
   grp <- ctx_unit(ctx)
   idx <- ctx_time(ctx)
   if (!inherits(data, "tbl_ts")) {
-    ts_data <- tsibble::as_tsibble(as.data.frame(data), key = grp, index = idx)
+    ts_data <- tsibble::as_tsibble(as.data.frame(data),
+                                   key = !!rlang::sym(grp),
+                                   index = !!rlang::sym(idx))
   } else {
     ts_data <- data
   }
@@ -69,8 +71,17 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
 
 #' Predict univariate fable model
 #'
-#' Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
-#' separately, you should use fable directly!
+#' Generates predictions from a univariate_fable endogenmodel. Only use in
+#' dynamic simulation. If you want to use separately, you should use fable
+#' directly!
+#'
+#' Sample paths are drawn with [fabletools::generate()], which simulates the
+#' fitted ETS/ARIMA forward step by step with correlated innovations. Each
+#' returned `(unit, sim)` series is therefore one internally-coherent
+#' trajectory whose temporal structure (trend persistence, autocorrelation) is
+#' preserved — unlike stitching independent per-horizon draws from the marginal
+#' [fabletools::forecast()] distributions, which destroys that structure and
+#' then feeds an incoherent path into the endogenous equations via `lag()`.
 #'
 #' @param model a univariate_fable endogenmodel
 #' @param data A data.table (the simulation grid).
@@ -86,16 +97,21 @@ univariate_fable_model <- function(formula = NULL, data = NULL, method = "arima"
 predict.univariate_fable <- function(model, data, ctx, test_start, horizon, inner_sims, ...) {
   grp <- ctx_unit(ctx)
   idx <- ctx_time(ctx)
+  sim_col <- if (is.null(ctx$sim)) "sim" else ctx$sim
 
-  forecast <- model$fitted |>
-    fabletools::forecast(h = paste(horizon, "years")) |>
-    dplyr::mutate(samples = distributional::generate(!!rlang::sym(model$outcome), inner_sims)) |>
+  # Coherent sample paths: simulate `inner_sims` forward trajectories from the
+  # fitted mable. `.rep` (the path id, "1".."inner_sims") becomes `sim`; `.sim`
+  # (the simulated value) becomes the outcome column.
+  sims <- fabletools::generate(model$fitted, h = horizon, times = inner_sims)
+
+  forecast <- sims |>
     dplyr::as_tibble() |>
-    dplyr::select(dplyr::all_of(c(grp, idx, "samples"))) |>
-    tidyr::unnest(samples) |>
-    dplyr::mutate(sim = rep(1:inner_sims, dplyr::n() / inner_sims)) |>
-    dplyr::rename(!!rlang::sym(model$outcome) := "samples")
+    dplyr::transmute(
+      !!rlang::sym(grp)           := .data[[grp]],
+      !!rlang::sym(idx)           := .data[[idx]],
+      !!rlang::sym(sim_col)       := as.integer(.data[[".rep"]]),
+      !!rlang::sym(model$outcome) := .data[[".sim"]]
+    )
 
-  # Return as data.table
   data.table::as.data.table(forecast)
 }

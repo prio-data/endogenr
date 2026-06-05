@@ -92,32 +92,117 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, da
   model$gof <- broom::glance(model$fitted)
 
   model$outcome <- parse_formula(model)$outcome
-  model$max_history <- .max_lag_depth(model$formula)
-  if (model$max_history < 1L) model$max_history <- 1L
+  model$required_history <- .required_history(model$formula)
+  # Response-scale dispersion (estimated for gaussian/Gamma/quasi-* families;
+  # fixed at 1 for poisson/binomial). Cached so getpi_glm() need not call the
+  # expensive summary() on every predict step.
+  model$dispersion <- summary(model$fitted)$dispersion
 
   return(model)
 }
 
+# Family-specific response-scale draw given the fitted mean(s) `mu` and the
+# estimated `dispersion`. Returns a numeric vector the same length as `mu`.
+# `family` is the glm family name string. Unsupported families return `mu`
+# unchanged (parameter-uncertainty only) and warn once per session.
+.glm_response_draw <- function(mu, family, dispersion) {
+  n <- length(mu)
+  switch(family,
+    "gaussian" = stats::rnorm(n, mean = mu, sd = sqrt(max(dispersion, 0))),
+    "poisson"  = stats::rpois(n, lambda = pmax(mu, 0)),
+    "quasipoisson"  = .glm_draw_qpois(mu, dispersion),
+    "Gamma"         = .glm_draw_gamma(mu, dispersion),
+    "binomial"      = .glm_draw_prop(mu, dispersion),
+    "quasibinomial" = .glm_draw_prop(mu, dispersion),
+    {
+      .glm_warn_unsupported(family)
+      mu
+    }
+  )
+}
+
+# Quasi-Poisson: overdispersed counts via a negative-binomial approximation
+# with mean `mu` and variance `dispersion * mu` (size = mu / (dispersion - 1)).
+# Falls back to Poisson when there is no overdispersion.
+.glm_draw_qpois <- function(mu, dispersion) {
+  mu <- pmax(mu, 0)
+  if (!is.finite(dispersion) || dispersion <= 1) {
+    return(stats::rpois(length(mu), mu))
+  }
+  out <- numeric(length(mu))
+  pos <- mu > 0
+  if (any(pos)) {
+    out[pos] <- stats::rnbinom(sum(pos), size = mu[pos] / (dispersion - 1),
+                               mu = mu[pos])
+  }
+  out
+}
+
+# Gamma: mean `mu`, variance `dispersion * mu^2` via shape = 1/dispersion,
+# scale = mu * dispersion.
+.glm_draw_gamma <- function(mu, dispersion) {
+  mu <- pmax(mu, .Machine$double.eps)
+  if (!is.finite(dispersion) || dispersion <= 0) return(mu)
+  stats::rgamma(length(mu), shape = 1 / dispersion, scale = mu * dispersion)
+}
+
+# Binomial / quasibinomial PROPORTION outcomes (no trial count in the grid):
+# draw from a Beta with mean `mu` and precision derived from `dispersion`. The
+# Beta variance is capped at the Bernoulli value mu(1 - mu); overdispersion
+# beyond that (quasibinomial dispersion > 1) cannot be represented without a
+# trial count, so it collapses to ~Bernoulli draws. See the "Known issues"
+# section of ?endogenr for the proportion assumption this encodes.
+.glm_draw_prop <- function(mu, dispersion) {
+  mu <- pmin(pmax(mu, 0), 1)
+  phi <- if (is.finite(dispersion) && dispersion > 0) {
+    max(1 / dispersion - 1, 1e-6)
+  } else 1e-6
+  a <- pmax(mu * phi, 1e-9)
+  b <- pmax((1 - mu) * phi, 1e-9)
+  out <- stats::rbeta(length(mu), shape1 = a, shape2 = b)
+  out[mu <= 0] <- 0
+  out[mu >= 1] <- 1
+  out
+}
+
+# One-time-per-session warning for families with no response-scale sampler.
+.glm_warn_unsupported <- function(family) {
+  key <- paste0(".endogenr_glm_warned_", family)
+  if (!isTRUE(getOption(key))) {
+    warning("GLM family '", family, "' has no response-scale predictive draw; ",
+            "falling back to a link-scale (parameter-uncertainty-only) draw, ",
+            "which under-disperses. ", call. = FALSE)
+    do.call(options, stats::setNames(list(TRUE), key))
+  }
+  invisible(NULL)
+}
+
 #' Get the predictive distribution from a GLM
 #'
-#' Samples nsamples points from the predictive distribution on the response scale.
-#' Sampling is done on the link scale and then transformed via the inverse link function.
+#' Samples `nsamples` points from the predictive distribution on the response
+#' scale. Parameter uncertainty enters on the link scale (a t-distributed draw
+#' around the linear predictor using `se.fit`); the response is then sampled
+#' from the family's distribution at the resulting mean, using the estimated
+#' `dispersion`. This restores `lm` parity for gaussian GLMs (link draw +
+#' residual scale) and yields realistic counts/positive/proportion draws for
+#' the other supported families.
 #'
 #' @param glmpred prediction object from predict.glm with se.fit = TRUE and type = "link"
 #' @param family a family object
 #' @param df residual degrees of freedom
+#' @param dispersion Estimated response-scale dispersion (1 for poisson/binomial).
 #' @param nsamples Integer. Number of draws from the predictive distribution.
 #'
 #' @return A numeric vector (or matrix if `nsamples > 1`) of samples on the response scale.
 #' @keywords internal
-getpi_glm <- function(glmpred, family, df, nsamples = 1){
-  # Sample on the link scale using t-distribution, then apply inverse link
-  eta_samples <- glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
-  pi <- family$linkinv(eta_samples)
-  if(nsamples == 1){
-    pi <- as.vector(pi)
-  }
-  return(pi)
+getpi_glm <- function(glmpred, family, df, dispersion = 1, nsamples = 1){
+  # Parameter uncertainty: draw the linear predictor on the link scale, then
+  # map to the conditional mean.
+  eta <- glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
+  mu  <- family$linkinv(eta)
+  # Response-scale draw at each mean (adds the family's predictive dispersion).
+  draw <- .glm_response_draw(as.vector(mu), family$family, dispersion)
+  if (nsamples == 1) draw else matrix(draw, nrow = nrow(mu))
 }
 
 #' Predict function for a GLM model
@@ -136,10 +221,9 @@ predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)
   grp <- ctx_unit(ctx)
   all_keys <- ctx_keys(ctx)
-  max_history <- model$max_history
 
-  # Subset to relevant history window
-  data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
+  # Subset to the per-unit history window the RHS actually needs
+  data <- .history_subset(data, idx, t, model$required_history)
 
   # Materialize formula (use cached helpers to skip update/inject/clean_names)
   data <- materialize_formula(model$formula, data, ctx,
@@ -159,7 +243,9 @@ predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   if (what == "expectation") {
     data.table::set(result, j = model$outcome, value = model$family$linkinv(pred$fit))
   } else if (what == "pi") {
-    data.table::set(result, j = model$outcome, value = getpi_glm(pred, model$family, model$fitted$df.residual))
+    data.table::set(result, j = model$outcome,
+                    value = getpi_glm(pred, model$family, model$fitted$df.residual,
+                                      dispersion = model$dispersion))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

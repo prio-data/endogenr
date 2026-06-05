@@ -109,9 +109,8 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
   model$fitted <- do.call(heterolm::hetero, fit_args)
 
   model$outcome <- outcome_name
-  model$max_history <- max(.max_lag_depth(model$formula),
-                           .max_lag_depth(model$variance_formula))
-  if (model$max_history < 1L) model$max_history <- 1L
+  model$required_history <- max(.required_history(model$formula),
+                                .required_history(model$variance_formula))
 
   class(model) <- c("heterolm", class(model))
   return(model)
@@ -136,10 +135,9 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
 predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   idx <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
-  max_history <- model$max_history
 
-  # Subset to relevant history window
-  data <- data[data[[idx]] <= t & data[[idx]] > (t - max_history - 1)]
+  # Subset to the per-unit history window the mean/variance RHS actually needs
+  data <- .history_subset(data, idx, t, model$required_history)
 
   # Materialize combined formula (use cached helpers to skip update/inject/clean_names)
   data <- materialize_formula(model$combined_formula, data, ctx,

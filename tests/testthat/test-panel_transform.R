@@ -71,6 +71,39 @@ test_that(".apply_ts_map with an empty map returns a keyed copy", {
   expect_equal(names(out), c("g", "t", "x"))
 })
 
+test_that(".apply_ts_map evaluates rolling windows per unit, time-ordered", {
+  dt <- data.table::data.table(
+    g = c(1, 1, 1, 1, 2, 2, 2, 2),
+    t = c(4, 2, 1, 3, 1, 3, 2, 4),               # shuffled within unit
+    x = c(40, 20, 10, 30, 100, 300, 200, 400)
+  )
+  map <- list(.pt1 = quote(zoo::rollsumr(x, k = 2, fill = NA)))
+  out <- .apply_ts_map(map, dt, "g", "t", environment())
+
+  # right-aligned 2-window: first row NA, then sum of the current + prior row
+  # WITHIN unit (sorted by t), never spanning the unit boundary.
+  expect_true(is.na(out[g == 1 & t == 1, .pt1]))
+  expect_equal(out[g == 1 & t == 2, .pt1], 30)    # 10 + 20
+  expect_equal(out[g == 1 & t == 3, .pt1], 50)    # 20 + 30
+  expect_true(is.na(out[g == 2 & t == 1, .pt1]))  # no bleed from unit 1's tail
+  expect_equal(out[g == 2 & t == 2, .pt1], 300)   # 100 + 200
+})
+
+test_that(".apply_ts_map evaluates decay_since_event per unit", {
+  dt <- data.table::data.table(
+    g = c(1, 1, 1, 2, 2, 2),
+    t = c(1, 2, 3, 1, 2, 3),
+    e = c(1, 0, 0, 0, 1, 0)                        # event at (1,t1) and (2,t2)
+  )
+  map <- list(.pt1 = quote(decay_since_event(e, lambda = 0.5, max_years = 50)))
+  out <- .apply_ts_map(map, dt, "g", "t", environment())
+  # value = 1 at the event, decaying after; computed within unit, in time order
+  expect_equal(out[g == 1 & t == 1, .pt1], 1)
+  expect_equal(out[g == 1 & t == 2, .pt1], exp(-0.5))
+  expect_equal(out[g == 2 & t == 2, .pt1], 1)      # unit 2's event, not unit 1's
+  expect_equal(out[g == 2 & t == 3, .pt1], exp(-0.5))
+})
+
 # ── panel_materialize ──────────────────────────────────────────────────────
 
 test_that("panel_materialize rewrites both sides and materialises ts columns", {
