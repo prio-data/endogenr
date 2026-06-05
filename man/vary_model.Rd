@@ -53,6 +53,7 @@ names(systems)
 
 Other experiments:
 \code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}},
-\code{\link[=run_experiments]{run_experiments()}}
+\code{\link[=run_experiments]{run_experiments()}},
+\code{\link[=window_config]{window_config()}}
 }
 \concept{experiments}

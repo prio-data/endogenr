@@ -15,6 +15,7 @@ run_experiments(
   inner_sims,
   nsim = 1L,
   min_window = NULL,
+  windows = NULL,
   globals = NULL,
   parallel = c("experiments", "draws"),
   keep_fits = FALSE
@@ -43,6 +44,11 @@ build the named list by swapping individual specs.}
 \item{min_window}{Integer or \code{NULL}. Random-window refitting; see
 \code{\link[=setup_system]{setup_system()}}.}
 
+\item{windows}{Either \code{NULL} (default; random window, latest policy),
+a single \code{\link[=window_config]{window_config()}} applied to every experiment, or a named list
+of \code{\link[=window_config]{window_config()}} objects that is crossed as a fourth grid axis. The
+config name appears as the \code{window_cfg} column.}
+
 \item{globals}{Named list of user functions referenced by formulas, exported
 to parallel workers; see \code{\link[=setup_system]{setup_system()}}.}
 
@@ -58,9 +64,9 @@ result lean.}
 \value{
 A \code{data.table} stacking every experiment's \code{\link[=simulate_system]{simulate_system()}}
 output, with leading columns \code{.experiment}, \code{model}, \code{train_start},
-\code{test_start} and the usual simulation columns plus \code{.sim}. Carries
-\code{panel_unit}, \code{panel_time}, and \code{experiments} attributes (and \code{fits} when
-\code{keep_fits = TRUE}).
+\code{test_start}, \code{window_cfg} and the usual simulation columns plus \code{.sim}.
+Carries \code{panel_unit}, \code{panel_time}, and \code{experiments} attributes (and
+\code{fits} when \code{keep_fits = TRUE}).
 }
 \description{
 Runs the \code{\link[=setup_system]{setup_system()}} -> \code{\link[=fit_system]{fit_system()}} -> \code{\link[=simulate_system]{simulate_system()}} pipeline
@@ -72,17 +78,18 @@ attributes as \code{\link[=simulate_system]{simulate_system()}}, so it plugs dir
 \code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}} and \code{\link[=plotsim]{plotsim()}}.
 }
 \details{
-The experiment grid is the Cartesian product of three axes: the model systems
-(\code{models}), \code{train_start}, and \code{test_start}. An axis with a single value does
-not expand. \code{horizon}, \code{inner_sims}, \code{min_window}, and \code{nsim} are shared
-across every experiment.
+The experiment grid is the Cartesian product of up to four axes: the model
+systems (\code{models}), \code{train_start}, \code{test_start}, and optionally \code{windows}
+(see \code{\link[=window_config]{window_config()}}). An axis with a single value does not expand.
+\code{horizon}, \code{inner_sims}, \code{min_window}, and \code{nsim} are shared across every
+experiment.
 
-Each experiment is stamped with four leading columns: \code{.experiment} (a unique
-label built only from the axes that vary), \code{model} (the system name),
-\code{train_start}, and \code{test_start}. The result also carries an \code{experiments}
-attribute (a metadata \code{data.table}) recording the configuration of every
-experiment, which \code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}} uses to recover each
-experiment's \code{test_start}.
+Each experiment is stamped with five leading columns: \code{.experiment} (a unique
+label built only from the axes that vary), \code{model}, \code{train_start},
+\code{test_start}, and \code{window_cfg} (the name of the window configuration used).
+The result also carries an \code{experiments} attribute (a metadata \code{data.table})
+recording the configuration of every experiment, which
+\code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}} uses to recover per-experiment metadata.
 }
 \section{Parallelism}{
 
@@ -136,11 +143,12 @@ acc <- get_experiment_accuracy(res, "gdppc", df)
 }
 }
 \seealso{
-\code{\link[=vary_model]{vary_model()}}, \code{\link[=setup_system]{setup_system()}}, \code{\link[=fit_system]{fit_system()}},
+\code{\link[=vary_model]{vary_model()}}, \code{\link[=window_config]{window_config()}}, \code{\link[=setup_system]{setup_system()}}, \code{\link[=fit_system]{fit_system()}},
 \code{\link[=simulate_system]{simulate_system()}}, \code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}}
 
 Other experiments:
 \code{\link[=get_experiment_accuracy]{get_experiment_accuracy()}},
-\code{\link[=vary_model]{vary_model()}}
+\code{\link[=vary_model]{vary_model()}},
+\code{\link[=window_config]{window_config()}}
 }
 \concept{experiments}

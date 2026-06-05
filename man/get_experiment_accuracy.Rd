@@ -31,8 +31,9 @@ scoring; see \code{\link[=get_accuracy]{get_accuracy()}}.}
 }
 \value{
 A \code{data.table} with leading columns \code{.experiment} and any present
-axis columns (\code{model}, \code{train_start}, \code{test_start}), the \code{by} columns, and
-\code{crps}, \code{mae}, \code{winkler} — one block of rows per experiment.
+axis columns (\code{model}, \code{train_start}, \code{test_start}, \code{window_cfg}), the
+\code{by} columns, and \code{crps}, \code{mae}, \code{winkler} — one block of rows per
+experiment.
 }
 \description{
 Computes CRPS, MAE, and Winkler scores for every experiment in a
@@ -51,6 +52,7 @@ before scoring, so the reported horizons start at 1.
 
 Other experiments:
 \code{\link[=run_experiments]{run_experiments()}},
-\code{\link[=vary_model]{vary_model()}}
+\code{\link[=vary_model]{vary_model()}},
+\code{\link[=window_config]{window_config()}}
 }
 \concept{experiments}

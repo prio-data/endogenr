@@ -1,5 +1,18 @@
 # endogenr 0.1.0.9000
 
+## New features
+
+* **`run_experiments()` gains a `windows` axis via the new `window_config()`
+  constructor.** The fit-side window approach (`"random"`, `"rolling"`,
+  `"expanding"` plus `width` and `step`) and the sim-side window policy
+  (`"latest"`, `"equal"`, `"decay"`, or custom `weights`) are now first-class
+  experiment variations. Pass a single `window_config()` to apply it uniformly,
+  or a named list to cross window approach as a fourth grid axis alongside
+  `models`, `train_start`, and `test_start`. Results carry a `window_cfg`
+  column and the `experiments` attribute now includes `window_cfg`, `window`,
+  and `window_policy` columns. The default (`windows = NULL`) reproduces
+  historical behaviour exactly (random windows, latest policy).
+
 ## Bug fixes
 
 * **`poly(dem, 2)` and other data-dependent design bases now work inside panel

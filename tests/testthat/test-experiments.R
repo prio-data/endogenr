@@ -294,3 +294,185 @@ test_that("parallel = 'experiments' exports user globals for formula NSE", {
   expect_setequal(unique(res$.experiment), "e1")
   expect_true(any(!is.na(res[year >= 2010, y])))
 })
+
+# ── window_config constructor ────────────────────────────────────────────────
+
+test_that("window_config() creates a valid endogenr_window with correct fields", {
+  wc <- window_config()
+  expect_s3_class(wc, "endogenr_window")
+  expect_equal(wc$window, "random")
+  expect_null(wc$width)
+  expect_equal(wc$step, 1L)
+  expect_equal(wc$window_policy, "latest")
+  expect_equal(wc$decay, 0.5)
+  expect_null(wc$weights)
+
+  # Rolling config captures all fields
+  wc2 <- window_config("rolling", width = 10L, step = 2L,
+                        window_policy = "decay", decay = 0.8)
+  expect_equal(wc2$window, "rolling")
+  expect_equal(wc2$width, 10L)
+  expect_equal(wc2$step, 2L)
+  expect_equal(wc2$window_policy, "decay")
+  expect_equal(wc2$decay, 0.8)
+})
+
+test_that("window_config() validates arguments", {
+  # Bad window enum
+  expect_error(window_config("sliding"), "should be one of")
+  # Bad window_policy enum
+  expect_error(window_config(window_policy = "newest"), "should be one of")
+  # Non-positive step
+  expect_error(window_config(step = 0L), "positive integer")
+  # Non-positive width
+  expect_error(window_config("rolling", width = 0L), "positive integer")
+  # decay out of range
+  expect_error(window_config(decay = 1.5), "\\(0, 1\\]")
+  expect_error(window_config(decay = 0), "\\(0, 1\\]")
+  # bad weights type
+  expect_error(window_config(weights = "bad"), "function")
+})
+
+test_that("window_config() warns when random + non-default policy", {
+  expect_warning(window_config(window = "random", window_policy = "equal"),
+                 "ignored")
+  expect_warning(window_config(window = "random", weights = matrix(1, 1, 1)),
+                 "ignored")
+  # no warning for random + latest (the default)
+  expect_no_warning(window_config(window = "random", window_policy = "latest"))
+})
+
+# ── run_experiments: windows axis ───────────────────────────────────────────
+
+test_that("run_experiments windows axis: 2 configs produce labelled experiments with correct fit_mode", {
+  dt <- make_exp_data()
+  future::plan(future::sequential)
+
+  set.seed(42)
+  res <- run_experiments(
+    data = dt, models = base_system(),
+    train_start = 2000, test_start = 2010, horizon = 3,
+    groupvar = "gwcode", timevar = "year",
+    inner_sims = 2, nsim = 2, min_window = 5, parallel = "draws",
+    windows = list(
+      rand = window_config(),
+      roll = window_config("rolling", width = 5, step = 2)
+    ),
+    keep_fits = TRUE
+  )
+
+  expect_s3_class(res, "data.table")
+  # Both window labels present
+  expect_setequal(unique(res$window_cfg), c("rand", "roll"))
+  # Experiments named by window (single model, single test_start)
+  expect_setequal(unique(res$.experiment), c("rand", "roll"))
+  # window_cfg is the 5th leading column
+  expect_equal(names(res)[5], "window_cfg")
+  # experiments metadata carries window columns
+  meta <- attr(res, "experiments")
+  expect_true(all(c("window_cfg", "window", "window_policy") %in% names(meta)))
+  expect_setequal(meta$window_cfg, c("rand", "roll"))
+  expect_setequal(meta$window, c("random", "rolling"))
+
+  # fits reflect the correct fit_mode
+  fits <- attr(res, "fits")
+  expect_equal(fits$rand$fit_mode, "random")
+  expect_equal(fits$roll$fit_mode, "sliding")
+  expect_equal(fits$roll$window, "rolling")
+})
+
+test_that("run_experiments crosses models x windows (Cartesian)", {
+  dt <- make_exp_data()
+  future::plan(future::sequential)
+  systems <- vary_model(base_system(), list(
+    e1 = build_model("linear", formula = y ~ lag(x), boot = "resid"),
+    e2 = build_model("linear", formula = y ~ lag(x) + lag(y), boot = "resid")
+  ))
+
+  set.seed(7)
+  res <- run_experiments(
+    data = dt, models = systems,
+    train_start = 2000, test_start = 2010, horizon = 2,
+    groupvar = "gwcode", timevar = "year",
+    inner_sims = 1, nsim = 1, min_window = 5, parallel = "draws",
+    windows = list(
+      rand = window_config(),
+      roll = window_config("rolling", width = 5)
+    )
+  )
+
+  meta <- attr(res, "experiments")
+  expect_equal(nrow(meta), 4L)  # 2 models x 2 windows
+  expect_setequal(unique(res$.experiment),
+                  c("e1_rand", "e1_roll", "e2_rand", "e2_roll"))
+})
+
+test_that("single window config applies uniformly without adding a label component", {
+  dt <- make_exp_data()
+  future::plan(future::sequential)
+
+  set.seed(42)
+  res <- run_experiments(
+    data = dt, models = base_system(),
+    train_start = 2000, test_start = 2010, horizon = 2,
+    groupvar = "gwcode", timevar = "year",
+    inner_sims = 2, nsim = 2, min_window = 5, parallel = "draws",
+    windows = window_config("expanding"),
+    keep_fits = TRUE
+  )
+
+  # Only 1 window config → label doesn't include window component
+  expect_equal(unique(res$.experiment), "model1")
+  # fit_mode is sliding (expanding)
+  fits <- attr(res, "fits")
+  expect_equal(fits$model1$fit_mode, "sliding")
+  expect_equal(fits$model1$window, "expanding")
+})
+
+test_that("default windows = NULL reproduces existing manual-pipeline behaviour", {
+  # This mirrors 'single-experiment draws run equals manual pipeline' but now
+  # with windows = NULL (default), confirming backward compatibility.
+  dt <- make_exp_data()
+  future::plan(future::sequential)
+
+  setup <- setup_system(
+    models = base_system(), data = dt,
+    train_start = 2000, test_start = 2010, horizon = 3,
+    groupvar = "gwcode", timevar = "year", inner_sims = 2, min_window = 5
+  )
+  set.seed(99)
+  manual <- simulate_system(fit_system(setup, nsim = 3))
+
+  set.seed(99)
+  res <- run_experiments(
+    data = dt, models = base_system(),
+    train_start = 2000, test_start = 2010, horizon = 3,
+    groupvar = "gwcode", timevar = "year",
+    inner_sims = 2, nsim = 3, min_window = 5, parallel = "draws"
+    # windows = NULL by default
+  )
+  expect_equal(res$y, manual$y)
+  expect_equal(res$.sim, manual$.sim)
+})
+
+test_that("get_experiment_accuracy carries window_cfg column through", {
+  dt <- make_exp_data()
+  future::plan(future::sequential)
+
+  set.seed(42)
+  res <- run_experiments(
+    data = dt, models = base_system(),
+    train_start = 2000, test_start = 2010, horizon = 3,
+    groupvar = "gwcode", timevar = "year",
+    inner_sims = 3, nsim = 2, min_window = 5, parallel = "draws",
+    windows = list(
+      rand = window_config(),
+      roll = window_config("rolling", width = 5)
+    )
+  )
+
+  acc <- get_experiment_accuracy(res, "y", dt)
+  expect_true("window_cfg" %in% names(acc))
+  expect_setequal(unique(acc$window_cfg), c("rand", "roll"))
+  expect_true(all(is.finite(acc$crps)))
+})

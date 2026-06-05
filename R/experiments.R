@@ -52,14 +52,125 @@
   .auto_name(models, "model")
 }
 
+#' Build a window configuration for `run_experiments()`
+#'
+#' Creates a lightweight configuration object bundling the fit-side window
+#' approach (passed to [fit_system()]) and the sim-side window policy (passed to
+#' [simulate_system()]). Pass a single config to apply it uniformly across all
+#' experiments, or a **named list** of configs to [run_experiments()] to cross
+#' window approach as a fourth grid axis alongside `models`, `train_start`, and
+#' `test_start`.
+#'
+#' @param window One of `"random"` (default, historical behaviour),
+#'   `"rolling"` (fixed-width sliding window), or `"expanding"` (expanding
+#'   window from `train_start`). Passed to [fit_system()].
+#' @param width Integer or `NULL`. Rolling-window length; only used when
+#'   `window = "rolling"`. Defaults to `min_window` (or 10) inside
+#'   [fit_system()].
+#' @param step Positive integer. Spacing between window-end anchors for sliding
+#'   modes. Default `1L`. Ignored for `"random"`.
+#' @param window_policy One of `"latest"` (default), `"equal"`, or `"decay"`.
+#'   Controls which training window drives each forecast step in sliding modes;
+#'   ignored for `"random"`. Passed to [simulate_system()].
+#' @param decay Numeric in `(0, 1]`. Per-step recency retention for
+#'   `window_policy = "decay"` at horizon 1. Default `0.5`.
+#' @param weights Optional custom window weights overriding `window_policy`: a
+#'   `function(h, age)` or a `horizon x n_window` matrix. Ignored for
+#'   `"random"`.
+#'
+#' @return An `endogenr_window` object (a list with six fields).
+#' @seealso [run_experiments()], [fit_system()], [simulate_system()]
+#' @family experiments
+#' @export
+#'
+#' @examples
+#' # Default: random windows, latest policy (historical behaviour)
+#' window_config()
+#'
+#' # Rolling window with decay policy
+#' window_config("rolling", width = 15, step = 2,
+#'               window_policy = "decay", decay = 0.7)
+#'
+#' # Named list as a grid axis in run_experiments()
+#' \dontrun{
+#' run_experiments(
+#'   data = df, models = my_system,
+#'   train_start = 1970, test_start = 2010, horizon = 10,
+#'   groupvar = "gwcode", timevar = "year",
+#'   inner_sims = 10, nsim = 20, min_window = 20,
+#'   windows = list(
+#'     rand = window_config(),
+#'     roll = window_config("rolling", width = 20, window_policy = "latest")
+#'   )
+#' )
+#' }
+window_config <- function(window = c("random", "rolling", "expanding"),
+                          width = NULL, step = 1L,
+                          window_policy = c("latest", "equal", "decay"),
+                          decay = 0.5, weights = NULL) {
+  window        <- match.arg(window)
+  window_policy <- match.arg(window_policy)
+  step <- as.integer(step)
+  if (is.na(step) || step < 1L) {
+    stop("`step` must be a positive integer.", call. = FALSE)
+  }
+  if (!is.null(width)) {
+    width <- as.integer(width)
+    if (is.na(width) || width < 1L) {
+      stop("`width` must be a positive integer.", call. = FALSE)
+    }
+  }
+  if (!is.numeric(decay) || length(decay) != 1L || is.na(decay) ||
+      decay <= 0 || decay > 1) {
+    stop("`decay` must be a single number in (0, 1].", call. = FALSE)
+  }
+  if (!is.null(weights) && !is.function(weights) && !is.matrix(weights)) {
+    stop("`weights` must be NULL, a function(h, age), or a numeric matrix.",
+         call. = FALSE)
+  }
+  if (window == "random" && (window_policy != "latest" || !is.null(weights))) {
+    warning("`window_policy` and `weights` are ignored when `window = \"random\"`.",
+            call. = FALSE)
+  }
+  structure(
+    list(window = window, width = width, step = step,
+         window_policy = window_policy, decay = decay, weights = weights),
+    class = "endogenr_window"
+  )
+}
+
+# Internal: coerce `windows` into a named list of endogenr_window configs.
+# NULL becomes a single default config; a single config is wrapped; a named
+# list of configs is auto-named and returned as-is.
+.normalize_windows <- function(windows) {
+  if (is.null(windows)) {
+    return(.auto_name(list(window_config()), "window"))
+  }
+  if (inherits(windows, "endogenr_window")) {
+    return(.auto_name(list(windows), "window"))
+  }
+  if (!is.list(windows) || length(windows) == 0L) {
+    stop("`windows` must be NULL, a window_config(), or a named list of ",
+         "window_config() objects.", call. = FALSE)
+  }
+  is_wc <- vapply(windows, inherits, logical(1), "endogenr_window")
+  if (!all(is_wc)) {
+    stop("`windows` must be NULL, a window_config(), or a named list of ",
+         "window_config() objects.", call. = FALSE)
+  }
+  .auto_name(windows, "window")
+}
+
 # Internal: build a compact, readable, unique label per experiment from the
 # axes that actually vary. Falls back to the model name when nothing varies.
-.experiment_labels <- function(grid, vary_model, vary_train, vary_test) {
+.experiment_labels <- function(grid, vary_model, vary_train, vary_test,
+                               vary_window = FALSE) {
   parts <- vapply(seq_len(nrow(grid)), function(i) {
     comp <- character(0L)
-    if (vary_model) comp <- c(comp, grid$model[i])
-    if (vary_train) comp <- c(comp, paste0("train", grid$train_start[i]))
-    if (vary_test)  comp <- c(comp, paste0("test", grid$test_start[i]))
+    if (vary_model)  comp <- c(comp, grid$model[i])
+    if (vary_train)  comp <- c(comp, paste0("train", grid$train_start[i]))
+    if (vary_test)   comp <- c(comp, paste0("test", grid$test_start[i]))
+    if (vary_window) comp <- c(comp, grid$window_cfg[i])
     if (length(comp) == 0L) comp <- grid$model[i]
     paste(comp, collapse = "_")
   }, character(1))
@@ -155,17 +266,18 @@ vary_model <- function(base, variants) {
 #' [get_experiment_accuracy()] and [plotsim()].
 #'
 #' @details
-#' The experiment grid is the Cartesian product of three axes: the model systems
-#' (`models`), `train_start`, and `test_start`. An axis with a single value does
-#' not expand. `horizon`, `inner_sims`, `min_window`, and `nsim` are shared
-#' across every experiment.
+#' The experiment grid is the Cartesian product of up to four axes: the model
+#' systems (`models`), `train_start`, `test_start`, and optionally `windows`
+#' (see [window_config()]). An axis with a single value does not expand.
+#' `horizon`, `inner_sims`, `min_window`, and `nsim` are shared across every
+#' experiment.
 #'
-#' Each experiment is stamped with four leading columns: `.experiment` (a unique
-#' label built only from the axes that vary), `model` (the system name),
-#' `train_start`, and `test_start`. The result also carries an `experiments`
-#' attribute (a metadata `data.table`) recording the configuration of every
-#' experiment, which [get_experiment_accuracy()] uses to recover each
-#' experiment's `test_start`.
+#' Each experiment is stamped with five leading columns: `.experiment` (a unique
+#' label built only from the axes that vary), `model`, `train_start`,
+#' `test_start`, and `window_cfg` (the name of the window configuration used).
+#' The result also carries an `experiments` attribute (a metadata `data.table`)
+#' recording the configuration of every experiment, which
+#' [get_experiment_accuracy()] uses to recover per-experiment metadata.
 #'
 #' @section Parallelism:
 #' Because `future` evaluates *nested* futures sequentially unless a multi-level
@@ -201,6 +313,10 @@ vary_model <- function(base, variants) {
 #'   [fit_system()].
 #' @param min_window Integer or `NULL`. Random-window refitting; see
 #'   [setup_system()].
+#' @param windows Either `NULL` (default; random window, latest policy),
+#'   a single [window_config()] applied to every experiment, or a named list
+#'   of [window_config()] objects that is crossed as a fourth grid axis. The
+#'   config name appears as the `window_cfg` column.
 #' @param globals Named list of user functions referenced by formulas, exported
 #'   to parallel workers; see [setup_system()].
 #' @param parallel One of `"experiments"` (default) or `"draws"`; see the
@@ -213,10 +329,10 @@ vary_model <- function(base, variants) {
 #'
 #' @return A `data.table` stacking every experiment's [simulate_system()]
 #'   output, with leading columns `.experiment`, `model`, `train_start`,
-#'   `test_start` and the usual simulation columns plus `.sim`. Carries
-#'   `panel_unit`, `panel_time`, and `experiments` attributes (and `fits` when
-#'   `keep_fits = TRUE`).
-#' @seealso [vary_model()], [setup_system()], [fit_system()],
+#'   `test_start`, `window_cfg` and the usual simulation columns plus `.sim`.
+#'   Carries `panel_unit`, `panel_time`, and `experiments` attributes (and
+#'   `fits` when `keep_fits = TRUE`).
+#' @seealso [vary_model()], [window_config()], [setup_system()], [fit_system()],
 #'   [simulate_system()], [get_experiment_accuracy()]
 #' @family experiments
 #' @export
@@ -250,11 +366,12 @@ vary_model <- function(base, variants) {
 #' }
 run_experiments <- function(data, models, train_start, test_start, horizon,
                             groupvar, timevar, inner_sims, nsim = 1L,
-                            min_window = NULL, globals = NULL,
+                            min_window = NULL, windows = NULL, globals = NULL,
                             parallel = c("experiments", "draws"),
                             keep_fits = FALSE) {
   parallel <- match.arg(parallel)
   systems  <- .normalize_models(models)
+  windows  <- .normalize_windows(windows)
 
   train_start <- as.integer(train_start)
   test_start  <- as.integer(test_start)
@@ -265,28 +382,33 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
   }
   nsim <- as.integer(nsim)
 
-  # Cartesian grid over (model, train_start, test_start).
+  # Cartesian grid over (model, train_start, test_start, window_cfg).
   grid <- expand.grid(
     .mi         = seq_along(systems),
     train_start = unique(train_start),
     test_start  = unique(test_start),
+    .wi         = seq_along(windows),
     KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
   )
-  grid$model <- names(systems)[grid$.mi]
+  grid$model      <- names(systems)[grid$.mi]
+  grid$window_cfg <- names(windows)[grid$.wi]
   grid$.experiment <- .experiment_labels(
     grid,
-    vary_model = length(systems) > 1L,
-    vary_train = length(unique(train_start)) > 1L,
-    vary_test  = length(unique(test_start)) > 1L
+    vary_model  = length(systems) > 1L,
+    vary_train  = length(unique(train_start)) > 1L,
+    vary_test   = length(unique(test_start)) > 1L,
+    vary_window = length(windows) > 1L
   )
   n_exp <- nrow(grid)
 
   # Per-experiment vectors, referenced by the worker below. Keeping them as
   # plain vectors (not the whole grid) makes the exported global set explicit.
-  exp_idx   <- grid$.mi
-  exp_train <- grid$train_start
-  exp_test  <- grid$test_start
-  exp_label <- grid$.experiment
+  exp_idx        <- grid$.mi
+  exp_train      <- grid$train_start
+  exp_test       <- grid$test_start
+  exp_label      <- grid$.experiment
+  exp_wi         <- grid$.wi
+  exp_window_cfg <- grid$window_cfg
 
   p <- if (requireNamespace("progressr", quietly = TRUE)) {
     progressr::progressor(steps = n_exp)
@@ -298,14 +420,21 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
   # and simulate. Errors are re-raised with the experiment label for context.
   run_one <- function(i) {
     out <- tryCatch({
+      wc    <- windows[[exp_wi[i]]]
       setup <- setup_system(
         models = systems[[exp_idx[i]]], data = data,
         train_start = exp_train[i], test_start = exp_test[i], horizon = horizon,
         groupvar = groupvar, timevar = timevar,
         inner_sims = inner_sims, min_window = min_window, globals = globals
       )
-      fitted <- fit_system(setup, nsim = nsim)
-      sim    <- simulate_system(fitted)
+      fitted <- fit_system(setup, nsim = nsim,
+                           window = wc$window, width = wc$width, step = wc$step)
+      sim <- if (wc$window == "random") {
+        simulate_system(fitted)
+      } else {
+        simulate_system(fitted, window_policy = wc$window_policy,
+                        decay = wc$decay, weights = wc$weights)
+      }
       list(sim = sim, fit = if (isTRUE(keep_fits)) fitted else NULL)
     }, error = function(e) {
       stop("Experiment '", exp_label[i], "' failed: ", conditionMessage(e),
@@ -324,7 +453,8 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
       exp_test = exp_test, exp_label = exp_label, data = data,
       horizon = horizon, groupvar = groupvar, timevar = timevar,
       inner_sims = inner_sims, nsim = nsim, min_window = min_window,
-      globals = globals, keep_fits = keep_fits, p = p
+      globals = globals, keep_fits = keep_fits, p = p,
+      windows = windows, exp_wi = exp_wi
     )
     if (!is.null(globals)) {
       for (fn_name in names(globals)) future_globals[[fn_name]] <- globals[[fn_name]]
@@ -344,18 +474,22 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
   for (i in seq_len(n_exp)) {
     s <- results[[i]]$sim
     s[, `:=`(.experiment = exp_label[i], model = grid$model[i],
-             train_start = exp_train[i], test_start = exp_test[i])]
+             train_start = exp_train[i], test_start = exp_test[i],
+             window_cfg = exp_window_cfg[i])]
     sims[[i]] <- s
   }
   out  <- data.table::rbindlist(sims, use.names = TRUE, fill = TRUE)
-  lead <- c(".experiment", "model", "train_start", "test_start")
+  lead <- c(".experiment", "model", "train_start", "test_start", "window_cfg")
   data.table::setcolorder(out, c(lead, setdiff(names(out), lead)))
 
   exp_meta <- data.table::data.table(
-    .experiment = exp_label, model = grid$model,
-    train_start = exp_train, test_start = exp_test,
-    horizon = as.integer(horizon), inner_sims = as.integer(inner_sims),
-    nsim = nsim
+    .experiment   = exp_label, model = grid$model,
+    train_start   = exp_train, test_start = exp_test,
+    window_cfg    = exp_window_cfg,
+    window        = vapply(exp_wi, function(i) windows[[i]]$window, character(1)),
+    window_policy = vapply(exp_wi, function(i) windows[[i]]$window_policy, character(1)),
+    horizon       = as.integer(horizon), inner_sims = as.integer(inner_sims),
+    nsim          = nsim
   )
   data.table::setattr(out, "panel_unit", groupvar)
   data.table::setattr(out, "panel_time", timevar)
@@ -394,8 +528,9 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 #'   scoring; see [get_accuracy()].
 #'
 #' @return A `data.table` with leading columns `.experiment` and any present
-#'   axis columns (`model`, `train_start`, `test_start`), the `by` columns, and
-#'   `crps`, `mae`, `winkler` — one block of rows per experiment.
+#'   axis columns (`model`, `train_start`, `test_start`, `window_cfg`), the
+#'   `by` columns, and `crps`, `mae`, `winkler` — one block of rows per
+#'   experiment.
 #' @seealso [run_experiments()], [get_accuracy()], [compare_approaches()]
 #' @family experiments
 #' @export
@@ -431,7 +566,7 @@ get_experiment_accuracy <- function(experiment_results, outcome, truth,
          "`experiments` attribute and no `test_start` column.", call. = FALSE)
   }
 
-  axis_cols <- intersect(c("model", "train_start", "test_start"),
+  axis_cols <- intersect(c("model", "train_start", "test_start", "window_cfg"),
                          names(experiment_results))
   labels <- unique(as.character(experiment_results$.experiment))
 
