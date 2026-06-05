@@ -50,14 +50,25 @@ spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_rea
   # Determine if the RHS uses lag() — func_in_term returns c(lhs_bool, rhs_bool...)
   model$use_lag <- any(func_in_term(formula, func = "lag")[-1])
 
-  # Store spatial weights
+  # Normalise no-neighbour units to the sfdep/spdep convention: a unit with no
+  # neighbours is encoded as 0L (length-1 sentinel), NOT integer(0). spdep::card()
+  # / st_lag() error on integer(0) ("zero length neighbour vector"); 0L with
+  # allow_zero = TRUE yields a finite spatial lag we then override below. Detect
+  # islands against BOTH representations so island_default is applied consistently.
+  is_island <- vapply(
+    nb,
+    function(x) length(x) == 0L || (length(x) == 1L && isTRUE(x[[1]] == 0)),
+    logical(1)
+  )
+  nb[is_island] <- list(0L)
+  wt[is_island] <- list(0)
+
+  # Store spatial weights (normalised)
   model$nb <- nb
   model$wt <- wt
   model$unit_ids <- unit_ids
   model$island_default <- if (is.null(island_default)) NA_real_ else island_default
-
-  # Pre-compute island mask (units with no neighbors)
-  model$is_island <- lengths(nb) == 0
+  model$is_island <- is_island
 
   # Set outcome name
   model$outcome <- base::all.vars(rlang::f_lhs(formula))

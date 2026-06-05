@@ -90,6 +90,89 @@ test_that("spatial_lag without lag() reads the current period", {
   expect_equal(out[unit == 2, sl], 12)
 })
 
+# ── spatial lag: island handling ───────────────────────────────────────────
+
+test_that("integer(0) island no longer errors and uses island_default", {
+  skip_if_not_installed("sfdep")
+  nb  <- list(2L, c(1L, 3L), 2L, integer(0))    # unit 4 = island (manual encoding)
+  wt  <- list(1, c(0.5, 0.5), 1, numeric(0))
+  ids <- c(10, 20, 30, 40)
+  mod <- spatial_lag_model(sl ~ lag(y), nb = nb, wt = wt,
+                           unit_ids = ids, island_default = -1)
+
+  sim_ctx <- panel_context(unit = "unit", time = "time", sim = "sim")
+  grid <- data.table::CJ(unit = ids, time = 1:3, sim = 1L)
+  # t=1: y[10]=20, y[20]=30, y[30]=40, y[40]=50  (9 + unit + time)
+  grid[, y := 9 + unit + time]
+
+  # Must not error
+  out <- predict(mod, t = 2L, data = grid, ctx = sim_ctx)
+  data.table::setkey(out, unit)
+
+  # Connected units: reads t-1=1; y[10]=20, y[20]=30, y[30]=40
+  # sl[10] = y[20] = 30; sl[20] = 0.5*y[10]+0.5*y[30] = 30; sl[30] = y[20] = 30
+  expect_equal(out[unit == 10, sl], 30)
+  expect_equal(out[unit == 20, sl], 0.5 * 20 + 0.5 * 40)
+  expect_equal(out[unit == 30, sl], 30)
+  # Island unit 40 must get island_default, not 0 or an error
+  expect_equal(out[unit == 40, sl], -1)
+})
+
+test_that("sfdep 0L island uses island_default (not silent 0)", {
+  skip_if_not_installed("sfdep")
+  nb  <- list(2L, c(1L, 3L), 2L, 0L)            # unit 4 = island (sfdep/spdep encoding)
+  wt  <- list(1, c(0.5, 0.5), 1, 0)
+  ids <- c(10, 20, 30, 40)
+  mod <- spatial_lag_model(sl ~ lag(y), nb = nb, wt = wt,
+                           unit_ids = ids)        # island_default = NA (default)
+
+  sim_ctx <- panel_context(unit = "unit", time = "time", sim = "sim")
+  grid <- data.table::CJ(unit = ids, time = 1:3, sim = 1L)
+  grid[, y := 9 + unit + time]
+
+  out <- predict(mod, t = 2L, data = grid, ctx = sim_ctx)
+  data.table::setkey(out, unit)
+
+  # Connected units: y[10]=20, y[20]=30, y[30]=40 at t-1=1
+  expect_equal(out[unit == 10, sl], 30)
+  expect_equal(out[unit == 20, sl], 0.5 * 20 + 0.5 * 40)
+  expect_equal(out[unit == 30, sl], 30)
+  # Island: NA_real_, not 0
+  expect_true(is.na(out[unit == 40, sl]))
+})
+
+test_that("is_island mask is correct at construction for both encodings", {
+  skip_if_not_installed("sfdep")
+  expected_mask <- c(FALSE, FALSE, FALSE, TRUE)
+
+  # integer(0) encoding
+  mod_empty <- spatial_lag_model(
+    sl ~ lag(y),
+    nb = list(2L, c(1L, 3L), 2L, integer(0)),
+    wt = list(1, c(0.5, 0.5), 1, numeric(0)),
+    unit_ids = c(10, 20, 30, 40)
+  )
+  expect_equal(mod_empty$is_island, expected_mask)
+
+  # 0L encoding
+  mod_zero <- spatial_lag_model(
+    sl ~ lag(y),
+    nb = list(2L, c(1L, 3L), 2L, 0L),
+    wt = list(1, c(0.5, 0.5), 1, 0),
+    unit_ids = c(10, 20, 30, 40)
+  )
+  expect_equal(mod_zero$is_island, expected_mask)
+
+  # All-connected: normalisation must be a no-op
+  mod_connected <- spatial_lag_model(
+    sl ~ lag(y),
+    nb = list(2L, c(1L, 3L), 2L),
+    wt = list(1, c(0.5, 0.5), 1),
+    unit_ids = c(10, 20, 30)
+  )
+  expect_equal(mod_connected$is_island, c(FALSE, FALSE, FALSE))
+})
+
 # ── reproducibility & shape ────────────────────────────────────────────────
 
 test_that("same seed + sequential plan gives identical simulations", {

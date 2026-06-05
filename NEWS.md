@@ -2,6 +2,15 @@
 
 ## Bug fixes
 
+* `spatial_lag_model()` now correctly handles island units (geographic units with
+  no neighbours). The constructor normalises both the manual `integer(0)`
+  representation and the `sfdep`/`spdep` `0L` sentinel to `0L`, and detects
+  islands via a predicate robust to both encodings. Previously, `integer(0)`
+  islands caused `sfdep::st_lag()` to error with `"zero length neighbour vector"`,
+  and `0L` islands silently returned `0` instead of `island_default` because
+  `lengths(nb) == 0` evaluated to `FALSE` for the length-1 sentinel. Both paths
+  now correctly return `island_default` (or `NA_real_` when unset).
+
 * `predict.linear()`, `predict.glm_endogenr()`, and `predict.heterolm()` now
   size the per-unit history window by a new internal `.required_history()` AST
   walk that **composes** nested time-series depths, instead of taking the
