@@ -56,11 +56,9 @@ predict.deterministic <- function(model, t, data, ctx, ...) {
     data <- data.table::as.data.table(as.data.frame(data))
   }
 
-  # Per-group model.frame
-  result <- data[, {
-    mf <- stats::model.frame(frm, data = .SD, na.action = stats::na.pass)
-    data.table::as.data.table(mf)
-  }, by = all_keys]
+  # Per-group model.frame — expose keys when the formula references them
+  needs_keys <- any(all.vars(model$formula) %in% all_keys)
+  result <- .model_frame_by_group(frm, data, all_keys, needs_keys)
 
   # Remove the original outcome column, filter to time t, rename
   if (y %in% names(result)) {

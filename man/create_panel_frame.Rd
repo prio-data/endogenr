@@ -14,11 +14,14 @@ create_panel_frame(formula, data, ctx)
 \item{ctx}{A \code{panel_context} object.}
 }
 \value{
-A list with \code{data} (data.table) and \code{naive_formula}.
+A list with \code{data} (data.table), \code{naive_formula}, \code{mat_formula},
+and \code{col_mapping}.
 }
 \description{
-Convenience wrapper that calls \code{\link[=materialize_formula]{materialize_formula()}} followed by
-\code{\link[=derive_naive_formula]{derive_naive_formula()}}. Returns both the materialized data and the
-naive formula.
+Builds a materialization cache once via \code{\link[=.build_mat_cache]{.build_mat_cache()}}, then
+materializes the formula and derives the naive formula from the original
+term structure (preserving interactions, factor() calls, and intercept
+suppression). Returns the materialized data together with the naive formula
+and the cache components for reuse in \verb{predict.*} methods.
 }
 \keyword{internal}

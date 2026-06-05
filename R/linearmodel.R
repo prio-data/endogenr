@@ -61,10 +61,9 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL, su
   model$timevar <- ctx_time(ctx)
   model$subset <- subset
 
-  # Cache materialization helpers for fast predict
-  mat_cache <- .build_mat_cache(model$formula, data, ctx)
-  model$mat_formula <- mat_cache$mat_formula
-  model$col_mapping <- mat_cache$col_mapping
+  # Cache materialization helpers for fast predict (reuse from create_panel_frame)
+  model$mat_formula <- panel_frame$mat_formula
+  model$col_mapping <- panel_frame$col_mapping
 
   class(model) <- c("linear", class(model))
 

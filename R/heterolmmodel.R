@@ -44,9 +44,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
   model$fit_args <- rlang::list2(...)
 
   # Get panel metadata from context
-  grp <- ctx_unit(ctx)
   idx <- ctx_time(ctx)
-  all_keys <- ctx_keys(ctx)
   model$timevar <- idx
   model$subset <- subset
 
@@ -55,45 +53,49 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, ctx = NU
 
   # Build combined formula with all terms from both mean and variance
   mean_terms <- labels(stats::terms(formula))
-  var_terms <- labels(stats::terms(model$variance_formula))
-  all_terms <- unique(c(mean_terms, var_terms))
+  var_terms  <- labels(stats::terms(model$variance_formula))
+  all_terms  <- unique(c(mean_terms, var_terms))
   combined_formula <- stats::reformulate(all_terms, response = outcome_name)
   model$combined_formula <- combined_formula
 
-  # Run create_panel_frame on combined formula for the full data
+  # Materialize combined formula once; reuse cache for predict
   combined_cpf <- create_panel_frame(combined_formula, data, ctx)
+  cm <- combined_cpf$col_mapping
 
-  # Run create_panel_frame on mean-only formula to identify mean columns
-  mean_cpf <- create_panel_frame(formula, data, ctx)
+  # Derive mean and variance term labels preserving interaction structure.
+  # Store the raw cleaned labels (before model.matrix expansion) for the
+  # predict path to re-use.
+  mean_terms_clean <- .clean_term_labels(formula, cm)
+  var_terms_clean  <- .clean_term_labels(model$variance_formula, cm)
+  model$hetero_mean_clean_labels <- mean_terms_clean
+  model$hetero_var_clean_labels  <- var_terms_clean
 
-  # Determine naive column names for mean and variance
-  mean_naive_names <- setdiff(names(mean_cpf$data), c(all_keys, idx, outcome_name))
-  var_naive_names <- setdiff(names(combined_cpf$data), names(mean_cpf$data))
+  # Clean outcome name (usually unchanged, but apply mapping for consistency)
+  outcome_clean <- if (outcome_name %in% names(cm)) cm[[outcome_name]] else outcome_name
 
-  # If variance is intercept-only, use "1"
-  if (length(var_naive_names) == 0) {
-    var_naive_names <- "1"
-  }
+  # heterolm::hetero() uses column-name lookups, not R formula algebra, so
+  # interactions (g:x) and factor dummies must be pre-computed as flat columns.
+  mat_data <- combined_cpf$data
+  mean_exp <- .hetero_expand_terms(mean_terms_clean, mat_data)
+  var_exp  <- .hetero_expand_terms(var_terms_clean,  mat_data)
+  # mat_data was modified in-place; update model$data below
 
-  model$naive_mean_names <- mean_naive_names
-  model$naive_var_names <- var_naive_names
+  mean_col_names <- if (length(mean_exp$col_names) == 0L) "1" else mean_exp$col_names
+  var_col_names  <- if (length(var_exp$col_names)  == 0L) "1" else var_exp$col_names
 
   # Build heterolm formula: outcome ~ mean_vars | var_vars
   hetero_formula_str <- paste0(
-    outcome_name, " ~ ",
-    paste(mean_naive_names, collapse = " + "),
+    outcome_clean, " ~ ",
+    paste(mean_col_names, collapse = " + "),
     " | ",
-    paste(var_naive_names, collapse = " + ")
+    paste(var_col_names, collapse = " + ")
   )
   model$naive_hetero_formula <- stats::as.formula(hetero_formula_str)
 
-  # Store data
-  model$data <- combined_cpf$data
-
-  # Cache materialization helpers for fast predict (using combined formula)
-  mat_cache <- .build_mat_cache(combined_formula, data, ctx)
-  model$mat_formula <- mat_cache$mat_formula
-  model$col_mapping <- mat_cache$col_mapping
+  # Store data (with any newly-expanded columns) and cache
+  model$data        <- mat_data
+  model$mat_formula <- combined_cpf$mat_formula
+  model$col_mapping <- cm
 
   # Apply subset if provided
   fit_data <- model$data
@@ -146,6 +148,11 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
 
   # Filter for specific time point
   data <- data[data[[idx]] == t]
+
+  # Re-expand interaction/factor columns that heterolm::hetero() needs as flat
+  # column-name lookups (mirrors what was done at fit time).
+  .hetero_expand_terms(model$hetero_mean_clean_labels, data)
+  .hetero_expand_terms(model$hetero_var_clean_labels,  data)
 
   # Make predictions using heterolm (returns list with mu and sigma)
   pred <- predict(model$fitted, newdata = as.data.frame(data), type = "response")

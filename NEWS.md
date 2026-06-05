@@ -2,6 +2,22 @@
 
 ## Bug fixes
 
+* Formulas now preserve **interactions and full term structure** in model fits.
+  Previously, `derive_naive_formula()` rebuilt the formula additively from
+  materialized column names, silently dropping interaction terms (`g:x`, `g*x`).
+  The fitted `linear` and `glm` models now estimate interactions identically to
+  base `lm()`/`glm()`. For `heterolm`, interaction terms are pre-expanded via
+  `model.matrix()` into flat predictor columns before fitting (required because
+  `heterolm::hetero()` uses column-name lookups rather than R formula algebra).
+
+* `factor(<panel-unit-id>)` in model formulas (e.g. unit fixed effects via
+  `y ~ factor(gwcode) + x`) now materializes correctly. Previously, the panel
+  key column was absent from the per-group `.SD` inside `model.frame()`, causing
+  `"object 'gwcode' not found"`. The new internal `.model_frame_by_group()`
+  helper recycles the scalar group-key value into each per-group frame when the
+  formula references it. Stacking single-level per-group factors unions to all
+  levels across the full dataset, so factor coding and prediction are correct.
+
 * `spatial_lag_model()` now correctly handles island units (geographic units with
   no neighbours). The constructor normalises both the manual `integer(0)`
   representation and the `sfdep`/`spdep` `0L` sentinel to `0L`, and detects
