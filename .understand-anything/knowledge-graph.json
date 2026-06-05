@@ -1,0 +1,3094 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "endogenr",
+    "languages": [
+      "r",
+      "markdown"
+    ],
+    "frameworks": [
+      "fabletools",
+      "future",
+      "igraph",
+      "testthat"
+    ],
+    "description": "A Dynamic Endogenous Simulator of Statistical Models — R package for simulating dynamic panel-data systems from regression models, mathematical equations, and exogenous inputs.",
+    "analyzedAt": "2026-06-05T07:23:21.418Z",
+    "gitCommitHash": "396edf082aeef9dddb2d212ac7ed1777cce15585"
+  },
+  "nodes": [
+    {
+      "id": "document:LICENSE.md",
+      "type": "document",
+      "name": "LICENSE.md",
+      "filePath": "LICENSE.md",
+      "summary": "MIT License text granting broad rights for use, modification, and distribution of the endogenr software, copyright 2024 endogenr authors.",
+      "tags": [
+        "documentation",
+        "license",
+        "legal"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:NEWS.md",
+      "type": "document",
+      "name": "NEWS.md",
+      "filePath": "NEWS.md",
+      "summary": "Changelog for endogenr 0.1.0.9000 documenting three bug fixes (history-window under-read, fable path-incoherence, GLM dispersion), a documentation update, and a new layered test harness with behavioural pillars.",
+      "tags": [
+        "documentation",
+        "changelog",
+        "development"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "Primary project documentation and entry point for endogenr, covering installation, the full simulation workflow (setup_system, fit_system, simulate_system), spatial-lag models, and the long-horizon comparison API with worked code examples.",
+      "tags": [
+        "documentation",
+        "entry-point",
+        "overview"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Generated from README.Rmd via knitr; contains rendered R console output and embedded plot references."
+    },
+    {
+      "id": "document:found_issues.md",
+      "type": "document",
+      "name": "found_issues.md",
+      "filePath": "found_issues.md",
+      "summary": "Developer-facing bug tracker recording five out-of-scope issues discovered during the test-harness build: spatial-lag island handling, get_train_window doc/impl mismatch, GLM bootstrap SE inflation, a latent time-column scoping collision (already fixed), and baseline R CMD check warnings.",
+      "tags": [
+        "documentation",
+        "bug-tracker",
+        "development"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "config:.Rbuildignore",
+      "type": "config",
+      "name": ".Rbuildignore",
+      "filePath": ".Rbuildignore",
+      "summary": "R package build exclusion list preventing renv, RStudio project files, and supplementary documentation from being included in the distributed package tarball.",
+      "tags": [
+        "configuration",
+        "build-system",
+        "r-package"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.Rprofile",
+      "type": "config",
+      "name": ".Rprofile",
+      "filePath": ".Rprofile",
+      "summary": "R session startup file that activates the renv package environment, ensuring reproducible dependency management for the project.",
+      "tags": [
+        "configuration",
+        "r-package",
+        "dependency-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.understand-anything/.understandignore",
+      "type": "config",
+      "name": ".understandignore",
+      "filePath": ".understand-anything/.understandignore",
+      "summary": "Exclusion list for the understand-anything analysis tool, skipping generated directories (man, renv, data), example files, and R session artifacts from the knowledge graph scan.",
+      "tags": [
+        "configuration",
+        "documentation",
+        "tooling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:DESCRIPTION",
+      "type": "config",
+      "name": "DESCRIPTION",
+      "filePath": "DESCRIPTION",
+      "summary": "R package manifest for endogenr defining metadata, dependencies (igraph, data.table, rlang, ggplot2, future, broom), and suggested packages (fable, tsibble, heterolm, sfdep) for the dynamic simulation system.",
+      "tags": [
+        "configuration",
+        "r-package",
+        "build-system",
+        "dependency-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:endogenr.Rproj",
+      "type": "config",
+      "name": "endogenr.Rproj",
+      "filePath": "endogenr.Rproj",
+      "summary": "RStudio project configuration enabling devtools-based package development with roxygen2 document generation for rd, collate, and namespace targets.",
+      "tags": [
+        "configuration",
+        "r-package",
+        "build-system"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:lm_prediction_interval_test.R",
+      "type": "file",
+      "name": "lm_prediction_interval_test.R",
+      "filePath": "lm_prediction_interval_test.R",
+      "summary": "Standalone test script for verifying the `getpi()` predictive interval sampler against `predict.lm()` built-in intervals using synthetic regression data.",
+      "tags": [
+        "test",
+        "utility",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:NAMESPACE",
+      "type": "config",
+      "name": "NAMESPACE",
+      "filePath": "NAMESPACE",
+      "summary": "Roxygen2-generated R package namespace file registering all S3 methods (fit_model.*, predict.*) and exported functions including the full simulation pipeline, long-horizon API, experiment grid, and plotting helpers.",
+      "tags": [
+        "configuration",
+        "r-package",
+        "build-system"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/basemodel.R",
+      "type": "file",
+      "name": "basemodel.R",
+      "filePath": "R/basemodel.R",
+      "summary": "Defines the `endogenmodel` S3 base class constructor and the `build_model()` dispatcher that creates typed spec objects for all eight model families, plus the `fit_model()` S3 generic.",
+      "tags": [
+        "factory",
+        "service",
+        "data-model",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/basemodel.R:new_endogenmodel",
+      "type": "function",
+      "name": "new_endogenmodel",
+      "filePath": "R/basemodel.R",
+      "lineRange": [
+        9,
+        16
+      ],
+      "summary": "Constructor that creates the base `endogenmodel` list structure with a formula slot and assigns the `endogenmodel` class.",
+      "tags": [
+        "factory",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/basemodel.R:build_model",
+      "type": "function",
+      "name": "build_model",
+      "filePath": "R/basemodel.R",
+      "lineRange": [
+        80,
+        94
+      ],
+      "summary": "Public factory that validates the model type string and returns a typed `endogenr_spec` list with `type`, `formula`, and extra `args`, dispatched later by `fit_model()`.",
+      "tags": [
+        "factory",
+        "entry-point",
+        "api-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/coef_forecast.R",
+      "type": "file",
+      "name": "coef_forecast.R",
+      "filePath": "R/coef_forecast.R",
+      "summary": "Implements time-varying parameter coefficient forecasting by estimating an expanding or rolling coefficient path and projecting each coefficient forward as a Gaussian random walk with empirical evolution covariance.",
+      "tags": [
+        "service",
+        "utility",
+        "api-handler"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/coef_forecast.R:forecast_coefficients",
+      "type": "function",
+      "name": "forecast_coefficients",
+      "filePath": "R/coef_forecast.R",
+      "lineRange": [
+        238,
+        299
+      ],
+      "summary": "Public API that orchestrates the coefficient-trajectory forecast: builds the anchor grid, calls per-spec path estimation, runs forward projection with MVN random walk, and returns a `coef_forecast` data.table with per-horizon quantiles.",
+      "tags": [
+        "api-handler",
+        "service",
+        "utility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:R/data.R",
+      "type": "file",
+      "name": "data.R",
+      "filePath": "R/data.R",
+      "summary": "Roxygen2 documentation for the `example_data` bundled tsibble dataset containing country-year panel data on conflict, GDP per capita, population, education, and democracy indicators.",
+      "tags": [
+        "documentation",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/deterministicmodel.R",
+      "type": "file",
+      "name": "deterministicmodel.R",
+      "filePath": "R/deterministicmodel.R",
+      "summary": "Implements the deterministic model type that evaluates an `I(expr)` formula per group at each simulation time step without fitting, used for identity transformations and derived quantities.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/deterministicmodel.R:predict.deterministic",
+      "type": "function",
+      "name": "predict.deterministic",
+      "filePath": "R/deterministicmodel.R",
+      "lineRange": [
+        36,
+        77
+      ],
+      "summary": "S3 predict method that evaluates the deterministic formula per group via `model.frame`, injects positional lag, filters to time t, and returns a data.table of (keys, time, outcome).",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/endogenr-package.R",
+      "type": "file",
+      "name": "endogenr-package.R",
+      "filePath": "R/endogenr-package.R",
+      "summary": "Package-level documentation stub that describes the three-stage simulation pipeline (setup/fit/simulate) and catalogues known architectural issues including parameter uncertainty asymmetry, pooled estimation, and over-dispersed bootstrap.",
+      "tags": [
+        "documentation",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/exogenmodel.R",
+      "type": "file",
+      "name": "exogenmodel.R",
+      "filePath": "R/exogenmodel.R",
+      "summary": "Implements the exogenous model type that copies pre-supplied covariate values (e.g. population projections) into the simulation grid by expanding stored source data across all simulation draws.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/exogenmodel.R:fit_model.exogen_spec",
+      "type": "function",
+      "name": "fit_model.exogen_spec",
+      "filePath": "R/exogenmodel.R",
+      "lineRange": [
+        24,
+        28
+      ],
+      "summary": "S3 dispatch method for exogen specs that delegates to `exogenmodel()` with the relevant arguments extracted from the spec.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/exogenmodel.R:predict.exogen",
+      "type": "function",
+      "name": "predict.exogen",
+      "filePath": "R/exogenmodel.R",
+      "lineRange": [
+        74,
+        99
+      ],
+      "summary": "S3 predict method that expands stored exogenous source data across all sim IDs via cross-join and merges outcome values onto the grid for the forecast window.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/experiments.R",
+      "type": "file",
+      "name": "experiments.R",
+      "filePath": "R/experiments.R",
+      "summary": "Provides `run_experiments()` for grid-search over model systems, training starts, and test starts with optional parallelism, and `get_experiment_accuracy()` for per-experiment CRPS/MAE/Winkler scoring against observed truth.",
+      "tags": [
+        "api-handler",
+        "service",
+        "utility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/experiments.R:run_experiments",
+      "type": "function",
+      "name": "run_experiments",
+      "filePath": "R/experiments.R",
+      "lineRange": [
+        251,
+        371
+      ],
+      "summary": "Runs the full setup/fit/simulate pipeline for each cell in a Cartesian (model x train_start x test_start) experiment grid, stacking results with experiment metadata and supporting parallel execution via `future.apply`.",
+      "tags": [
+        "api-handler",
+        "service",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/experiments.R:vary_model",
+      "type": "function",
+      "name": "vary_model",
+      "filePath": "R/experiments.R",
+      "lineRange": [
+        111,
+        144
+      ],
+      "summary": "Expands a base model system into a named list of full systems by swapping specs matching each override's outcome variable, producing the input shape required by `run_experiments()`.",
+      "tags": [
+        "factory",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/experiments.R:get_experiment_accuracy",
+      "type": "function",
+      "name": "get_experiment_accuracy",
+      "filePath": "R/experiments.R",
+      "lineRange": [
+        402,
+        459
+      ],
+      "summary": "Scores each experiment in a `run_experiments()` result against truth using its own `test_start`, then stacks CRPS/MAE/Winkler scores into one long data.table keyed by `.experiment`.",
+      "tags": [
+        "api-handler",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:R/formula_helpers.R",
+      "type": "file",
+      "name": "formula_helpers.R",
+      "filePath": "R/formula_helpers.R",
+      "summary": "Provides formula-embedded time-decay helper functions (`decay_since_event`, `time_since_event`, `intensity_decay`) for use inside endogenr model formulas to capture conflict persistence and recovery effects.",
+      "tags": [
+        "utility",
+        "formula_helpers",
+        "event-handler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/formula_helpers.R:decay_since_event",
+      "type": "function",
+      "name": "decay_since_event",
+      "filePath": "R/formula_helpers.R",
+      "lineRange": [
+        31,
+        44
+      ],
+      "summary": "Computes exponentially decaying signal from most recent event occurrence; value is 1 at event, decays at rate lambda, floored at `exp(-lambda*max_years)` before any event.",
+      "tags": [
+        "utility",
+        "event-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/formula_helpers.R:time_since_event",
+      "type": "function",
+      "name": "time_since_event",
+      "filePath": "R/formula_helpers.R",
+      "lineRange": [
+        61,
+        74
+      ],
+      "summary": "Inverse of `decay_since_event`: returns 0 at event time and rises toward 1 as time passes, modelling peace-dividend or recovery effects.",
+      "tags": [
+        "utility",
+        "event-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/formula_helpers.R:intensity_decay",
+      "type": "function",
+      "name": "intensity_decay",
+      "filePath": "R/formula_helpers.R",
+      "lineRange": [
+        96,
+        110
+      ],
+      "summary": "Intensity-weighted exponential decay that accumulates contributions from all past events, with each event contributing its intensity scaled by the elapsed decay since it occurred.",
+      "tags": [
+        "utility",
+        "event-handler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/glmmodel.R",
+      "type": "file",
+      "name": "glmmodel.R",
+      "filePath": "R/glmmodel.R",
+      "summary": "Implements GLM model fitting with optional residual or wild bootstrap, family-specific response-scale predictive draws (Gaussian, Poisson, quasi-Poisson, Gamma, binomial/quasi-binomial), and a predict S3 method for use in simulation.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/glmmodel.R:getpi_glm",
+      "type": "function",
+      "name": "getpi_glm",
+      "filePath": "R/glmmodel.R",
+      "lineRange": [
+        198,
+        206
+      ],
+      "summary": "Samples from the GLM predictive distribution by drawing the linear predictor from a t-distribution on the link scale then mapping to a response-scale draw via the family's distribution.",
+      "tags": [
+        "utility",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/glmmodel.R:predict.glm_endogenr",
+      "type": "function",
+      "name": "predict.glm_endogenr",
+      "filePath": "R/glmmodel.R",
+      "lineRange": [
+        220,
+        254
+      ],
+      "summary": "S3 predict method for GLM models that materializes the formula at time t, calls `predict.glm` on the link scale, then samples from the predictive distribution or returns the expectation.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/heterolmmodel.R",
+      "type": "file",
+      "name": "heterolmmodel.R",
+      "filePath": "R/heterolmmodel.R",
+      "summary": "Wraps the `heterolm::hetero()` heteroscedastic linear model where both mean and log-variance are modelled as formula functions of covariates, providing observation-specific prediction intervals.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/heterolmmodel.R:predict.heterolm",
+      "type": "function",
+      "name": "predict.heterolm",
+      "filePath": "R/heterolmmodel.R",
+      "lineRange": [
+        135,
+        167
+      ],
+      "summary": "S3 predict method that materializes the combined mean+variance formula, calls `heterolm` predict for per-observation mu and sigma, then samples from N(mu_i, sigma_i).",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/linearmodel.R",
+      "type": "file",
+      "name": "linearmodel.R",
+      "filePath": "R/linearmodel.R",
+      "summary": "Implements OLS linear model fitting with optional residual or wild bootstrap, a t-distributed predictive interval sampler (`getpi`), and the S3 predict method used by the dynamic simulation loop.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/linearmodel.R:bootstraplm",
+      "type": "function",
+      "name": "bootstraplm",
+      "filePath": "R/linearmodel.R",
+      "lineRange": [
+        11,
+        27
+      ],
+      "summary": "Fits an OLS model and resamples residuals (residual bootstrap) or scales them by standard normal draws (wild bootstrap) to produce one bootstrapped coefficient draw.",
+      "tags": [
+        "utility",
+        "service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/linearmodel.R:getpi",
+      "type": "function",
+      "name": "getpi",
+      "filePath": "R/linearmodel.R",
+      "lineRange": [
+        127,
+        138
+      ],
+      "summary": "Samples from the linear model predictive distribution using t-distributed draws scaled by the combined parameter+residual standard error; supports both single-draw (row-expansion) and multi-draw (matrix) paths.",
+      "tags": [
+        "utility",
+        "simulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/linearmodel.R:predict.linear",
+      "type": "function",
+      "name": "predict.linear",
+      "filePath": "R/linearmodel.R",
+      "lineRange": [
+        152,
+        184
+      ],
+      "summary": "S3 predict method for linear models that subsets history, materializes the formula using cached helpers, and returns either a predictive draw or the expectation for a given time step.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/longhorizon.R",
+      "type": "file",
+      "name": "longhorizon.R",
+      "filePath": "R/longhorizon.R",
+      "summary": "Implements the long-horizon direct forecasting pipeline: creates h-step-ahead aligned training data, fits pooled OLS with two-stage panel materialization, generates probabilistic forecasts at the origin, scores with CRPS/MAE/Winkler, supports cross-validation and comparison with the dynamic simulator.",
+      "tags": [
+        "api-handler",
+        "service",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/longhorizon.R:create_lh_data",
+      "type": "function",
+      "name": "create_lh_data",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        105,
+        118
+      ],
+      "summary": "Creates h-step-ahead aligned training data by adding a `.target` column (lead of outcome by h) per group while keeping the original outcome intact for RHS evaluation at baseline t.",
+      "tags": [
+        "utility",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/longhorizon.R:fit_lh_model",
+      "type": "function",
+      "name": "fit_lh_model",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        186,
+        246
+      ],
+      "summary": "Two-stage long-horizon OLS fit: strips `lead_horizon()` from LHS, materializes panel time-series terms per group (Stage 1), then fits pooled `lm`/`bootstraplm` on the rewritten formula (Stage 2).",
+      "tags": [
+        "service",
+        "api-handler"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/longhorizon.R:setup_long_horizon",
+      "type": "function",
+      "name": "setup_long_horizon",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        282,
+        309
+      ],
+      "summary": "Orchestrates `create_lh_data` + `fit_lh_model` for every (variant, horizon) combination and returns a `lh_setup` object consumed by `forecast_long_horizon`.",
+      "tags": [
+        "factory",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/longhorizon.R:forecast_long_horizon",
+      "type": "function",
+      "name": "forecast_long_horizon",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        436,
+        473
+      ],
+      "summary": "Draws `nsim * inner_sims` predictive samples per (variant, horizon) by evaluating covariates at the forecast origin and running nested Monte Carlo over bootstrap refits and residual draws.",
+      "tags": [
+        "api-handler",
+        "service"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/longhorizon.R:get_lh_accuracy",
+      "type": "function",
+      "name": "get_lh_accuracy",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        520,
+        608
+      ],
+      "summary": "Scores long-horizon forecast draws against observed truth per (variant, unit, horizon) using CRPS, MAE, and Winkler scores, supporting both native and model-scale scoring with optional inverse transforms.",
+      "tags": [
+        "api-handler",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/longhorizon.R:cv_long_horizon",
+      "type": "function",
+      "name": "cv_long_horizon",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        640,
+        672
+      ],
+      "summary": "Cross-validates long-horizon models across multiple forecast origins by running the full pipeline per fold and returning averaged accuracy scores.",
+      "tags": [
+        "api-handler",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/longhorizon.R:compare_approaches",
+      "type": "function",
+      "name": "compare_approaches",
+      "filePath": "R/longhorizon.R",
+      "lineRange": [
+        690,
+        706
+      ],
+      "summary": "Stacks long-horizon and dynamic simulation accuracy results into a single table with an `approach` column for side-by-side comparison.",
+      "tags": [
+        "utility",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/panel_context.R",
+      "type": "file",
+      "name": "panel_context.R",
+      "filePath": "R/panel_context.R",
+      "summary": "Defines the `panel_context` S3 object and its accessor functions (`ctx_unit`, `ctx_time`, `ctx_sim`, `ctx_keys`) for carrying panel dimension names separately from data, plus `.infer_ctx()` for recovering context from object attributes.",
+      "tags": [
+        "data-model",
+        "utility",
+        "service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/panel_context.R:panel_context",
+      "type": "function",
+      "name": "panel_context",
+      "filePath": "R/panel_context.R",
+      "lineRange": [
+        17,
+        24
+      ],
+      "summary": "Constructor for the `panel_context` S3 class storing unit, time, and optional sim column names for a panel dataset.",
+      "tags": [
+        "factory",
+        "data-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/panel_transform.R",
+      "type": "file",
+      "name": "panel_transform.R",
+      "filePath": "R/panel_transform.R",
+      "summary": "Implements two-stage formula materialization separating panel-aware time-series evaluation (per-group `.pt#` columns) from pooled design construction, via `panel_materialize()` and supporting AST-rewriting infrastructure.",
+      "tags": [
+        "utility",
+        "service",
+        "middleware"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/panel_transform.R:panel_materialize",
+      "type": "function",
+      "name": "panel_materialize",
+      "filePath": "R/panel_transform.R",
+      "lineRange": [
+        126,
+        145
+      ],
+      "summary": "Rewrites a formula to replace maximal time-series sub-expressions with `.pt#` symbols, materializes them per group in time order, and returns the rewritten formula plus augmented data.",
+      "tags": [
+        "utility",
+        "middleware"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:R/parametric_distribution_model.R",
+      "type": "file",
+      "name": "parametric_distribution_model.R",
+      "filePath": "R/parametric_distribution_model.R",
+      "summary": "Implements parametric distribution fitting via `fitdistrplus::fitdist()` (supporting normal, Student-t, gamma, Poisson, negative binomial and others) and random sampling from the fitted distribution during simulation.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/parametric_distribution_model.R:predict.parametric_distribution",
+      "type": "function",
+      "name": "predict.parametric_distribution",
+      "filePath": "R/parametric_distribution_model.R",
+      "lineRange": [
+        169,
+        186
+      ],
+      "summary": "S3 predict method that samples n draws from the fitted parametric distribution and populates the outcome column for the forecast period of the simulation grid.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/plot_estimates.R",
+      "type": "file",
+      "name": "plot_estimates.R",
+      "filePath": "R/plot_estimates.R",
+      "summary": "Visualization helpers for the simulation system: `plot_estimates()` creates faceted coefficient plots with GOF tables, `plot_coefficients()` shows the across-draw distribution, and `plot_coefficient_forecast()` renders time-varying parameter trajectories with uncertainty bands.",
+      "tags": [
+        "utility",
+        "component",
+        "api-handler"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/plot_estimates.R:plot_estimates",
+      "type": "function",
+      "name": "plot_estimates",
+      "filePath": "R/plot_estimates.R",
+      "lineRange": [
+        30,
+        168
+      ],
+      "summary": "Creates a faceted pointrange coefficient plot using `ggh4x::facet_nested_wrap`, optionally appended with a GOF table (R-squared, N) via `patchwork`.",
+      "tags": [
+        "component",
+        "utility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/plot_estimates.R:plot_coefficients",
+      "type": "function",
+      "name": "plot_coefficients",
+      "filePath": "R/plot_estimates.R",
+      "lineRange": [
+        286,
+        317
+      ],
+      "summary": "Boxplot visualization of regression coefficient distributions across simulation draws from `fit_system()`, faceted by outcome and term.",
+      "tags": [
+        "component",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/plot_estimates.R:get_coefficients",
+      "type": "function",
+      "name": "get_coefficients",
+      "filePath": "R/plot_estimates.R",
+      "lineRange": [
+        195,
+        266
+      ],
+      "summary": "Walks the stored coefficient fits of a `fit_system()` output to produce a tidy data.table of (draw, window, outcome, term, estimate) rows for linear and GLM models.",
+      "tags": [
+        "utility",
+        "api-handler"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/plot_estimates.R:plot_coefficient_forecast",
+      "type": "function",
+      "name": "plot_coefficient_forecast",
+      "filePath": "R/plot_estimates.R",
+      "lineRange": [
+        343,
+        394
+      ],
+      "summary": "Renders the observed coefficient path and forward random-walk forecast from `forecast_coefficients()` with uncertainty ribbons, faceted by outcome and term.",
+      "tags": [
+        "component",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/spatiallagmodel.R",
+      "type": "file",
+      "name": "spatiallagmodel.R",
+      "filePath": "R/spatiallagmodel.R",
+      "summary": "Implements the spatial lag model type that computes W·y (spatially-weighted neighbor averages) at each simulation time step using contiguity-based weights from `sfdep`, with island handling and a convenience helper for building weights from sf objects.",
+      "tags": [
+        "service",
+        "data-model",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/spatiallagmodel.R:predict.spatial_lag",
+      "type": "function",
+      "name": "predict.spatial_lag",
+      "filePath": "R/spatiallagmodel.R",
+      "lineRange": [
+        81,
+        158
+      ],
+      "summary": "S3 predict method that reads the source variable at t or t-1, reorders values to match neighborhood positions, computes `sfdep::st_lag()`, handles islands, and expands results across all simulation draws.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:R/systemgraph.R",
+      "type": "file",
+      "name": "systemgraph.R",
+      "filePath": "R/systemgraph.R",
+      "summary": "Builds and queries the igraph dependency graph for the simulation system: extracts edges from formula ASTs, performs topological sorting for execution order, computes required history depths for efficient data subsetting, and provides `get_independent_models()`.",
+      "tags": [
+        "service",
+        "utility",
+        "middleware"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemgraph.R:get_execution_order",
+      "type": "function",
+      "name": "get_execution_order",
+      "filePath": "R/systemgraph.R",
+      "lineRange": [
+        23,
+        51
+      ],
+      "summary": "Topologically sorts the model dependency graph, placing lagged inputs and exogenous variables first then sorting the endogenous subgraph, with cycle detection for same-period circular dependencies.",
+      "tags": [
+        "api-handler",
+        "service"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemgraph.R:update_dependency_graph",
+      "type": "function",
+      "name": "update_dependency_graph",
+      "filePath": "R/systemgraph.R",
+      "lineRange": [
+        188,
+        213
+      ],
+      "summary": "Adds a model's dependency vertices and directed edges (input -> outcome) to an igraph dependency graph, handling both lagged and same-period inputs.",
+      "tags": [
+        "utility",
+        "service"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemgraph.R:parse_formula",
+      "type": "function",
+      "name": "parse_formula",
+      "filePath": "R/systemgraph.R",
+      "lineRange": [
+        151,
+        178
+      ],
+      "summary": "Extracts dependency edges, vertices, and the outcome variable from a model's formula, handling both dependent (LHS outcome) and independent (exogen/parametric) model families.",
+      "tags": [
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/systemsim.R",
+      "type": "file",
+      "name": "systemsim.R",
+      "filePath": "R/systemsim.R",
+      "summary": "Core simulation engine implementing the three-phase endogenr pipeline: setup_system() builds the dependency graph and simulation grid, fit_system() estimates model coefficient draws in parallel, and simulate_system() runs the dynamic forward simulation. Also provides get_accuracy(), sim_to_dist(), and plotsim() for post-processing.",
+      "tags": [
+        "simulation",
+        "entry-point",
+        "service",
+        "parallel"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses data.table by-reference updates (`:=`) for in-place simulation step dispatch, and future.apply for parallelism. The sliding-window mode stores a per-window fit grid that is stochastically mixed at predict time."
+    },
+    {
+      "id": "function:R/systemsim.R:prepare_simulation_data",
+      "type": "function",
+      "name": "prepare_simulation_data",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        13,
+        50
+      ],
+      "summary": "Constructs the full CJ (cross-join) simulation grid of (unit x time x sim), merges in training data, and sorts by (unit, sim, time) so that positional lags work correctly.",
+      "tags": [
+        "simulation",
+        "data-model",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemsim.R:process_independent_models",
+      "type": "function",
+      "name": "process_independent_models",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        63,
+        92
+      ],
+      "summary": "Iterates over independent model specifications (e.g. exogenous, parametric-distribution, univariate fable) and populates their forecast columns into the simulation data.table by reference before the dynamic loop runs.",
+      "tags": [
+        "simulation",
+        "middleware"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemsim.R:process_dependent_models",
+      "type": "function",
+      "name": "process_dependent_models",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        110,
+        142
+      ],
+      "summary": "Executes the dynamic simulation loop: for each forecast time step and each model in topological execution order, calls predict() and writes results back into the simulation grid. Supports sliding-window schedules for per-step model switching.",
+      "tags": [
+        "simulation",
+        "middleware",
+        "event-handler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemsim.R:setup_system",
+      "type": "function",
+      "name": "setup_system",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        223,
+        283
+      ],
+      "summary": "Validates the panel and model system, builds the dependency graph from model specs (without fitting), computes topological execution order, and prepares the simulation grid. Returns an endogenr_system_setup object to pass to fit_system().",
+      "tags": [
+        "entry-point",
+        "factory",
+        "validation",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemsim.R:.fit_spec",
+      "type": "function",
+      "name": ".fit_spec",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        315,
+        328
+      ],
+      "summary": "Dispatches a single model spec to fit_model() with the correct arguments for its type, reading shared training/forecast data from the system setup object.",
+      "tags": [
+        "factory",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/systemsim.R:.fit_window_grid",
+      "type": "function",
+      "name": ".fit_window_grid",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        368,
+        416
+      ],
+      "summary": "Fits refit specs on a deterministic grid of training window anchors (used by sliding-window mode of fit_system), parallelised over windows via future.apply. Returns a per-spec list of per-window lists of fitted models.",
+      "tags": [
+        "simulation",
+        "parallel",
+        "factory"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemsim.R:fit_system",
+      "type": "function",
+      "name": "fit_system",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        486,
+        614
+      ],
+      "summary": "Fits the model system set up by setup_system() and stores nsim coefficient draws. Supports random-window and sliding-window (rolling/expanding) fitting modes, with parallel execution via the future package.",
+      "tags": [
+        "entry-point",
+        "factory",
+        "simulation",
+        "parallel"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemsim.R:.window_weight_matrix",
+      "type": "function",
+      "name": ".window_weight_matrix",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        634,
+        692
+      ],
+      "summary": "Builds a horizon x n_window row-normalised probability matrix controlling which training window is used at each forecast step under sliding-window policies (latest, equal, or decay).",
+      "tags": [
+        "utility",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemsim.R:simulate_system",
+      "type": "function",
+      "name": "simulate_system",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        771,
+        915
+      ],
+      "summary": "Runs the dynamic simulation using stored coefficient draws from fit_system(). Dispatches independent then dependent models per outer sim in parallel, binds results, and stamps panel_unit/panel_time attributes on the output data.table.",
+      "tags": [
+        "entry-point",
+        "simulation",
+        "parallel"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemsim.R:sim_to_dist",
+      "type": "function",
+      "name": "sim_to_dist",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        932,
+        946
+      ],
+      "summary": "Groups simulation results by (unit, time) and collapses each output variable into a list-column of draws per cell, producing a nested distribution representation.",
+      "tags": [
+        "utility",
+        "serialization",
+        "simulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/systemsim.R:.score_draws",
+      "type": "function",
+      "name": ".score_draws",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        952,
+        972
+      ],
+      "summary": "Internal NA-safe scoring kernel that computes CRPS (via scoringRules::crps_sample), MAE, and Winkler scores for a list of draw vectors against a truth vector.",
+      "tags": [
+        "utility",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/systemsim.R:get_accuracy",
+      "type": "function",
+      "name": "get_accuracy",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        1007,
+        1065
+      ],
+      "summary": "Computes CRPS, MAE, and Winkler scores by comparing simulation draws against observed truth, with optional horizon column and flexible grouping. The main post-simulation accuracy evaluation function.",
+      "tags": [
+        "validation",
+        "utility",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:R/systemsim.R:plotsim",
+      "type": "function",
+      "name": "plotsim",
+      "filePath": "R/systemsim.R",
+      "lineRange": [
+        1086,
+        1144
+      ],
+      "summary": "Computes quantile ribbons (2.5%, 10%, 25%, 50%, 75%, 90%, 97.5%) from simulation draws and plots them alongside observed truth using ggplot2 with facets per unit.",
+      "tags": [
+        "utility",
+        "component"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/univariate_fable_model.R",
+      "type": "file",
+      "name": "univariate_fable_model.R",
+      "filePath": "R/univariate_fable_model.R",
+      "summary": "Implements the univariate_fable model type, wrapping fable ETS and ARIMA models as endogenr model objects that generate coherent sample paths via fabletools::generate() for use in dynamic simulation.",
+      "tags": [
+        "simulation",
+        "service",
+        "api-handler"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Uses fabletools::generate() for coherent forward trajectories rather than fabletools::forecast() to preserve autocorrelation structure through lag() references in downstream formulas."
+    },
+    {
+      "id": "function:R/univariate_fable_model.R:fit_model.univariate_fable_spec",
+      "type": "function",
+      "name": "fit_model.univariate_fable_spec",
+      "filePath": "R/univariate_fable_model.R",
+      "lineRange": [
+        27,
+        34
+      ],
+      "summary": "S3 dispatch method for fitting a univariate_fable spec; extracts method and extra args from spec$args and delegates to univariate_fable_model().",
+      "tags": [
+        "api-handler",
+        "factory"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/univariate_fable_model.R:univariate_fable_model",
+      "type": "function",
+      "name": "univariate_fable_model",
+      "filePath": "R/univariate_fable_model.R",
+      "lineRange": [
+        37,
+        70
+      ],
+      "summary": "Constructs and fits an ETS or ARIMA model via fable, converting input data to a tsibble and storing the fitted mable inside the endogenmodel list.",
+      "tags": [
+        "factory",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/univariate_fable_model.R:predict.univariate_fable",
+      "type": "function",
+      "name": "predict.univariate_fable",
+      "filePath": "R/univariate_fable_model.R",
+      "lineRange": [
+        97,
+        117
+      ],
+      "summary": "S3 predict method for univariate_fable models; draws inner_sims coherent sample paths via fabletools::generate() and returns a data.table of (unit, time, sim, outcome) predictions.",
+      "tags": [
+        "api-handler",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:R/utilities.R",
+      "type": "file",
+      "name": "utilities.R",
+      "filePath": "R/utilities.R",
+      "summary": "Provides core data preparation utilities: get_train_window() for random window sampling, inject_positional_lag() for formula environments, materialize_formula() for per-group model.frame evaluation, derive_naive_formula() and create_panel_frame() as formula helpers.",
+      "tags": [
+        "utility",
+        "formula_helpers",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/utilities.R:get_train_window",
+      "type": "function",
+      "name": "get_train_window",
+      "filePath": "R/utilities.R",
+      "lineRange": [
+        25,
+        40
+      ],
+      "summary": "Draws a random training window anchored inside [earliest_train_start, test_start - 1] with random padding on either side, guaranteed to be at least min_window steps long.",
+      "tags": [
+        "utility",
+        "simulation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/utilities.R:inject_positional_lag",
+      "type": "function",
+      "name": "inject_positional_lag",
+      "filePath": "R/utilities.R",
+      "lineRange": [
+        52,
+        60
+      ],
+      "summary": "Replaces lag() in a formula's evaluation environment with a positional shift function so that model.frame() evaluation in simulation performs within-group positional lags rather than stats::lag().",
+      "tags": [
+        "utility",
+        "formula_helpers"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/utilities.R:materialize_formula",
+      "type": "function",
+      "name": "materialize_formula",
+      "filePath": "R/utilities.R",
+      "lineRange": [
+        84,
+        114
+      ],
+      "summary": "Evaluates formula terms per group using model.frame() with positional lag injection, returning a data.table with cleaned column names. Supports a pre-cached formula and column-mapping for efficient repeated calls inside simulation loops.",
+      "tags": [
+        "utility",
+        "formula_helpers",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/utilities.R:derive_naive_formula",
+      "type": "function",
+      "name": "derive_naive_formula",
+      "filePath": "R/utilities.R",
+      "lineRange": [
+        130,
+        145
+      ],
+      "summary": "Derives an lm/glm-ready formula from materialized column names by excluding key and index columns and using the positional convention of model.frame().",
+      "tags": [
+        "utility",
+        "formula_helpers"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:R/utilities.R:create_panel_frame",
+      "type": "function",
+      "name": "create_panel_frame",
+      "filePath": "R/utilities.R",
+      "lineRange": [
+        159,
+        163
+      ],
+      "summary": "Convenience wrapper combining materialize_formula() and derive_naive_formula() to produce both the materialized data.table and the naive formula in a single call.",
+      "tags": [
+        "utility",
+        "factory"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:R/validate.R",
+      "type": "file",
+      "name": "validate.R",
+      "filePath": "R/validate.R",
+      "summary": "Implements two validation functions for the endogenr simulation system: validate_panel() checks structural integrity of panel data (contiguous time, balanced units, complete initial state, sort order), and validate_system_closure() verifies the model system is closed (no unmodelled predictors, no duplicate outcomes).",
+      "tags": [
+        "validation",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/validate.R:validate_panel",
+      "type": "function",
+      "name": "validate_panel",
+      "filePath": "R/validate.R",
+      "lineRange": [
+        17,
+        94
+      ],
+      "summary": "Validates panel data against six structural requirements: required columns exist, integer time steps, contiguous time series per unit, balanced panel, complete initial state at test_start-1, and correct sort order.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:R/validate.R:validate_system_closure",
+      "type": "function",
+      "name": "validate_system_closure",
+      "filePath": "R/validate.R",
+      "lineRange": [
+        111,
+        195
+      ],
+      "summary": "Checks that every predictor variable in model formulas is produced by some model, that all formula variables exist as data columns, and that no two models share an outcome variable.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:README.Rmd",
+      "type": "file",
+      "name": "README.Rmd",
+      "filePath": "README.Rmd",
+      "summary": "R Markdown source for README.md containing live code examples demonstrating the full setup_system / fit_system / simulate_system pipeline, spatial lag usage, long-horizon comparison, and scoring/plotting.",
+      "tags": [
+        "documentation",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat.R",
+      "type": "file",
+      "name": "testthat.R",
+      "filePath": "tests/testthat.R",
+      "summary": "Standard testthat entry point that loads the package and runs the testthat test suite via test_check().",
+      "tags": [
+        "test",
+        "entry-point"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/testthat/helper-dgp.R",
+      "type": "file",
+      "name": "helper-dgp.R",
+      "filePath": "tests/testthat/helper-dgp.R",
+      "summary": "Defines four known-truth data-generating processes for behavioural tests: panel AR(1)-X, pooled cross-sectional, heteroscedastic, and common-shock DGPs that produce balanced panels compatible with setup_system().",
+      "tags": [
+        "test",
+        "utility",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/helper-skip.R",
+      "type": "file",
+      "name": "helper-skip.R",
+      "filePath": "tests/testthat/helper-skip.R",
+      "summary": "Provides test-gating helpers: slow_tests_enabled() reads the ENDOGENR_SLOW_TESTS env var, skip_if_not_slow() gates statistical tests, and skip_if_no_fable() skips fable-dependent tests when required Suggests packages are absent.",
+      "tags": [
+        "test",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/testthat/helper-stats.R",
+      "type": "file",
+      "name": "helper-stats.R",
+      "filePath": "tests/testthat/helper-stats.R",
+      "summary": "Provides statistical evaluation helpers for test assertions: empirical_coverage(), pit_values(), mean_interval_width(), crps_skill(), and replicate_seeds() for calibration and skill-score comparisons.",
+      "tags": [
+        "test",
+        "utility",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-build_model.R",
+      "type": "file",
+      "name": "test-build_model.R",
+      "filePath": "tests/testthat/test-build_model.R",
+      "summary": "Tests for build_model(), fit_model(), and new_endogenmodel(): verifies class assignment, argument capture, error handling on unknown types, and that fitting produces correctly structured model objects.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Tests R/basemodel.R via build_model/fit_model dispatch."
+    },
+    {
+      "id": "file:tests/testthat/test-coef_forecast.R",
+      "type": "file",
+      "name": "test-coef_forecast.R",
+      "filePath": "tests/testthat/test-coef_forecast.R",
+      "summary": "Tests for R/coef_forecast.R: verifies anchor grid generation, get_coefficients() contract, forecast_coefficients() output shape, and the rolling/expanding window fitting modes.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-dataflow.R",
+      "type": "file",
+      "name": "test-dataflow.R",
+      "filePath": "tests/testthat/test-dataflow.R",
+      "summary": "Pillar 1 tests covering core simulation data flow: grid shape, (unit, sim, time) sort key, topological execution order, independent-before-dependent population, and per-trajectory isolation (no cross-unit or cross-sim leakage).",
+      "tags": [
+        "test",
+        "simulation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-estimation.R",
+      "type": "file",
+      "name": "test-estimation.R",
+      "filePath": "tests/testthat/test-estimation.R",
+      "summary": "Pillar 2 tests covering model estimation: get_train_window() bounds, bootstrap mechanics for lm and glm, per-unit materialization via materialize_formula(), and get_coefficients() contract.",
+      "tags": [
+        "test",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-experiments.R",
+      "type": "file",
+      "name": "test-experiments.R",
+      "filePath": "tests/testthat/test-experiments.R",
+      "summary": "Tests for R/experiments.R covering the experiment grid simulation API: verifies parameter sweep setup, run_experiments() output structure, and comparison utilities.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/testthat/test-glm-model.R",
+      "type": "file",
+      "name": "test-glm-model.R",
+      "filePath": "tests/testthat/test-glm-model.R",
+      "summary": "Tests for the GLM response-scale dispersion fix: verifies that getpi_glm() adds family RESPONSE-scale dispersion, that a Gaussian GLM matches equivalent lm PI width, and that count/positive/proportion families produce realistic draws.",
+      "tags": [
+        "test",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-history-window.R",
+      "type": "file",
+      "name": "test-history-window.R",
+      "filePath": "tests/testthat/test-history-window.R",
+      "summary": "Tests for the composed-history defect fix: verifies that .required_history() correctly composes nested time-series depths so predict.*'s per-unit history window captures all needed lag values.",
+      "tags": [
+        "test",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-longhorizon.R",
+      "type": "file",
+      "name": "test-longhorizon.R",
+      "filePath": "tests/testthat/test-longhorizon.R",
+      "summary": "Tests for R/longhorizon.R covering the full long-horizon pipeline: create_lh_data, fit_lh_model, setup/forecast_long_horizon, and get_lh_accuracy with both model-scale and native-scale scoring.",
+      "tags": [
+        "test",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/testthat/test-panel_transform.R",
+      "type": "file",
+      "name": "test-panel_transform.R",
+      "filePath": "tests/testthat/test-panel_transform.R",
+      "summary": "Tests for R/panel_transform.R covering formula rewriting, time-series function transformations, and the panel context machinery.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-plot_estimates.R",
+      "type": "file",
+      "name": "test-plot_estimates.R",
+      "filePath": "tests/testthat/test-plot_estimates.R",
+      "summary": "Tests for R/plot_estimates.R: verifies that plot_coefficients() and related plot functions return ggplot objects and handle edge cases in fitted model structures.",
+      "tags": [
+        "test",
+        "component"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-stepwise.R",
+      "type": "file",
+      "name": "test-stepwise.R",
+      "filePath": "tests/testthat/test-stepwise.R",
+      "summary": "Pillar 4 tests for stepwise dynamic multi-horizon forecasting: exact deterministic recurrence, error propagation growth with horizon, correct model out-scoring misspecified model, spatial-lag transform correctness, and reproducibility.",
+      "tags": [
+        "test",
+        "simulation",
+        "validation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/testthat/test-systemgraph.R",
+      "type": "file",
+      "name": "test-systemgraph.R",
+      "filePath": "tests/testthat/test-systemgraph.R",
+      "summary": "Tests for R/systemgraph.R covering dependency graph construction, .max_lag_depth computation, topological execution order derivation, and cycle detection.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/testthat/test-systemsim.R",
+      "type": "file",
+      "name": "test-systemsim.R",
+      "filePath": "tests/testthat/test-systemsim.R",
+      "summary": "Comprehensive tests for R/systemsim.R covering prepare_simulation_data(), process_independent_models(), setup_system(), fit_system(), simulate_system(), sim_to_dist(), get_accuracy(), and sliding-window fitting modes.",
+      "tags": [
+        "test",
+        "simulation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/testthat/test-uncertainty.R",
+      "type": "file",
+      "name": "test-uncertainty.R",
+      "filePath": "tests/testthat/test-uncertainty.R",
+      "summary": "Pillar 3 tests pinning predictive-draw shapes and the scoring kernel, plus gated calibration and independence tests measuring coverage and PIT uniformity under broken assumptions.",
+      "tags": [
+        "test",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-univariate-fable.R",
+      "type": "file",
+      "name": "test-univariate-fable.R",
+      "filePath": "tests/testthat/test-univariate-fable.R",
+      "summary": "Tests for the fable path-coherence fix: verifies that predict.univariate_fable draws coherent sample paths via fabletools::generate() rather than independent per-horizon marginals.",
+      "tags": [
+        "test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/testthat/test-validate.R",
+      "type": "file",
+      "name": "test-validate.R",
+      "filePath": "tests/testthat/test-validate.R",
+      "summary": "Tests for R/validate.R covering validate_panel() (all six structural checks) and validate_system_closure() (duplicate outcomes, missing data columns, unmodelled predictors).",
+      "tags": [
+        "test",
+        "validation"
+      ],
+      "complexity": "complex"
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:README.md",
+      "target": "document:NEWS.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:found_issues.md",
+      "target": "document:NEWS.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:R/basemodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/basemodel.R",
+      "target": "function:R/basemodel.R:build_model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/basemodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/basemodel.R",
+      "target": "function:R/basemodel.R:build_model",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/coef_forecast.R",
+      "target": "function:R/coef_forecast.R:forecast_coefficients",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/coef_forecast.R",
+      "target": "function:R/coef_forecast.R:forecast_coefficients",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "function:R/deterministicmodel.R:predict.deterministic",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "function:R/deterministicmodel.R:predict.deterministic",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "function:R/exogenmodel.R:fit_model.exogen_spec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "function:R/exogenmodel.R:predict.exogen",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "function:R/exogenmodel.R:fit_model.exogen_spec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "function:R/exogenmodel.R:predict.exogen",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:run_experiments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:vary_model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:get_experiment_accuracy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:run_experiments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:vary_model",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "function:R/experiments.R:get_experiment_accuracy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:decay_since_event",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:time_since_event",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:intensity_decay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:decay_since_event",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:time_since_event",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/formula_helpers.R",
+      "target": "function:R/formula_helpers.R:intensity_decay",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "function:R/glmmodel.R:getpi_glm",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "function:R/glmmodel.R:predict.glm_endogenr",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "function:R/glmmodel.R:predict.glm_endogenr",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "function:R/heterolmmodel.R:predict.heterolm",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "function:R/heterolmmodel.R:predict.heterolm",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "function:R/linearmodel.R:bootstraplm",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "function:R/linearmodel.R:getpi",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "function:R/linearmodel.R:predict.linear",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "function:R/linearmodel.R:predict.linear",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:create_lh_data",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:fit_lh_model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:setup_long_horizon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:forecast_long_horizon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:get_lh_accuracy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:cv_long_horizon",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:compare_approaches",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:create_lh_data",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:fit_lh_model",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:setup_long_horizon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:forecast_long_horizon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:get_lh_accuracy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:cv_long_horizon",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/longhorizon.R:compare_approaches",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/panel_context.R",
+      "target": "function:R/panel_context.R:panel_context",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/panel_context.R",
+      "target": "function:R/panel_context.R:panel_context",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/panel_transform.R",
+      "target": "function:R/panel_transform.R:panel_materialize",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/parametric_distribution_model.R",
+      "target": "function:R/parametric_distribution_model.R:predict.parametric_distribution",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/parametric_distribution_model.R",
+      "target": "function:R/parametric_distribution_model.R:predict.parametric_distribution",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_estimates",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_coefficients",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:get_coefficients",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_coefficient_forecast",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_estimates",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_coefficients",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:get_coefficients",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "function:R/plot_estimates.R:plot_coefficient_forecast",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/spatiallagmodel.R",
+      "target": "function:R/spatiallagmodel.R:predict.spatial_lag",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/spatiallagmodel.R",
+      "target": "function:R/spatiallagmodel.R:predict.spatial_lag",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "function:R/systemgraph.R:get_execution_order",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "function:R/systemgraph.R:update_dependency_graph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "function:R/systemgraph.R:parse_formula",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "function:R/systemgraph.R:get_execution_order",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "config:DESCRIPTION",
+      "target": "file:R/basemodel.R",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:NAMESPACE",
+      "target": "file:R/basemodel.R",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:NAMESPACE",
+      "target": "file:R/systemgraph.R",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:NAMESPACE",
+      "target": "file:R/longhorizon.R",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:endogenr.Rproj",
+      "target": "config:DESCRIPTION",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "file:R/utilities.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/deterministicmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/exogenmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "file:R/utilities.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "file:R/utilities.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/heterolmmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "file:R/utilities.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/linearmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "function:R/linearmodel.R:bootstraplm",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "file:R/panel_transform.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/parametric_distribution_model.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/parametric_distribution_model.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/parametric_distribution_model.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/spatiallagmodel.R",
+      "target": "function:R/basemodel.R:new_endogenmodel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/spatiallagmodel.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/spatiallagmodel.R",
+      "target": "file:R/systemgraph.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/coef_forecast.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "file:R/coef_forecast.R",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "file:R/panel_transform.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "file:R/panel_context.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:lm_prediction_interval_test.R",
+      "target": "function:R/linearmodel.R:getpi",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/endogenr-package.R",
+      "target": "file:R/basemodel.R",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:R/endogenr-package.R",
+      "target": "file:R/coef_forecast.R",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:prepare_simulation_data",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:process_independent_models",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:process_dependent_models",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:setup_system",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:.fit_spec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:.fit_window_grid",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:fit_system",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:.window_weight_matrix",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:simulate_system",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:sim_to_dist",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:.score_draws",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:get_accuracy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:plotsim",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:setup_system",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:fit_system",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:simulate_system",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:sim_to_dist",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:get_accuracy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/systemsim.R:plotsim",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:R/validate.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:R/utilities.R",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "function:R/univariate_fable_model.R:fit_model.univariate_fable_spec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "function:R/univariate_fable_model.R:univariate_fable_model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "function:R/univariate_fable_model.R:predict.univariate_fable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "function:R/univariate_fable_model.R:fit_model.univariate_fable_spec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "function:R/univariate_fable_model.R:predict.univariate_fable",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:get_train_window",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:inject_positional_lag",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:materialize_formula",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:derive_naive_formula",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:create_panel_frame",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:get_train_window",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:inject_positional_lag",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:materialize_formula",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "function:R/utilities.R:derive_naive_formula",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/validate.R",
+      "target": "function:R/validate.R:validate_panel",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/validate.R",
+      "target": "function:R/validate.R:validate_system_closure",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:R/validate.R",
+      "target": "function:R/validate.R:validate_panel",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/validate.R",
+      "target": "function:R/validate.R:validate_system_closure",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/validate.R:validate_panel",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/validate.R:validate_system_closure",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/utilities.R:get_train_window",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "function:R/utilities.R:materialize_formula",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:README.Rmd",
+      "target": "file:R/systemsim.R",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:README.Rmd",
+      "target": "file:R/utilities.R",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:tests/testthat/test-systemsim.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/validate.R",
+      "target": "file:tests/testthat/test-validate.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:tests/testthat/test-dataflow.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/utilities.R",
+      "target": "file:tests/testthat/test-estimation.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/univariate_fable_model.R",
+      "target": "file:tests/testthat/test-univariate-fable.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/basemodel.R",
+      "target": "file:tests/testthat/test-build_model.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:tests/testthat/test-stepwise.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemsim.R",
+      "target": "file:tests/testthat/test-uncertainty.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/coef_forecast.R",
+      "target": "file:tests/testthat/test-coef_forecast.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/experiments.R",
+      "target": "file:tests/testthat/test-experiments.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/glmmodel.R",
+      "target": "file:tests/testthat/test-glm-model.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "file:tests/testthat/test-history-window.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/longhorizon.R",
+      "target": "file:tests/testthat/test-longhorizon.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/panel_transform.R",
+      "target": "file:tests/testthat/test-panel_transform.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/plot_estimates.R",
+      "target": "file:tests/testthat/test-plot_estimates.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:R/systemgraph.R",
+      "target": "file:tests/testthat/test-systemgraph.R",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:package-infrastructure",
+      "name": "Package Infrastructure",
+      "description": "R package manifest, namespace declarations, build configuration, and project settings that define the package identity and control how it is built and installed.",
+      "nodeIds": [
+        "config:DESCRIPTION",
+        "config:NAMESPACE",
+        "config:.Rbuildignore",
+        "config:.Rprofile",
+        "config:endogenr.Rproj",
+        "config:.understand-anything/.understandignore"
+      ]
+    },
+    {
+      "id": "layer:documentation",
+      "name": "Documentation",
+      "description": "Project documentation, changelog, license, the R Markdown source for the README, and in-package roxygen stubs that document the package-level API and bundled example dataset.",
+      "nodeIds": [
+        "document:LICENSE.md",
+        "document:NEWS.md",
+        "document:README.md",
+        "document:found_issues.md",
+        "file:README.Rmd",
+        "file:R/data.R",
+        "file:R/endogenr-package.R"
+      ]
+    },
+    {
+      "id": "layer:core-infrastructure",
+      "name": "Core Infrastructure",
+      "description": "Foundational building blocks shared by all other R layers: the panel_context S3 object, formula materialization, data preparation utilities, system dependency graph construction via igraph, and input validation.",
+      "nodeIds": [
+        "file:R/panel_context.R",
+        "file:R/utilities.R",
+        "file:R/validate.R",
+        "file:R/systemgraph.R",
+        "file:R/panel_transform.R",
+        "file:R/formula_helpers.R",
+        "file:R/basemodel.R"
+      ]
+    },
+    {
+      "id": "layer:model-implementations",
+      "name": "Model Implementations",
+      "description": "Concrete statistical model types — OLS, GLM, heteroscedastic LM, deterministic identity, exogenous pass-through, spatial lag, parametric distribution, and univariate ETS/ARIMA — each exposing a common S3 predict interface.",
+      "nodeIds": [
+        "file:R/linearmodel.R",
+        "file:R/glmmodel.R",
+        "file:R/heterolmmodel.R",
+        "file:R/deterministicmodel.R",
+        "file:R/exogenmodel.R",
+        "file:R/parametric_distribution_model.R",
+        "file:R/spatiallagmodel.R",
+        "file:R/univariate_fable_model.R"
+      ]
+    },
+    {
+      "id": "layer:simulation-engine",
+      "name": "Simulation Engine",
+      "description": "Core endogenous simulation orchestrator that sets up, fits, and steps multi-equation panel systems forward in time using parallel draws across groups.",
+      "nodeIds": [
+        "file:R/systemsim.R"
+      ]
+    },
+    {
+      "id": "layer:extended-apis",
+      "name": "Extended APIs",
+      "description": "Higher-level analysis pipelines built on the simulation engine: long-horizon direct forecasting, time-varying coefficient trajectory forecasting, and experiment grid execution.",
+      "nodeIds": [
+        "file:R/longhorizon.R",
+        "file:R/coef_forecast.R",
+        "file:R/experiments.R"
+      ]
+    },
+    {
+      "id": "layer:visualization",
+      "name": "Visualization",
+      "description": "Plotting helpers that render simulation output and coefficient estimates as ggplot2 graphics for diagnostic and reporting purposes.",
+      "nodeIds": [
+        "file:R/plot_estimates.R"
+      ]
+    },
+    {
+      "id": "layer:test-suite",
+      "name": "Test Suite",
+      "description": "Comprehensive testthat-based test suite covering simulation data flow, model estimation, predictive uncertainty calibration, dynamic forecasting, and all individual model and utility modules.",
+      "nodeIds": [
+        "file:tests/testthat.R",
+        "file:tests/testthat/helper-dgp.R",
+        "file:tests/testthat/helper-skip.R",
+        "file:tests/testthat/helper-stats.R",
+        "file:tests/testthat/test-build_model.R",
+        "file:tests/testthat/test-coef_forecast.R",
+        "file:tests/testthat/test-dataflow.R",
+        "file:tests/testthat/test-estimation.R",
+        "file:tests/testthat/test-experiments.R",
+        "file:tests/testthat/test-glm-model.R",
+        "file:tests/testthat/test-history-window.R",
+        "file:tests/testthat/test-longhorizon.R",
+        "file:tests/testthat/test-panel_transform.R",
+        "file:tests/testthat/test-plot_estimates.R",
+        "file:tests/testthat/test-stepwise.R",
+        "file:tests/testthat/test-systemgraph.R",
+        "file:tests/testthat/test-systemsim.R",
+        "file:tests/testthat/test-uncertainty.R",
+        "file:tests/testthat/test-univariate-fable.R",
+        "file:tests/testthat/test-validate.R",
+        "file:lm_prediction_interval_test.R"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Project Overview",
+      "description": "Start with README.md to understand what endogenr solves: simulating dynamic systems where variables feed back on each other over time in a panel-data setting. The README introduces the four-function workflow — build_model(), setup_system(), fit_system(), simulate_system() — and establishes the vocabulary (panel, model spec, simulation grid) used throughout the rest of the codebase.",
+      "nodeIds": [
+        "document:README.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Package Manifest",
+      "description": "DESCRIPTION and NAMESPACE are the two files that make endogenr an installable R package. DESCRIPTION declares all eight external dependencies (igraph, fabletools, tsibble, etc.) that the simulation engine relies on, while NAMESPACE registers every exported function and S3 method so R can find them at runtime. Reading these together tells you the package's public API surface before reading a single line of implementation code.",
+      "nodeIds": [
+        "config:DESCRIPTION",
+        "config:NAMESPACE"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Panel Context",
+      "description": "panel_context.R defines the lightest but most pervasive object in the codebase — an S3 record that simply carries the unit variable name and the time variable name. With fan-in of 12, this object is consumed by every model family, the simulation engine, the long-horizon module, and the visualization layer. Understanding it first means every subsequent file will make immediate sense.",
+      "nodeIds": [
+        "file:R/panel_context.R"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "Core Data Utilities",
+      "description": "utilities.R provides the four foundational data-preparation helpers that every model and the simulation engine share: get_train_window() slices the historical training period from a tsibble, materialize_formula() evaluates lag() calls within groups, derive_naive_formula() strips panel-aware wrappers to produce a plain lm()-compatible formula, and create_panel_frame() assembles the forward simulation grid. These functions are the glue between raw panel data and the statistical fitting step.",
+      "nodeIds": [
+        "file:R/utilities.R"
+      ]
+    },
+    {
+      "order": 5,
+      "title": "Formula Materialization",
+      "description": "panel_transform.R implements the two-stage formula materialization pipeline that separates concerns between panel-aware evaluation and pooled design matrix construction. The first stage evaluates the formula within each group (handling lag, lead, and time-decay terms correctly), and the second stage assembles the pooled design matrix that can be handed to any of the statistical backends. systemgraph.R depends on this module because it must parse formula terms to infer the dependency graph.",
+      "nodeIds": [
+        "file:R/panel_transform.R",
+        "file:R/formula_helpers.R"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "Validation Layer",
+      "description": "validate.R runs two checks at setup time, before any model is fitted. validate_panel() confirms the input tsibble has the expected key and index structure. validate_system_closure() verifies that every variable referenced on a right-hand side of any model formula is either supplied by another model or provided as exogenous input — catching missing-variable bugs before a potentially long simulation run begins.",
+      "nodeIds": [
+        "file:R/validate.R"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Dependency Graph & Execution Order",
+      "description": "systemgraph.R is where endogenr earns its 'endogenous' name. It parses every model formula, builds a directed igraph object whose nodes are variables and whose edges are 'variable A depends on variable B', and then performs a topological sort to derive the correct simulation step order. Models whose outputs feed into other models are executed first, ensuring that at every time step each model sees the freshest endogenously simulated values for its predictors.",
+      "nodeIds": [
+        "file:R/systemgraph.R"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "Base Model & Dispatcher",
+      "description": "basemodel.R defines the S3 base class that all eight model families inherit from, and build_model() is the factory dispatcher that translates a model specification string (e.g. 'linear', 'glm', 'exogen') into the correct concrete object. Every call to setup_system() passes through here, so understanding this file explains how the user-facing model spec strings map to the internal class hierarchy.",
+      "nodeIds": [
+        "file:R/basemodel.R"
+      ]
+    },
+    {
+      "order": 9,
+      "title": "Regression Model Families",
+      "description": "Four files implement the regression-based model families that share the bootstrap-interval pattern established by the linear model: linearmodel.R fits OLS with residual or wild bootstrap to produce predictive draws, glmmodel.R extends this to any GLM family with response-scale back-transformation, heterolmmodel.R wraps heterolm::hetero() for observation-specific variance, and parametric_distribution_model.R fits a parametric distribution via fitdistrplus and samples from it. Each implements the same two-method S3 contract: fit_model.<spec>() and predict.<class>().",
+      "nodeIds": [
+        "file:R/linearmodel.R",
+        "file:R/glmmodel.R",
+        "file:R/heterolmmodel.R",
+        "file:R/parametric_distribution_model.R"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "Non-Regression Model Families",
+      "description": "Three more model families cover cases where regression is not the right tool. deterministicmodel.R evaluates an I(expr) formula per group at each step with no fitting — useful for mathematical identities or exogenous transformations. exogenmodel.R is the simplest possible model: it copies pre-supplied covariate values into the simulation grid unchanged, acting as a conduit for variables driven entirely outside the system. univariate_fable_model.R wraps ETS and ARIMA via fabletools, generating coherent sample paths rather than point forecasts, and spatiallagmodel.R computes the W·y spatial lag at each step using a spatial weights matrix.",
+      "nodeIds": [
+        "file:R/deterministicmodel.R",
+        "file:R/exogenmodel.R",
+        "file:R/univariate_fable_model.R",
+        "file:R/spatiallagmodel.R"
+      ]
+    },
+    {
+      "order": 11,
+      "title": "Simulation Engine",
+      "description": "systemsim.R is the orchestrator that ties together every layer described so far. setup_system() calls validate.R and systemgraph.R to build a dependency-ordered list of model specs and an empty simulation grid. fit_system() iterates that list, calling each model's fit_model() method on the training window returned by utilities.R. simulate_system() then steps forward through time, calling each model's predict() method in topological order at every period and writing draws into the grid. get_accuracy() and sim_to_dist() convert the grid of raw draws into fabletools distributional objects for CRPS scoring.",
+      "nodeIds": [
+        "file:R/systemsim.R"
+      ]
+    },
+    {
+      "order": 12,
+      "title": "Extended APIs",
+      "description": "Three files extend the core pipeline with alternative forecasting paradigms. longhorizon.R implements direct h-step-ahead forecasting by substituting lead(outcome, h) as the training target, avoiding the compounding errors of iterated one-step simulation. coef_forecast.R projects time-varying coefficients as Gaussian random walks, letting the model adapt to structural change. experiments.R wraps the entire three-phase pipeline in a grid-search harness with optional parallelism, making it easy to compare model specifications across multiple hyperparameter settings.",
+      "nodeIds": [
+        "file:R/longhorizon.R",
+        "file:R/coef_forecast.R",
+        "file:R/experiments.R"
+      ]
+    },
+    {
+      "order": 13,
+      "title": "Visualization Helpers",
+      "description": "plot_estimates.R provides four ggplot2-based helpers that make simulation output interpretable: plot_estimates() shows fan-chart uncertainty bands over simulated trajectories, plot_coefficients() displays model coefficients with confidence intervals, compare_approaches() overlays multiple forecast methods for direct comparison, and plot_coefficient_forecast() visualises the Gaussian random-walk coefficient projections from coef_forecast.R. Because it calls coef_forecast.R directly, it sits at the top of the dependency graph — downstream of all other layers.",
+      "nodeIds": [
+        "file:R/plot_estimates.R"
+      ]
+    },
+    {
+      "order": 14,
+      "title": "Test Suite & DGP Factories",
+      "description": "The test suite is built around known-truth data-generating processes defined in helper-dgp.R: four factories produce synthetic panel datasets with known AR(1)-X, pooled cross-sectional, heteroscedastic, and common-shock dynamics. test-systemsim.R then runs the full three-phase pipeline against these DGPs across four behavioural pillars — data-flow, estimation, uncertainty, and stepwise — verifying that the simulation output recovers the known ground truth within acceptable tolerance. This approach lets the tests catch regressions in any of the model families or engine phases.",
+      "nodeIds": [
+        "file:tests/testthat/helper-dgp.R",
+        "file:tests/testthat/test-systemsim.R"
+      ]
+    }
+  ]
+}

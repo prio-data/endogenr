@@ -1,0 +1,402 @@
+{
+  "name": "endogenr",
+  "description": "An R package for dynamically simulating a set of statistical or mathematical models over a panel-data structure, scheduling model execution via a dependency network graph and using the R formula language to define deterministic, linear, distributional, and time-series model types.",
+  "languages": [
+    "markdown",
+    "r",
+    "rmd",
+    "rproj",
+    "unknown"
+  ],
+  "frameworks": [
+    "fabletools",
+    "future",
+    "igraph",
+    "testthat"
+  ],
+  "files": [
+    {
+      "path": ".Rbuildignore",
+      "language": "unknown",
+      "sizeLines": 8,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".Rprofile",
+      "language": "unknown",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 33,
+      "fileCategory": "code"
+    },
+    {
+      "path": "DESCRIPTION",
+      "language": "unknown",
+      "sizeLines": 44,
+      "fileCategory": "code"
+    },
+    {
+      "path": "endogenr.Rproj",
+      "language": "rproj",
+      "sizeLines": 23,
+      "fileCategory": "code"
+    },
+    {
+      "path": "found_issues.md",
+      "language": "markdown",
+      "sizeLines": 149,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "LICENSE.md",
+      "language": "markdown",
+      "sizeLines": 21,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "lm_prediction_interval_test.R",
+      "language": "r",
+      "sizeLines": 46,
+      "fileCategory": "code"
+    },
+    {
+      "path": "NAMESPACE",
+      "language": "unknown",
+      "sizeLines": 58,
+      "fileCategory": "code"
+    },
+    {
+      "path": "NEWS.md",
+      "language": "markdown",
+      "sizeLines": 52,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "R/basemodel.R",
+      "language": "r",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/coef_forecast.R",
+      "language": "r",
+      "sizeLines": 299,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/data.R",
+      "language": "r",
+      "sizeLines": 24,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/deterministicmodel.R",
+      "language": "r",
+      "sizeLines": 77,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/endogenr-package.R",
+      "language": "r",
+      "sizeLines": 103,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/exogenmodel.R",
+      "language": "r",
+      "sizeLines": 99,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/experiments.R",
+      "language": "r",
+      "sizeLines": 459,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/formula_helpers.R",
+      "language": "r",
+      "sizeLines": 110,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/glmmodel.R",
+      "language": "r",
+      "sizeLines": 254,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/heterolmmodel.R",
+      "language": "r",
+      "sizeLines": 167,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/linearmodel.R",
+      "language": "r",
+      "sizeLines": 184,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/longhorizon.R",
+      "language": "r",
+      "sizeLines": 706,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/panel_context.R",
+      "language": "r",
+      "sizeLines": 68,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/panel_transform.R",
+      "language": "r",
+      "sizeLines": 145,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/parametric_distribution_model.R",
+      "language": "r",
+      "sizeLines": 186,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/plot_estimates.R",
+      "language": "r",
+      "sizeLines": 394,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/spatiallagmodel.R",
+      "language": "r",
+      "sizeLines": 184,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/systemgraph.R",
+      "language": "r",
+      "sizeLines": 444,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/systemsim.R",
+      "language": "r",
+      "sizeLines": 1144,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/univariate_fable_model.R",
+      "language": "r",
+      "sizeLines": 117,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/utilities.R",
+      "language": "r",
+      "sizeLines": 203,
+      "fileCategory": "code"
+    },
+    {
+      "path": "R/validate.R",
+      "language": "r",
+      "sizeLines": 195,
+      "fileCategory": "code"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 366,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.Rmd",
+      "language": "rmd",
+      "sizeLines": 307,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat.R",
+      "language": "r",
+      "sizeLines": 4,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/helper-dgp.R",
+      "language": "r",
+      "sizeLines": 86,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/helper-skip.R",
+      "language": "r",
+      "sizeLines": 27,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/helper-stats.R",
+      "language": "r",
+      "sizeLines": 62,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-build_model.R",
+      "language": "r",
+      "sizeLines": 103,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-coef_forecast.R",
+      "language": "r",
+      "sizeLines": 192,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-dataflow.R",
+      "language": "r",
+      "sizeLines": 160,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-estimation.R",
+      "language": "r",
+      "sizeLines": 185,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-experiments.R",
+      "language": "r",
+      "sizeLines": 295,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-glm-model.R",
+      "language": "r",
+      "sizeLines": 177,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-history-window.R",
+      "language": "r",
+      "sizeLines": 169,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-longhorizon.R",
+      "language": "r",
+      "sizeLines": 405,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-panel_transform.R",
+      "language": "r",
+      "sizeLines": 121,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-plot_estimates.R",
+      "language": "r",
+      "sizeLines": 136,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-stepwise.R",
+      "language": "r",
+      "sizeLines": 235,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-systemgraph.R",
+      "language": "r",
+      "sizeLines": 350,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-systemsim.R",
+      "language": "r",
+      "sizeLines": 843,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-uncertainty.R",
+      "language": "r",
+      "sizeLines": 186,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-univariate-fable.R",
+      "language": "r",
+      "sizeLines": 169,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/testthat/test-validate.R",
+      "language": "r",
+      "sizeLines": 273,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 54,
+  "filteredByIgnore": 92,
+  "estimatedComplexity": "moderate",
+  "importMap": {
+    ".Rbuildignore": [],
+    ".Rprofile": [],
+    ".understand-anything/.understandignore": [],
+    "DESCRIPTION": [],
+    "endogenr.Rproj": [],
+    "found_issues.md": [],
+    "LICENSE.md": [],
+    "lm_prediction_interval_test.R": [],
+    "NAMESPACE": [],
+    "NEWS.md": [],
+    "R/basemodel.R": [],
+    "R/coef_forecast.R": [],
+    "R/data.R": [],
+    "R/deterministicmodel.R": [],
+    "R/endogenr-package.R": [],
+    "R/exogenmodel.R": [],
+    "R/experiments.R": [],
+    "R/formula_helpers.R": [],
+    "R/glmmodel.R": [],
+    "R/heterolmmodel.R": [],
+    "R/linearmodel.R": [],
+    "R/longhorizon.R": [],
+    "R/panel_context.R": [],
+    "R/panel_transform.R": [],
+    "R/parametric_distribution_model.R": [],
+    "R/plot_estimates.R": [],
+    "R/spatiallagmodel.R": [],
+    "R/systemgraph.R": [],
+    "R/systemsim.R": [],
+    "R/univariate_fable_model.R": [],
+    "R/utilities.R": [],
+    "R/validate.R": [],
+    "README.md": [],
+    "README.Rmd": [],
+    "tests/testthat.R": [],
+    "tests/testthat/helper-dgp.R": [],
+    "tests/testthat/helper-skip.R": [],
+    "tests/testthat/helper-stats.R": [],
+    "tests/testthat/test-build_model.R": [],
+    "tests/testthat/test-coef_forecast.R": [],
+    "tests/testthat/test-dataflow.R": [],
+    "tests/testthat/test-estimation.R": [],
+    "tests/testthat/test-experiments.R": [],
+    "tests/testthat/test-glm-model.R": [],
+    "tests/testthat/test-history-window.R": [],
+    "tests/testthat/test-longhorizon.R": [],
+    "tests/testthat/test-panel_transform.R": [],
+    "tests/testthat/test-plot_estimates.R": [],
+    "tests/testthat/test-stepwise.R": [],
+    "tests/testthat/test-systemgraph.R": [],
+    "tests/testthat/test-systemsim.R": [],
+    "tests/testthat/test-uncertainty.R": [],
+    "tests/testthat/test-univariate-fable.R": [],
+    "tests/testthat/test-validate.R": []
+  }
+}
