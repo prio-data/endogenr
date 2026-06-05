@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "396edf082aeef9dddb2d212ac7ed1777cce15585",
-  "generatedAt": "2026-06-05T07:24:47.620Z",
+  "gitCommitHash": "cec19b3e47943645b9864ba371f9fdd56aee54b3",
+  "generatedAt": "2026-06-05T16:27:57.364Z",
   "files": {
     ".Rbuildignore": {
       "filePath": ".Rbuildignore",
@@ -43,26 +43,6 @@
       "totalLines": 45,
       "hasStructuralAnalysis": false
     },
-    "endogenr.Rproj": {
-      "filePath": "endogenr.Rproj",
-      "contentHash": "79e82feacaa54babe801d50689d8225c3d08417dd33cc4ec277e066a337c95ee",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 24,
-      "hasStructuralAnalysis": false
-    },
-    "found_issues.md": {
-      "filePath": "found_issues.md",
-      "contentHash": "8060feff9840cc68bc10cd6b68bdda8b069bdb726bf528542c103a972d995bb0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 150,
-      "hasStructuralAnalysis": true
-    },
     "LICENSE.md": {
       "filePath": "LICENSE.md",
       "contentHash": "3ccc478a8a968441ae330600471755a7f5f8713b157150647853cb0fb9df438f",
@@ -72,16 +52,6 @@
       "exports": [],
       "totalLines": 22,
       "hasStructuralAnalysis": true
-    },
-    "lm_prediction_interval_test.R": {
-      "filePath": "lm_prediction_interval_test.R",
-      "contentHash": "7a27338d3eb9d978562610898f874a8a19ec8d29bb2f98e02da36082c7cfcd97",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 47,
-      "hasStructuralAnalysis": false
     },
     "NAMESPACE": {
       "filePath": "NAMESPACE",
@@ -95,12 +65,12 @@
     },
     "NEWS.md": {
       "filePath": "NEWS.md",
-      "contentHash": "6476968a95f89fa2d7b30152318867f52195f945be29c8408c6812e07bf3df00",
+      "contentHash": "f4ce3068d49f6410cfd6a932efcf5ec36d1d62c402cbac81d8b72622d1030efc",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 53,
+      "totalLines": 115,
       "hasStructuralAnalysis": true
     },
     "R/basemodel.R": {
@@ -135,12 +105,12 @@
     },
     "R/deterministicmodel.R": {
       "filePath": "R/deterministicmodel.R",
-      "contentHash": "d12de00f57be56ed32a84523eb72740f98a32b641a83aab28f1f9eb7870dc877",
+      "contentHash": "d8a1699955a717606cc6aae657623fd29b06f78ebc068de4f1903e3c5a5b7d49",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 78,
+      "totalLines": 76,
       "hasStructuralAnalysis": false
     },
     "R/endogenr-package.R": {
@@ -185,32 +155,32 @@
     },
     "R/glmmodel.R": {
       "filePath": "R/glmmodel.R",
-      "contentHash": "0af798a60cf52eb17bc6040ce54fce46a27a6f6ff3d315ec36a8a86a70979d4d",
+      "contentHash": "8e1af0911232c594dafc05c2af30d5a8ef1ff6564f3714a995d61b7d28b737f1",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 255,
+      "totalLines": 264,
       "hasStructuralAnalysis": false
     },
     "R/heterolmmodel.R": {
       "filePath": "R/heterolmmodel.R",
-      "contentHash": "e88373d590bec6335036bdc83c4114f9f907d7d7287f703a6e3317f36bcb5d2c",
+      "contentHash": "79e93d83e6ad91f853e3ef1355a5638434bbede20388c0bbe2ec23f77902c512",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 168,
+      "totalLines": 203,
       "hasStructuralAnalysis": false
     },
     "R/linearmodel.R": {
       "filePath": "R/linearmodel.R",
-      "contentHash": "e2beb9f55586d8094ef6f032115be12d515c78586087c502780856e00fb37494",
+      "contentHash": "ca9501fd96c3c79c94da719e7bc0ecdcdbd6d7fc3b9d3f8edf36516ff8eed60d",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 185,
+      "totalLines": 207,
       "hasStructuralAnalysis": false
     },
     "R/longhorizon.R": {
@@ -235,12 +205,12 @@
     },
     "R/panel_transform.R": {
       "filePath": "R/panel_transform.R",
-      "contentHash": "5c4f0a192af51728cb2e742ca6386eb7dac7c2264f8b3dcc5f86a469ec059c59",
+      "contentHash": "7d8fa75adc2cd26613ef0eb1211d0370e52a78fdfdf219500b3f19cfd8b2fa5e",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 146,
+      "totalLines": 229,
       "hasStructuralAnalysis": false
     },
     "R/parametric_distribution_model.R": {
@@ -265,22 +235,22 @@
     },
     "R/spatiallagmodel.R": {
       "filePath": "R/spatiallagmodel.R",
-      "contentHash": "9feb32ab542f1818788d70037d29ca88da4fa281417956b87fec60c18ede2d5d",
+      "contentHash": "59df5492c0ab824e90e967ba10b5fc2a7127601e99d45c4c8a5bac2bcc556358",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 185,
+      "totalLines": 196,
       "hasStructuralAnalysis": false
     },
     "R/systemgraph.R": {
       "filePath": "R/systemgraph.R",
-      "contentHash": "3b93f02e8a7214a9fca56ff12221331a0a7e21b7a28379b0d762ea80f4f633b0",
+      "contentHash": "05b0cf088f6c16968166e0e129d98fa5b4c457011adc98cc17a78940e0212c01",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 445,
+      "totalLines": 436,
       "hasStructuralAnalysis": false
     },
     "R/systemsim.R": {
@@ -305,12 +275,12 @@
     },
     "R/utilities.R": {
       "filePath": "R/utilities.R",
-      "contentHash": "4483b9cf6ad1386be5f95d32994922bf2c44f2a41b7718c9d5a32cc76f30a659",
+      "contentHash": "c91f3492b690dd662f282d890ecc52bcdcb178888fdb01bce208c16d7947e608",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 204,
+      "totalLines": 422,
       "hasStructuralAnalysis": false
     },
     "R/validate.R": {
@@ -323,6 +293,16 @@
       "totalLines": 196,
       "hasStructuralAnalysis": false
     },
+    "README.Rmd": {
+      "filePath": "README.Rmd",
+      "contentHash": "dfc0465775bfca1f1bfbd60caa638b0217b467e2b850694e4e23b2d78658bb8b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 308,
+      "hasStructuralAnalysis": false
+    },
     "README.md": {
       "filePath": "README.md",
       "contentHash": "2d68982aab861b13f5c5e8c8ef31580a767462d0fe81275371029a88c178aef3",
@@ -333,14 +313,34 @@
       "totalLines": 367,
       "hasStructuralAnalysis": true
     },
-    "README.Rmd": {
-      "filePath": "README.Rmd",
-      "contentHash": "dfc0465775bfca1f1bfbd60caa638b0217b467e2b850694e4e23b2d78658bb8b",
+    "endogenr.Rproj": {
+      "filePath": "endogenr.Rproj",
+      "contentHash": "79e82feacaa54babe801d50689d8225c3d08417dd33cc4ec277e066a337c95ee",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 308,
+      "totalLines": 24,
+      "hasStructuralAnalysis": false
+    },
+    "found_issues.md": {
+      "filePath": "found_issues.md",
+      "contentHash": "c3b6f2ded3c508bb7bbe1e5f8394676f095a4b7684af852162f2975ca1a56e6e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 129,
+      "hasStructuralAnalysis": true
+    },
+    "lm_prediction_interval_test.R": {
+      "filePath": "lm_prediction_interval_test.R",
+      "contentHash": "7a27338d3eb9d978562610898f874a8a19ec8d29bb2f98e02da36082c7cfcd97",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 47,
       "hasStructuralAnalysis": false
     },
     "tests/testthat.R": {
@@ -433,14 +433,24 @@
       "totalLines": 296,
       "hasStructuralAnalysis": false
     },
-    "tests/testthat/test-glm-model.R": {
-      "filePath": "tests/testthat/test-glm-model.R",
-      "contentHash": "117df82dbf45afec8be54a1eced894af59d49bf456ee4d6ec1705c6ac2c4dee3",
+    "tests/testthat/test-formula-interactions.R": {
+      "filePath": "tests/testthat/test-formula-interactions.R",
+      "contentHash": "9d4d9af250a067a169f4089ed9d3011bb74e66f48620b50af2662f5ed87ead73",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 178,
+      "totalLines": 244,
+      "hasStructuralAnalysis": false
+    },
+    "tests/testthat/test-glm-model.R": {
+      "filePath": "tests/testthat/test-glm-model.R",
+      "contentHash": "fcb6e4525553deb08e917ff49842447d6ed8c5bd57143309a0b4abda46f654f4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 174,
       "hasStructuralAnalysis": false
     },
     "tests/testthat/test-history-window.R": {
@@ -483,14 +493,24 @@
       "totalLines": 137,
       "hasStructuralAnalysis": false
     },
-    "tests/testthat/test-stepwise.R": {
-      "filePath": "tests/testthat/test-stepwise.R",
-      "contentHash": "af23b7410a4d477ff06d789d49e5672c98b3039c580d9bfa5f0d123d99f40087",
+    "tests/testthat/test-poly-panel-design.R": {
+      "filePath": "tests/testthat/test-poly-panel-design.R",
+      "contentHash": "48cfbbda36dfdda4f736be30686e69ac90663458372184135b2a8e7c3a1c028a",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 236,
+      "totalLines": 205,
+      "hasStructuralAnalysis": false
+    },
+    "tests/testthat/test-stepwise.R": {
+      "filePath": "tests/testthat/test-stepwise.R",
+      "contentHash": "ecfe8186e5045445f54965be05540d2b66aa50e2b20365f82f7e2baefe982358",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 319,
       "hasStructuralAnalysis": false
     },
     "tests/testthat/test-systemgraph.R": {
