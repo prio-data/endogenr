@@ -54,42 +54,52 @@ fit_model.glm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...
 #'
 #' @return An endogenmodel of class `glm_endogenr`.
 #' @keywords internal
-glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL, data = NULL, ctx = NULL, subset = NULL, ...){
+glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
+                     data = NULL, ctx = NULL, subset = NULL, ...) {
   model <- new_endogenmodel(formula)
-  model$boot <- boot
-  model$family <- family
-  model$fit_args <- rlang::list2(...)
+  model$boot      <- boot
+  model$family    <- family
+  model$fit_args  <- rlang::list2(...)
   model$independent <- FALSE
 
-  panel_frame <- create_panel_frame(model$formula, data, ctx)
-  model$naive_formula <- panel_frame$naive_formula
-  model$data <- panel_frame$data
-  model$timevar <- ctx_time(ctx)
-  model$subset <- subset
+  grp_keys <- ctx_keys(ctx)
+  timevar  <- ctx_time(ctx)
 
-  # Cache materialization helpers for fast predict (reuse from create_panel_frame)
-  model$mat_formula <- panel_frame$mat_formula
-  model$col_mapping <- panel_frame$col_mapping
+  # Stage 1: per-unit ts materialisation (same two-stage approach as linearmodel).
+  pm        <- panel_materialize(model$formula, data,
+                                 groupvar = grp_keys, timevar = timevar)
+  alias_map <- .pt_make_aliases(pm$map)
+  old <- intersect(names(alias_map), names(pm$data))
+  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  fit_formula <- .pt_alias_formula(pm$formula, alias_map)
+
+  model$ts_map       <- pm$map
+  model$pt_alias_map <- alias_map
+  model$fit_formula  <- fit_formula
+  model$data         <- pm$data
+  model$timevar      <- timevar
+  model$groupvar     <- grp_keys
+  model$subset       <- subset
 
   class(model) <- c("glm_endogenr", class(model))
 
-  model$fit <- function(formula, data, family, boot, subset, timevar){
-    if(!is.null(subset)){
+  # Stage 2: pooled GLM fit.
+  model$fit <- function(formula, data, family, boot, subset, timevar) {
+    if (!is.null(subset)) {
       data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
     }
-
-    if(!is.null(boot)){
-      fitted <- bootstrapglm(formula, data, family = family, type = boot)
+    if (!is.null(boot)) {
+      bootstrapglm(formula, data, family = family, type = boot)
     } else {
-      fitted <- stats::glm(formula, data, family = family)
+      stats::glm(formula, data, family = family)
     }
   }
 
-  model$fitted <- model$fit(model$naive_formula, model$data, model$family, model$boot, model$subset, model$timevar)
+  model$fitted <- model$fit(model$fit_formula, model$data, model$family,
+                            model$boot, model$subset, model$timevar)
 
-  model$coefs <- broom::tidy(model$fitted)
-  model$gof <- broom::glance(model$fitted)
-
+  model$coefs   <- broom::tidy(model$fitted)
+  model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
   model$required_history <- .required_history(model$formula)
   # Response-scale dispersion (estimated for gaussian/Gamma/quasi-* families;
@@ -217,30 +227,30 @@ getpi_glm <- function(glmpred, family, df, dispersion = 1, nsamples = 1){
 #' @family simulation
 #' @export
 predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
-  idx <- ctx_time(ctx)
-  grp <- ctx_unit(ctx)
+  idx      <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
 
-  # Subset to the per-unit history window the RHS actually needs
+  # Subset to the per-unit history window the RHS actually needs.
   data <- .history_subset(data, idx, t, model$required_history)
 
-  # Materialize formula (use cached helpers to skip update/inject/clean_names)
-  data <- materialize_formula(model$formula, data, ctx,
-                              .mat_formula = model$mat_formula,
-                              .col_mapping = model$col_mapping)
+  # Re-materialise ts columns per (unit, sim) group, then apply aliases.
+  env <- rlang::f_env(model$formula)
+  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env)
+  old <- intersect(names(model$pt_alias_map), names(mat))
+  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 
-  # Filter for specific time point
-  data <- data[data[[idx]] == t]
+  # Filter to the prediction time step.
+  mat <- mat[mat[[idx]] == t]
 
-  # Predict on link scale with standard errors
-  pred <- predict(model$fitted, newdata = data, type = "link", se.fit = TRUE)
+  # Predict on link scale with standard errors.
+  pred <- predict(model$fitted, newdata = mat, type = "link", se.fit = TRUE)
 
-  # Build result data.table
   result_cols <- c(all_keys, idx, model$outcome)
-  result <- data[, ..result_cols]
+  result      <- mat[, ..result_cols]
 
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome, value = model$family$linkinv(pred$fit))
+    data.table::set(result, j = model$outcome,
+                    value = model$family$linkinv(pred$fit))
   } else if (what == "pi") {
     data.table::set(result, j = model$outcome,
                     value = getpi_glm(pred, model$family, model$fitted$df.residual,

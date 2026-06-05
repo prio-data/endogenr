@@ -289,27 +289,32 @@ create_panel_frame <- function(formula, data, ctx) {
 }
 
 #' Pre-expand interaction/factor terms for heterolm via model.matrix
-#'
-#' `heterolm::hetero()` uses column-name lookups rather than R's formula
-#' algebra, so interaction terms (`a:b`) and factor dummy codes must be
-#' pre-computed as named columns. This helper runs `model.matrix` on the
-#' cleaned-label formula (which uses the already-materialized column names),
-#' adds any new columns to `mat_data` **in-place** (data.table reference
-#' semantics), and returns the flat column names for use in the heterolm
-#' formula string.
-#'
-#' @param clean_labels Character vector of cleaned term labels (from
-#'   `.clean_term_labels()`). May include interaction labels like `"a:b"`.
-#' @param mat_data A data.table, modified in-place by reference.
-#'
-#' @return A list with:
-#'   - `col_names`: flat cleaned column names (excluding intercept) to use in
-#'     the heterolm formula (e.g. `c("g_b", "x", "g_b_x")`).
-#'   - `rhs_form`: the reformulated RHS formula (for re-use in predict).
 #' @keywords internal
+#+
+#+ `heterolm::hetero()` uses column-name lookups rather than R's formula
+#+ algebra, so interaction terms (`a:b`) and factor dummy codes must be
+#+ pre-computed as named columns. This helper runs `model.matrix` on the
+#+ cleaned-label formula (which uses the already-materialized column names),
+#+ adds any new columns to `mat_data` **in-place** (data.table reference
+#+ semantics), and returns the flat column names for use in the heterolm
+#+ formula string, plus the terms object and xlevels from the training
+#+ model.frame so that predict time can reproduce the same basis (poly,
+#+ factor contrasts, splines) coherently.
+#+
+#+ @param clean_labels Character vector of cleaned term labels (from
+#+   `.clean_term_labels()`). May include interaction labels like `"a:b"`.
+#+ @param mat_data A data.table, modified in-place by reference.
+#+
+#+ @return A list with:
+#+   - `col_names`: flat cleaned column names (excluding intercept) to use in
+#+     the heterolm formula (e.g. `c("g_b", "x", "g_b_x")`).
+#+   - `terms_obj`: the `terms` object from the training `model.frame()`,
+#+     carrying `predvars`/`xlevels` for coherent predict-time reconstruction.
+#+   - `xlevels`: factor levels from the training data (for `xlev` at predict).
+#+ @keywords internal
 .hetero_expand_terms <- function(clean_labels, mat_data) {
   if (length(clean_labels) == 0L) {
-    return(list(col_names = character(0L), rhs_form = NULL))
+    return(list(col_names = character(0L), terms_obj = NULL, xlevels = NULL))
   }
 
   rhs_form <- stats::reformulate(clean_labels)
@@ -318,27 +323,40 @@ create_panel_frame <- function(formula, data, ctx) {
   # Identify complete rows using only the predictor variables
   avail_vars <- intersect(rhs_vars, names(mat_data))
   if (length(avail_vars) == 0L) {
-    return(list(col_names = clean_labels, rhs_form = rhs_form))
+    return(list(col_names = clean_labels, terms_obj = NULL, xlevels = NULL))
   }
 
   df_pred  <- as.data.frame(mat_data[, avail_vars, with = FALSE])
   complete <- which(stats::complete.cases(df_pred))
   if (length(complete) == 0L) {
-    return(list(col_names = clean_labels, rhs_form = rhs_form))
+    return(list(col_names = clean_labels, terms_obj = NULL, xlevels = NULL))
   }
 
   df_mm <- as.data.frame(mat_data[complete, ])
+
+  # Build a model.frame to capture predvars (poly scaling, factor levels, etc.)
+  # for coherent reconstruction at predict time.
+  mf <- tryCatch(
+    stats::model.frame(rhs_form, data = df_mm, na.action = stats::na.pass),
+    error = function(e) NULL
+  )
+  if (is.null(mf)) {
+    return(list(col_names = clean_labels, terms_obj = NULL, xlevels = NULL))
+  }
+  terms_obj <- attr(mf, "terms")
+  xlevels   <- stats::.getXlevels(terms_obj, mf)
+
   mm <- tryCatch(
-    stats::model.matrix(rhs_form, data = df_mm),
+    stats::model.matrix(terms_obj, mf),
     error = function(e) NULL
   )
   if (is.null(mm)) {
-    return(list(col_names = clean_labels, rhs_form = rhs_form))
+    return(list(col_names = clean_labels, terms_obj = terms_obj, xlevels = xlevels))
   }
 
   raw_names   <- setdiff(colnames(mm), "(Intercept)")
   if (length(raw_names) == 0L) {
-    return(list(col_names = character(0L), rhs_form = rhs_form))
+    return(list(col_names = character(0L), terms_obj = terms_obj, xlevels = xlevels))
   }
   clean_names <- janitor::make_clean_names(raw_names)
 
@@ -352,5 +370,53 @@ create_panel_frame <- function(formula, data, ctx) {
     }
   }
 
-  list(col_names = clean_names, rhs_form = rhs_form)
+  list(col_names = clean_names, terms_obj = terms_obj, xlevels = xlevels)
+}
+
+#+ Expand interaction/factor terms at predict time using the stored `terms_obj`
+#+ and `xlevels` from fit time, ensuring poly/spline/factor bases are identical
+#+ to those computed during training.
+#+
+#+ Adds any new flat columns to `mat_data` in-place (data.table reference
+#+ semantics) and returns the clean column names (same contract as
+#+ `.hetero_expand_terms()`).
+#+ @keywords internal
+.hetero_expand_from_terms <- function(terms_obj, xlevels, mat_data) {
+  if (is.null(terms_obj)) return(invisible(NULL))
+  rhs_vars <- all.vars(stats::reformulate(
+    labels(terms_obj), intercept = FALSE
+  ))
+  avail_vars <- intersect(rhs_vars, names(mat_data))
+  if (length(avail_vars) == 0L) return(invisible(NULL))
+
+  df_pred  <- as.data.frame(mat_data[, avail_vars, with = FALSE])
+  complete <- which(stats::complete.cases(df_pred))
+  if (length(complete) == 0L) return(invisible(NULL))
+
+  df_mm <- as.data.frame(mat_data[complete, ])
+  mf <- tryCatch(
+    stats::model.frame(terms_obj, data = df_mm,
+                       xlev = xlevels, na.action = stats::na.pass),
+    error = function(e) NULL
+  )
+  if (is.null(mf)) return(invisible(NULL))
+
+  mm <- tryCatch(
+    stats::model.matrix(terms_obj, mf, xlev = xlevels),
+    error = function(e) NULL
+  )
+  if (is.null(mm)) return(invisible(NULL))
+
+  raw_names   <- setdiff(colnames(mm), "(Intercept)")
+  clean_names <- janitor::make_clean_names(raw_names)
+
+  for (i in seq_along(raw_names)) {
+    cn <- clean_names[[i]]
+    if (!cn %in% names(mat_data)) {
+      mat_data[, (cn) := NA_real_]
+    }
+    data.table::set(mat_data, i = complete, j = cn,
+                    value = as.numeric(mm[, raw_names[[i]]]))
+  }
+  invisible(clean_names)
 }

@@ -25,11 +25,14 @@ df$region <- factor(df$region)
 df[!complete.cases(df),]
 
 df$region <- factor(df$region)
-e1 <- gdppc_grwt ~ lag(log(gdppc))
+e1 <- gdppc_grwt ~ region*dem + lag(log(gdppc))
+
+lm(e1, data = df)$coefficients
 
 model_system <- list(
   build_model("deterministic",formula = gdppc ~ I(abs(lag(gdppc)*(1+gdppc_grwt)))),
-  build_model("linear", formula = e1, boot = "resid"),
+  build_model("heterolm", formula = e1, variance = ~ dem + yjbest, boot = "resid"),
+  #build_model("linear", formula = e1, boot = "resid"),
   build_model("exogen", formula = ~dem),
   build_model("exogen", formula = ~yjbest),
   build_model("exogen", formula = ~psecprop),
@@ -41,18 +44,18 @@ sys <- setup_system(
   models      = model_system,
   data        = df,
   train_start = 1970,
-  test_start  = 2010,
-  horizon     = 12,
+  test_start  = 2004,
+  horizon     = 20,
   groupvar    = "gwcode",
   timevar     = "year",
-  inner_sims  = 30,
-  min_window  = 20
+  inner_sims  = 20
 )
 
 start <- Sys.time()
 future::plan(future::multisession, workers = 8)
 set.seed(42)
-fit <- fit_system(sys, nsim = 32, window = "rolling")
+fit <- fit_system(sys, nsim = 32)
+#fit <- fit_system(sys, nsim = 32, window = "rolling")
 future::plan(future::sequential)
 Sys.time() - start
 
@@ -79,12 +82,12 @@ start <- Sys.time()
 future::plan(future::multisession, workers = 8)
 set.seed(42)
 progressr::with_progress({
-  res <- simulate_system(fit)
+  res <- simulate_system(fit, window_policy = "equal")
 })
 future::plan(future::sequential)
 Sys.time() - start
 
-sim_acc <- get_accuracy(res, "gdppc", df, test_start = 2010, by = "horizon")
+sim_acc <- get_accuracy(res, "gdppc", df, test_start = 2004, by = "horizon")
 plotsim(res, "gdppc", c(2, 20, 530), df) + ggplot2::facet_wrap(~gwcode, scales = "free_y")
 
 # Sliding-window simulation -------------------------------------------------
@@ -140,7 +143,7 @@ lh_setup <- endogenr::setup_long_horizon(
   boot      = "resid"
 )
 
-lh_res <- forecast_long_horizon(lh_setup, data = df, nsim = 10, inner_sims = 10)
+lh_res <- forecast_long_horizon(lh_setup, data = df, nsim = 10, inner_sims = 30)
 lh_acc <- get_lh_accuracy(lh_res, df, scale = "native", inverse = exp)
 lh_acc[,mean(crps),.(variant, horizon)]
 
@@ -165,7 +168,6 @@ compare_approaches(lh_acc,
 # results stack into one long data.table that plugs into get_experiment_accuracy().
 
 # Vary the gdppc_grwt equation: swap just the `linear` spec into the base system.
-e1 <- gdppc_grwt ~ lag(log(gdppc))
 e2 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop)
 e3 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop) + lag(dem)
 e4 <- gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop) + lag(yjbest)

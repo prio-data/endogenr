@@ -270,21 +270,12 @@ update_dependency_graph <- function(model, dependency_graph) {
   if (length(depths) == 0L) 0L else max(depths)
 }
 
-# Time-series function name sets used by .required_history(). Kept alongside
-# .pt_ts_fns (R/panel_transform.R) so the depth walk and the materialisation
-# walk recognise the same functions.
-.rh_cum_fns <- c(
-  "cumsum", "cumprod", "cummax", "cummin",
-  "decay_since_event", "time_since_event", "intensity_decay"
-)
-.rh_roll_fns <- c(
-  "rollmean", "rollmeanr", "rollmeanl",
-  "rollsum", "rollsumr", "rollsuml",
-  "rollmax", "rollmaxr", "rollmaxl",
-  "rollmedian", "rollmedianr", "rollmedianl",
-  "rollapply", "rollapplyr", "rollapplyl",
-  "frollmean", "frollsum", "frollapply", "frollmax", "frollmin"
-)
+# Time-series function name sets used by .required_history(). These are the
+# canonical registries defined in R/panel_transform.R and imported here —
+# a single source of truth shared by both the materialisation walk
+# (panel_materialize) and the history-depth / edge-extraction walk below.
+# .pt_cum_fns  — cumulative functions requiring the full prior series (Inf depth)
+# .pt_roll_fns — rolling/window functions requiring a finite window
 
 # Fetch a call argument by name (preferred) or by positional index among the
 # unnamed arguments. `pos = NULL` restricts the lookup to a named match.
@@ -342,7 +333,7 @@ update_dependency_graph <- function(model, dependency_graph) {
   fname <- .pt_call_name(expr)
   if (is.na(fname)) return(.rh_max_args(expr))
 
-  if (fname %in% .rh_cum_fns) return(Inf)
+  if (fname %in% .pt_cum_fns) return(Inf)
 
   if (fname %in% c("lag", "shift")) {
     inner <- expr[[2L]]
@@ -367,7 +358,7 @@ update_dependency_graph <- function(model, dependency_graph) {
     return(lag_n * dif_n + .req_hist_expr(inner))
   }
 
-  if (fname %in% .rh_roll_fns) {
+  if (fname %in% .pt_roll_fns) {
     inner <- expr[[2L]]
     is_f  <- startsWith(fname, "froll")
     wname <- if (grepl("apply", fname)) "width" else if (is_f) "n" else "k"

@@ -109,7 +109,7 @@ test_that("linear model: factor(unit) fixed effects fit without error", {
   # Should not error
   m <- linearmodel(y ~ factor(unit) + x, data = dt, ctx = ctx)
   expect_true(!is.null(m$fitted))
-  expect_true(any(grepl("factor_unit", m$coefs$term)))
+  expect_true(any(grepl("factor\\(unit\\)", m$coefs$term)))
 })
 
 test_that("linear model: factor(unit)*x interaction fits and includes cross terms", {
@@ -126,7 +126,8 @@ test_that("linear model: factor(unit)*x interaction fits and includes cross term
 
   expect_true(!is.null(m$fitted))
   # At least one interaction term present
-  expect_true(any(grepl("factor_unit.*:x|x:factor_unit", m$coefs$term)))
+  expect_true(any(grepl("factor\\(unit\\)\\d+:x|x:factor\\(unit\\)\\d+",
+                         m$coefs$term)))
 })
 
 test_that("factor(unit) coefs match base lm on same data", {
@@ -162,7 +163,7 @@ test_that("glm model: y ~ g*x preserves g:x interaction", {
 
   ctx  <- panel_context(unit = "unit", time = "time")
   m    <- glmmodel(y ~ g * x, family = stats::gaussian(), data = dt, ctx = ctx)
-  labs <- labels(stats::terms(m$naive_formula))
+  labs <- labels(stats::terms(m$fit_formula))
   expect_true(any(grepl(":", labs)), info = "interaction term missing from naive_formula")
 
   base_glm <- stats::glm(y ~ g * x, data = dt, family = stats::gaussian())

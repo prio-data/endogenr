@@ -14,16 +14,36 @@
 # splines, interactions and `-1` are all resolved correctly on the pooled data
 # and reproduced by `predict.lm` via its `predvars`/`xlevels`.
 
+# Cumulative time-series functions: require the entire prior series (depth Inf).
+# Exported as `.pt_cum_fns` so systemgraph.R can import a single canonical list.
+.pt_cum_fns <- c(
+  "cumsum", "cumprod", "cummax", "cummin",
+  "decay_since_event", "time_since_event", "intensity_decay"
+)
+
+# Rolling/window time-series functions: require a finite window of history.
+# Includes all zoo/data.table roll* variants. Exported as `.pt_roll_fns` so
+# systemgraph.R can import the canonical list (replaces .rh_roll_fns there).
+.pt_roll_fns <- c(
+  "rollmean", "rollmeanr", "rollmeanl",
+  "rollsum",  "rollsumr",  "rollsuml",
+  "rollmax",  "rollmaxr",  "rollmaxl",
+  "rollmedian", "rollmedianr", "rollmedianl",
+  "rollapply",  "rollapplyr",  "rollapplyl",
+  "frollmean", "frollsum", "frollapply", "frollmax", "frollmin"
+)
+
 # Time-series functions: extracted to a per-group `.pt#` column. Matched by
 # bare name or `pkg::fn`. The whole call (e.g. the entire `lag(...)`) is
 # materialised, so anything wrapped in one is always evaluated within group.
-# Callers may extend this set per fit via the `ts_fns` argument of
-# panel_materialize() to register custom within-group functions.
+# This is the single canonical registry — consumed by both panel_materialize()
+# and systemgraph.R (.required_history / edges).  Callers may extend this set
+# per fit via the `ts_fns` argument of panel_materialize().
 .pt_ts_fns <- c(
   "lag", "lead", "lead_horizon", "shift",
-  "rollmean", "rollsum", "rollapply", "frollmean", "frollsum", "frollapply",
-  "cumsum", "cumprod", "cummax", "cummin", "diff",
-  "decay_since_event", "time_since_event", "intensity_decay"
+  .pt_roll_fns,
+  .pt_cum_fns,
+  "diff"
 )
 
 # Design operators: NOT extracted. The call head is kept and its arguments are
@@ -142,4 +162,67 @@ panel_materialize <- function(formula, data, groupvar, timevar,
   mat <- .apply_ts_map(state$map, data, groupvar, timevar, env)
 
   list(data = mat, formula = rewritten, map = state$map)
+}
+
+# Build readable alias names for a ts_map: converts the deparsed source
+# expression for each `.pt#` entry to a janitor-cleaned column name.
+# Returns a named character vector `{".pt#" -> "lag_x"}`.
+.pt_make_aliases <- function(ts_map) {
+  if (length(ts_map) == 0L) return(stats::setNames(character(0L), character(0L)))
+  exprs <- vapply(ts_map, deparse, character(1L), width.cutoff = 200L)
+  dummy_df  <- stats::setNames(
+    as.data.frame(rep(list(1L), length(exprs)), check.names = FALSE),
+    exprs
+  )
+  raw_aliases <- names(janitor::clean_names(dummy_df))
+  aliases     <- make.unique(raw_aliases, sep = "_")
+  stats::setNames(aliases, names(ts_map))
+}
+
+# Recursively substitute `.pt#` symbols in a formula with their readable aliases.
+.pt_alias_formula <- function(formula, alias_map) {
+  if (length(alias_map) == 0L) return(formula)
+  sub_pt <- function(expr) {
+    if (is.symbol(expr)) {
+      nm <- as.character(expr)
+      if (nm %in% names(alias_map)) return(as.symbol(alias_map[[nm]]))
+      return(expr)
+    }
+    if (!is.call(expr)) return(expr)
+    as.call(lapply(as.list(expr), sub_pt))
+  }
+  lhs <- rlang::f_lhs(formula)
+  rhs <- rlang::f_rhs(formula)
+  rlang::new_formula(
+    if (is.null(lhs)) NULL else sub_pt(lhs),
+    sub_pt(rhs),
+    env = rlang::f_env(formula)
+  )
+}
+
+# Rewrite `formula` using the ts_map from a prior panel_materialize() call,
+# without materialising any data. New ts sub-expressions not already in the map
+# are extracted into additional .pt# slots (counter continues from the map
+# length). This lets sub-formulas (mean/variance sides of heterolm) share the
+# same materialization without a second `.apply_ts_map()` pass.
+.rewrite_from_map <- function(formula, ts_map, ts_fns = NULL) {
+  state <- new.env(parent = emptyenv())
+  state$ts_fns  <- union(.pt_ts_fns, ts_fns)
+  state$map     <- ts_map
+  # Invert: deparse(expr) -> .pt# sym for dedup lookup
+  state$keys    <- if (length(ts_map) == 0L) {
+    list()
+  } else {
+    stats::setNames(
+      as.list(names(ts_map)),
+      vapply(ts_map, deparse, character(1L), width.cutoff = 500L)
+    )
+  }
+  state$counter <- length(ts_map)
+
+  lhs <- rlang::f_lhs(formula)
+  rhs <- rlang::f_rhs(formula)
+  new_lhs <- if (is.null(lhs)) NULL else .rewrite_panel_formula(lhs, state)
+  new_rhs <- .rewrite_panel_formula(rhs, state)
+  rlang::new_formula(new_lhs, new_rhs, env = rlang::f_env(formula))
 }

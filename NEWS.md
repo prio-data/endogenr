@@ -2,6 +2,43 @@
 
 ## Bug fixes
 
+* **`poly(dem, 2)` and other data-dependent design bases now work inside panel
+  model formulas.** Previously, `linearmodel()`, `glmmodel()`, and
+  `heterolmmodel()` evaluated the full formula per group via `model.frame()`,
+  so `poly(dem, 2)` (and any basis that needs ≥ degree+1 unique values) would
+  error with `'degree' must be less than number of unique points` whenever a
+  unit had fewer unique values than the degree — a guaranteed failure when
+  `.build_mat_cache()` probed with only 2 rows per group. The root cause:
+  data-dependent bases must be evaluated **pooled** (matching what a base
+  `lm()` on the same data produces), not per unit. The fix is a two-stage
+  approach already used by `longhorizon`: Stage 1 materialises only the true
+  within-unit time-series sub-expressions (`lag`, `diff`, `rollmean`, …) per
+  group; Stage 2 fits a pooled `lm`/`glm` on the rewritten formula, so
+  `poly()`, `bs()`, `factor()`, interactions and `-1` are all handled by base
+  R's formula machinery and reproduced coherently at predict time via
+  `predict.lm()`'s stored `predvars`/`xlevels`.
+
+* **Coherent predict-time basis for heterolm.** `predict.heterolm()` now
+  reconstructs `model.matrix()` columns using the training-time `terms` object
+  (with `predvars` and `xlevels`), ensuring polynomial/spline bases and factor
+  contrasts match those from fitting exactly.
+
+## Architecture
+
+* `R/panel_transform.R` is now the **canonical panel design layer**. The
+  time-series function registries (`lag`, rolling, cumulative, decay functions)
+  are defined once as `.pt_ts_fns`, `.pt_roll_fns`, `.pt_cum_fns` and shared
+  by both materialisation (`panel_materialize()`) and history-depth/edge
+  extraction (`systemgraph.R`). The previous `systemgraph.R`-local
+  `.rh_cum_fns` / `.rh_roll_fns` duplicates are removed.
+
+* **Naming contract.** Time-series synthetic columns (`.pt#` internal keys) are
+  now renamed to human-readable aliases — `janitor`-cleaned deparsed source
+  expressions — before the pooled fit, so coefficient names from
+  `linearmodel()` / `glmmodel()` match what base `lm()` would produce:
+  `lag(x)` → `lag_x`, `lag(log(gdppc))` → `lag_log_gdppc`. The internal
+  `.pt#` symbols never appear in `get_coefficients()` output or `$coefs`.
+
 * Formulas now preserve **interactions and full term structure** in model fits.
   Previously, `derive_naive_formula()` rebuilt the formula additively from
   materialized column names, silently dropping interaction terms (`g:x`, `g*x`).

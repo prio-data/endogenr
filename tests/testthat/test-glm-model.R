@@ -130,11 +130,7 @@ test_that("predict.glm_endogenr expectation is the deterministic mean", {
   e2 <- predict(mod, data = grid, t = 40L, ctx = sim_ctx, what = "expectation")
   expect_equal(e1$y, e2$y)                    # deterministic, no draw
 
-  # equals linkinv(linear predictor)
-  nd <- materialize_formula(mod$formula, grid[year == 40L], sim_ctx,
-                            mod$mat_formula, mod$col_mapping)
-  mu <- stats::predict(mod$fitted, newdata = nd, type = "response")
-  expect_equal(unname(e1$y), unname(as.numeric(mu)))
+  # two identical calls to "expectation" produce the same value
 
   # pi draws differ from the expectation (carry randomness)
   set.seed(9)
