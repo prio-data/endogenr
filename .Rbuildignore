@@ -4,3 +4,12 @@
 ^\.Rproj\.user$
 ^LICENSE\.md$
 ^README\.Rmd$
+^\.positai$
+^\.claude$
+^lm_prediction_interval_test\.R$
+^examples$
+^found_issues\.md$
+^HANDOFF\.md$
+^\.understand-anything$
+^data_raw$
+^package_test\.R$
