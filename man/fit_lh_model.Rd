@@ -4,13 +4,22 @@
 \alias{fit_lh_model}
 \title{Fit a long-horizon OLS model}
 \usage{
-fit_lh_model(formula, aligned_data, h, groupvar, timevar, boot = NULL)
+fit_lh_model(
+  formula,
+  aligned_data,
+  h,
+  groupvar,
+  timevar,
+  boot = NULL,
+  ts_fns = NULL
+)
 }
 \arguments{
-\item{formula}{Formula. Model specification; LHS is the transformed outcome,
-RHS uses baseline covariates (may include \code{lag()}, raw variables, etc.).}
+\item{formula}{Formula. Model specification; LHS is \code{lead_horizon(outcome)}
+(optionally transformed), RHS uses baseline covariates at the origin and may
+include \code{factor()}, interactions, \code{poly()}/splines and \code{-1}.}
 
-\item{aligned_data}{A tibble from \code{\link[=create_lh_data]{create_lh_data()}}.}
+\item{aligned_data}{A data.table from \code{\link[=create_lh_data]{create_lh_data()}}.}
 
 \item{h}{Integer. Forecast horizon (stored for bookkeeping).}
 
@@ -20,22 +29,77 @@ RHS uses baseline covariates (may include \code{lag()}, raw variables, etc.).}
 
 \item{boot}{Character or NULL. Bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}
 for standard OLS.}
+
+\item{ts_fns}{Character vector or NULL. Extra function names to treat as
+within-unit time-series functions, unioned with the built-in set (see the
+Time-series functions section). Use to register a custom within-unit
+function that you call unwrapped in the formula.}
 }
 \value{
 A list with model components for use in \code{\link[=forecast_long_horizon]{forecast_long_horizon()}}:
-\code{formula}, \code{aligned_formula}, \code{naive_formula}, \code{h}, \code{fitted}, \code{sigma},
-\code{df}, \code{fit_data}, \code{boot}.
+\code{formula} (the original formula), \code{fit_formula} (the rewritten, pooled
+formula actually fitted), \code{ts_map} (the \code{.pt#} -> time-series-expression
+map), \code{h}, \code{fitted}, \code{sigma}, \code{df}, \code{fit_data}, \code{boot}.
 }
 \description{
-Fits an ordinary least-squares model (with optional bootstrap) that predicts
-the h-step-ahead outcome from baseline covariates at time t.
+Fits a single \strong{pooled} ordinary least-squares model (with optional
+bootstrap) that predicts the h-step-ahead outcome from baseline covariates at
+the forecast origin t. One model is estimated across all units, so its
+coefficients are the average long-run effects. Cross-sectional and design
+structure is expressed through the formula language and resolved on the pooled
+data: \code{factor()} intercepts, interactions (e.g. \code{factor(region):log(gdppc)}
+for region-specific slopes), \code{poly()}/splines, and intercept suppression
+(\code{-1}) are all supported.
 }
 \details{
-The formula LHS specifies the outcome variable and its transformation, e.g.
-\code{asinh(gdppc) ~ lag(asinh(gdppc))}. Internally the LHS variable is replaced
-with \code{.target} (the column added by \code{\link[=create_lh_data]{create_lh_data()}}) so that:
+Estimation is split into two stages so that panel structure and design
+construction never collide (\code{model.matrix()} is not panel-aware):
+\itemize{
+\item \strong{Stage 1 (panel-aware).} Every maximal time-series sub-expression in the
+formula — anything wrapped in \code{lag()}, \code{diff()}, \code{cumsum()}, a rolling
+function, \code{decay_since_event()}, etc. (see the Time-series functions
+section) — is evaluated \emph{per unit} on time-ordered data and materialised
+into a synthetic column. This is the only stage that needs the panel; it is
+what makes \code{lag()} a within-unit shift rather than a pooled one.
+\item \strong{Stage 2 (pooled).} The rewritten formula is fitted with \code{lm()} /
+\code{\link[=bootstraplm]{bootstraplm()}} on the pooled data, so \code{factor} contrasts, \code{poly}/spline
+bases and interactions are built across all units and reproduced at predict
+time via \code{predict.lm()}'s stored \code{predvars}/\code{xlevels}.
+}
+
+The formula LHS must be wrapped in \code{\link[=lead_horizon]{lead_horizon()}} and names the outcome,
+optionally transformed, e.g. \code{lead_horizon(gdppc_grwt) ~ ...} or
+\code{lead_horizon(asinh(gdppc)) ~ ...}. Internally the \code{lead_horizon()} wrapper is
+stripped and the outcome variable is replaced with \code{.target} (the led column
+added by \code{\link[=create_lh_data]{create_lh_data()}}) so that:
 \itemize{
 \item LHS = transformation applied to the h-step-ahead value
-\item RHS = covariates at the baseline year t
+\item RHS = covariates at the baseline year t (write \code{lag()} only for older history)
 }
 }
+\section{Time-series functions}{
+
+The following are recognised as within-unit (panel-aware) and materialised in
+Stage 1: \code{lag}, \code{lead}, \code{lead_horizon}, \code{shift}, \code{rollmean}, \code{rollsum},
+\code{rollapply}, \code{frollmean}, \code{frollsum}, \code{frollapply}, \code{cumsum}, \code{cumprod},
+\code{cummax}, \code{cummin}, \code{diff}, \code{decay_since_event}, \code{time_since_event},
+\code{intensity_decay} (matched bare or \verb{pkg::}-qualified). A custom within-unit
+function used \emph{unwrapped} and not in this set would be evaluated pooled
+(incorrect); either wrap it in \code{lag()} (the whole call is then materialised,
+so \code{lag(rollmean(...))} is always correct), precompute it as a column, or
+register its name via \code{ts_fns}. \code{scale()} and other data-dependent functions
+that are not design operators are treated as pooled/row-wise unless they sit
+inside a time-series expression.
+}
+
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

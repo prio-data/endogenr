@@ -2,30 +2,77 @@
 % Please edit documentation in R/longhorizon.R
 \name{get_lh_accuracy}
 \alias{get_lh_accuracy}
-\title{Compute CRPS and MAE accuracy scores for long-horizon forecasts}
+\title{Compute CRPS, MAE, and Winkler accuracy scores for long-horizon forecasts}
 \usage{
-get_lh_accuracy(lh_forecasts, truth, outcome, groupvar, timevar)
+get_lh_accuracy(
+  lh_forecasts,
+  truth,
+  lh_setup = NULL,
+  scale = c("native", "model"),
+  inverse = NULL,
+  level = 50
+)
 }
 \arguments{
 \item{lh_forecasts}{Output from \code{\link[=forecast_long_horizon]{forecast_long_horizon()}} or \code{\link[=cv_long_horizon]{cv_long_horizon()}}.}
 
-\item{truth}{A tsibble with \code{groupvar} as key, \code{timevar} as index, and the
-outcome column in the same scale as the forecast draws.}
+\item{truth}{A data.frame or data.table containing the outcome column(s)
+referenced by the formulas, plus the group and time columns.}
 
-\item{outcome}{Character. Name of the outcome column in \code{truth}; must match
-the scale of the forecast draws (e.g. if draws are \code{asinh(gdppc)}, pass a
-truth tsibble that also has an \code{asinh(gdppc)} column under this name).}
+\item{lh_setup}{Optional setup object from \code{\link[=setup_long_horizon]{setup_long_horizon()}}. Supplies
+the group/time columns and the per-variant formulas. When \code{NULL}, these are
+inferred from attributes on \code{lh_forecasts}.}
 
-\item{groupvar}{Character. Group variable name.}
+\item{scale}{One of \code{"native"} or \code{"model"}. See Details.}
 
-\item{timevar}{Character. Time variable name.}
+\item{inverse}{Function, named list of functions (keyed by variant), or
+\code{NULL}. Inverse of the LHS transform applied to the draws under
+\code{scale = "native"} for variants with a non-identity LHS.}
+
+\item{level}{Numeric. Coverage level for the Winkler score (default 50).}
 }
 \value{
-A tibble with columns: \code{variant}, \code{horizon}, \code{crps}, \code{mae}.
+A data.table with columns: \code{variant}, the unit column, \code{horizon},
+\code{crps}, \code{mae}, \code{winkler}.
 }
 \description{
-Wraps draw samples in \code{\link[distributional:dist_sample]{distributional::dist_sample()}}, creates a fable, and
-uses \code{\link[fabletools:reexports]{fabletools::accuracy()}} — mirroring the pattern in \code{\link[=get_accuracy]{get_accuracy()}}.
-Output format is compatible with \code{\link[=get_accuracy]{get_accuracy()}} results (after aggregating
-by horizon) for cross-approach comparison via \code{\link[=compare_approaches]{compare_approaches()}}.
+Scores forecast draws against observed truth per \verb{(variant, unit, horizon)}
+using the same NA-safe kernel as \code{\link[=get_accuracy]{get_accuracy()}}. The output shares the
+\verb{(unit, horizon)} key with \code{get_accuracy(..., test_start = , by = )}, so the
+two approaches can be stacked directly with \code{\link[=compare_approaches]{compare_approaches()}}.
 }
+\details{
+The outcome is taken \emph{per variant} from each formula's LHS (via \code{lh_setup} or
+the \code{lh_formulas} attribute stamped by \code{\link[=forecast_long_horizon]{forecast_long_horizon()}}), so a setup
+mixing outcomes — e.g.
+\code{list(m1 = lead_horizon(gdppc) ~ ., m2 = lead_horizon(population) ~ .)} —
+is scored correctly, each variant against its own outcome. \code{truth} must
+therefore contain every outcome column referenced by the formulas.
+
+Group and time columns come from \code{lh_setup} when supplied, otherwise inferred
+from the \code{panel_unit} / \code{panel_time} attributes on \code{lh_forecasts} (then
+\code{truth}). Pass \code{lh_setup} for robustness when those attributes may have been
+dropped (e.g. after manually rebinding forecasts, as \code{\link[=cv_long_horizon]{cv_long_horizon()}} does).
+
+Forecast draws are on the \emph{modelled} scale (the formula LHS). \code{scale} controls
+the scoring scale:
+\itemize{
+\item \code{"native"} (default): score raw draws against the raw outcome. For a
+non-identity LHS (e.g. \code{asinh(gdppc)}) supply \code{inverse} (e.g. \code{sinh}) to
+back-transform the draws; with several transformed variants pass a named
+list of inverse functions keyed by variant.
+\item \code{"model"}: apply each formula's LHS transform to the truth and score on the
+modelled scale (no inverse needed).
+}
+}
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=forecast_long_horizon]{forecast_long_horizon()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

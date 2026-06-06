@@ -7,14 +7,29 @@
 process_independent_models(
   simulation_data,
   models,
+  ctx,
   test_start,
   horizon,
   inner_sims
 )
 }
 \arguments{
-\item{test_start}{}
+\item{simulation_data}{A data.table.}
+
+\item{models}{List of fitted models.}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer.}
+
+\item{horizon}{Integer.}
+
+\item{inner_sims}{Integer.}
+}
+\value{
+The simulation_data data.table, updated by reference.
 }
 \description{
 Imputes the time-independent forecasts
 }
+\keyword{internal}

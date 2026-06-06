@@ -4,21 +4,28 @@
 \alias{predict.spatial_lag}
 \title{Predict method for spatial lag models}
 \usage{
-\method{predict}{spatial_lag}(model, t, data, ...)
+\method{predict}{spatial_lag}(model, t, data, ctx, ...)
 }
 \arguments{
 \item{model}{A \code{spatial_lag} model object.}
 
 \item{t}{The current time step.}
 
-\item{data}{A tsibble with the full simulation data.}
+\item{data}{A data.table with the full simulation data.}
+
+\item{ctx}{A panel_context object.}
 
 \item{...}{Not used.}
 }
 \value{
-A tsibble keyed by the group variables with the spatial lag values at
-time \code{t}.
+A data.table with the spatial lag values at time \code{t}.
 }
 \description{
 Predict method for spatial lag models
 }
+\seealso{
+Other spatial:
+\code{\link[=fit_model.spatial_lag_spec]{fit_model.spatial_lag_spec()}},
+\code{\link[=st_weights_from_sf]{st_weights_from_sf()}}
+}
+\concept{spatial}

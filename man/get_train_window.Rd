@@ -2,13 +2,40 @@
 % Please edit documentation in R/utilities.R
 \name{get_train_window}
 \alias{get_train_window}
-\title{Draw a random time-window}
+\title{Draw a random training window}
 \usage{
 get_train_window(earliest_train_start, test_start, min_window = NULL)
 }
 \arguments{
-\item{min_window}{}
+\item{earliest_train_start}{Integer. The earliest time step that may
+appear in the training window.}
+
+\item{test_start}{Integer. The first time step in the forecast period;
+the training window always ends at \code{test_start - 1} or earlier.}
+
+\item{min_window}{Integer or \code{NULL}. Minimum window length. When \code{NULL}
+the full range \verb{[earliest_train_start, test_start - 1]} is returned
+unchanged.}
+}
+\value{
+A list with \code{start}, \code{end}, and \code{window} (the latter \code{NULL}
+when \code{min_window} is \code{NULL}).
 }
 \description{
-Draw a random time-window
+Used by \code{\link[=fit_system]{fit_system()}} to draw a random training window for \code{linear},
+\code{glm}, and \code{heterolm} models when \code{min_window} is set. The window is
+anchored inside \verb{[earliest_train_start, test_start - 1]}, with random
+(possibly zero) padding on either side, and is guaranteed to be at
+least \code{min_window} time steps long.
 }
+\examples{
+set.seed(1)
+get_train_window(1970, 2010, min_window = 10)
+}
+\seealso{
+Other build:
+\code{\link[=build_model]{build_model()}},
+\code{\link[=fit_model]{fit_model()}},
+\code{\link[=get_execution_order]{get_execution_order()}}
+}
+\concept{build}

@@ -4,18 +4,54 @@
 \alias{predict.univariate_fable}
 \title{Predict univariate fable model}
 \usage{
-\method{predict}{univariate_fable}(model, horizon, inner_sims, data, ...)
+\method{predict}{univariate_fable}(model, data, ctx, test_start, horizon, inner_sims, ...)
 }
 \arguments{
 \item{model}{a univariate_fable endogenmodel}
 
+\item{data}{A data.table (the simulation grid).}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer. Not used directly (horizon determines forecast length).}
+
 \item{horizon}{the number of future steps to predict}
 
-\item{inner_sims}{the number of inner simulations. See \code{\link[=setup_simulator]{setup_simulator()}}.}
+\item{inner_sims}{the number of inner simulations.}
 
-\item{data}{the data used in forecasting (used to gain information about group and index variables)}
+\item{...}{Ignored, accepted for S3 generic consistency.}
+}
+\value{
+A data.table with columns: unit, sim, time, outcome.
 }
 \description{
-Generates predictions from a univariate_fable endogenmodel. Only use in dynamic simulation. If you want to use
-separately, you should use fable directly!
+Generates predictions from a univariate_fable endogenmodel. Only use in
+dynamic simulation. If you want to use separately, you should use fable
+directly!
 }
+\details{
+Sample paths are drawn with \code{\link[fabletools:generate]{fabletools::generate()}}, which simulates the
+fitted ETS/ARIMA forward step by step with correlated innovations. Each
+returned \verb{(unit, sim)} series is therefore one internally-coherent
+trajectory whose temporal structure (trend persistence, autocorrelation) is
+preserved — unlike stitching independent per-horizon draws from the marginal
+\code{\link[fabletools:forecast]{fabletools::forecast()}} distributions, which destroys that structure and
+then feeds an incoherent path into the endogenous equations via \code{lag()}.
+}
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=fit_system]{fit_system()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
+\code{\link[=setup_system]{setup_system()}},
+\code{\link[=simulate_system]{simulate_system()}}
+}
+\concept{simulation}

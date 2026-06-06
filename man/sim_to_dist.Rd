@@ -2,13 +2,36 @@
 % Please edit documentation in R/systemsim.R
 \name{sim_to_dist}
 \alias{sim_to_dist}
-\title{Nest simulation results into distributional::dist_sample}
+\title{Nest simulation draws into list-columns}
 \usage{
-sim_to_dist(simulation_results, outputs, sim_var = ".sim")
+sim_to_dist(simulation_results, outputs, ctx = NULL, sim_var = ".sim")
 }
 \arguments{
-\item{sim_var}{}
+\item{simulation_results}{A data.table from \code{\link[=simulate_system]{simulate_system()}}.}
+
+\item{outputs}{Character vector of column names to nest.}
+
+\item{ctx}{A \code{panel_context} object. Optional; inferred from
+\code{simulation_results} if it carries \code{panel_unit} / \code{panel_time} attributes
+(e.g. produced by \code{\link[=simulate_system]{simulate_system()}} or \code{paneltools::as_panel()}).}
+
+\item{sim_var}{Character. Name of the simulation ID column (default ".sim").}
+}
+\value{
+A data.table with one row per (unit, time), output columns as list-columns.
 }
 \description{
-Nest simulation results into distributional::dist_sample
+Groups simulation results by (unit, time) and collapses each output variable
+into a list of draws per cell.
 }
+\seealso{
+Other postprocess:
+\code{\link[=forecast_coefficients]{forecast_coefficients()}},
+\code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficient_forecast]{plot_coefficient_forecast()}},
+\code{\link[=plot_coefficients]{plot_coefficients()}},
+\code{\link[=plot_estimates]{plot_estimates()}},
+\code{\link[=plotsim]{plotsim()}}
+}
+\concept{postprocess}

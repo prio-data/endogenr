@@ -16,9 +16,9 @@ plot_estimates(
 )
 }
 \arguments{
-\item{models}{A named list (keyed by test start year) of
-\code{\link[=setup_simulator]{setup_simulator()}} outputs. Typically loaded from a saved
-\code{models.rds} file.}
+\item{models}{A named list (keyed by test start year) of \code{\link[=fit_system]{fit_system()}}
+outputs (each carrying a representative \verb{$fitted_models}). Typically
+loaded from a saved \code{models.rds} file.}
 
 \item{outcome_labels}{An optional named character vector mapping outcome
 variable names to display labels (e.g.,
@@ -28,7 +28,7 @@ names are used.}
 \item{show_gof}{Logical. If \code{TRUE} (default), a goodness-of-fit table
 (R-squared and N) is appended to the right of the coefficient plot.}
 
-\item{gof_stats}{Character vector of columns from \code{\link[broom:reexports]{broom::glance()}} to
+\item{gof_stats}{Character vector of columns from \code{\link[broom:glance]{broom::glance()}} to
 display. Defaults to \code{c("r.squared", "nobs")}.}
 
 \item{gof_labels}{Named character vector of display labels for \code{gof_stats}.
@@ -40,7 +40,7 @@ Defaults to \code{c(r.squared = "R\\u00b2", nobs = "N")}.}
 \item{widths}{Numeric vector of length 2 controlling the relative widths of
 the coefficient plot and the goodness-of-fit table. Default \code{c(7, 1)}.}
 
-\item{base_size}{Numeric. Base font size passed to \code{\link[ggplot2:ggtheme]{ggplot2::theme_bw()}}.
+\item{base_size}{Numeric. Base font size passed to \code{\link[ggplot2:theme_bw]{ggplot2::theme_bw()}}.
 Default \code{9}.}
 }
 \value{
@@ -51,3 +51,14 @@ Creates a coefficient plot with pointranges for all fitted linear models
 in a cross-validated simulation setup, optionally appended with a table
 of goodness-of-fit statistics (R-squared and N).
 }
+\seealso{
+Other postprocess:
+\code{\link[=forecast_coefficients]{forecast_coefficients()}},
+\code{\link[=get_accuracy]{get_accuracy()}},
+\code{\link[=get_coefficients]{get_coefficients()}},
+\code{\link[=plot_coefficient_forecast]{plot_coefficient_forecast()}},
+\code{\link[=plot_coefficients]{plot_coefficients()}},
+\code{\link[=plotsim]{plotsim()}},
+\code{\link[=sim_to_dist]{sim_to_dist()}}
+}
+\concept{postprocess}

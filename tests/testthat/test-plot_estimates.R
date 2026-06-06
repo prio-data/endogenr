@@ -97,3 +97,40 @@ test_that("outcome_labels are applied correctly", {
   expect_true("GDP per capita" %in% as.character(pdata$outcome))
   expect_true("Armed conflict" %in% as.character(pdata$outcome))
 })
+
+# Integration with fit_system() outputs ------------------------------------
+
+test_that("plot_estimates works on a named list of fit_system() outputs", {
+  df <- expand.grid(gwcode = c(1, 2), year = 2000:2015)
+  set.seed(1)
+  df$x <- rnorm(nrow(df))
+  df$y <- 0.5 * df$x + rnorm(nrow(df), sd = 0.2)
+  dt <- data.table::as.data.table(df)
+
+  model_system <- list(
+    build_model("linear", formula = y ~ lag(x)),
+    build_model("exogen", formula = ~x)
+  )
+
+  fit_at <- function(test_start) {
+    setup <- setup_system(
+      models      = model_system,
+      data        = dt,
+      train_start = 2000,
+      test_start  = test_start,
+      horizon     = 1,
+      groupvar    = "gwcode",
+      timevar     = "year",
+      inner_sims  = 1
+    )
+    fit_system(setup, nsim = 1)
+  }
+
+  models <- list("2010" = fit_at(2010), "2012" = fit_at(2012))
+
+  p <- plot_estimates(models, show_gof = FALSE)
+  expect_s3_class(p, "ggplot")
+
+  pw <- plot_estimates(models, show_gof = TRUE)
+  expect_s3_class(pw, "patchwork")
+})
