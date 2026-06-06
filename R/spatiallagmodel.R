@@ -1,26 +1,41 @@
 
 #' Spatial Lag Model
 #'
-#' Computes a spatially-lagged variable (W·y) as a weighted average of a variable
-#' across neighboring geographic units at each time step. No model fitting is
-#' required — it is a pure cross-sectional transformation applied at every \code{t}.
+#' Computes a spatially-lagged variable (W·y) as a weighted average of a
+#' variable across neighbouring geographic units at each time step. No model
+#' fitting is required — it is a pure cross-sectional transformation applied
+#' at every \code{t}.
 #'
-#' Use \code{lag()} on the RHS to reference t-1 values (always available during
-#' simulation). Without \code{lag()}, the source variable is read at the current
-#' time \code{t} (valid when the source variable is already computed at \code{t}
-#' by an earlier model in the topological execution order).
+#' Use [build_model()] with `type = "spatial_lag"` and a formula of the form
+#' \code{sl_y ~ lag(y)} or \code{sl_y ~ y}. The LHS names the new spatial-lag
+#' column; the RHS names the source variable. Use `lag()` on the RHS to
+#' reference t-1 values (always available during simulation); without
+#' `lag()`, the source variable is read at the current time \code{t} (valid
+#' when that variable is already computed at \code{t} by an earlier model in
+#' the topological execution order).
 #'
-#' @param formula Formula of the form \code{sl_y ~ lag(y)} or \code{sl_y ~ y}.
-#'   The LHS names the new spatial-lag column; the RHS names the source variable.
-#' @param nb Neighbor list (e.g., from \code{sfdep::st_contiguity()}).
-#' @param wt Weights list (e.g., from \code{sfdep::st_weights()}).
-#' @param unit_ids Ordered vector of geographic unit IDs matching the positional
-#'   indexing of \code{nb} and \code{wt}.
-#' @param island_default Value assigned to units with no neighbors. Defaults to
-#'   \code{NA_real_}. Supply \code{0} or a global mean if preferred.
+#' @param spec A `spatial_lag_spec` object from [build_model()]. Must carry
+#'   `nb`, `wt`, and `unit_ids` in `spec$args`; `island_default` is
+#'   optional and defaults to \code{NA_real_}.
+#' @param ctx A [panel_context()] object (accepted for consistency; not used).
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
 #' @return An endogenmodel of class \code{c("spatial_lag", "endogenmodel")}.
+#' @family spatial
 #' @export
+#' @exportS3Method
+fit_model.spatial_lag_spec <- function(spec, ctx = NULL, ...) {
+  island_default <- if (!is.null(spec$args$island_default)) spec$args$island_default else NA_real_
+  spatial_lag_model(
+    formula = spec$formula,
+    nb = spec$args$nb,
+    wt = spec$args$wt,
+    unit_ids = spec$args$unit_ids,
+    island_default = island_default
+  )
+}
+
+#' @keywords internal
 spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_real_) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {
     stop("Package 'sfdep' is required for spatial lag models. Install it with install.packages('sfdep').")
@@ -35,14 +50,25 @@ spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_rea
   # Determine if the RHS uses lag() — func_in_term returns c(lhs_bool, rhs_bool...)
   model$use_lag <- any(func_in_term(formula, func = "lag")[-1])
 
-  # Store spatial weights
+  # Normalise no-neighbour units to the sfdep/spdep convention: a unit with no
+  # neighbours is encoded as 0L (length-1 sentinel), NOT integer(0). spdep::card()
+  # / st_lag() error on integer(0) ("zero length neighbour vector"); 0L with
+  # allow_zero = TRUE yields a finite spatial lag we then override below. Detect
+  # islands against BOTH representations so island_default is applied consistently.
+  is_island <- vapply(
+    nb,
+    function(x) length(x) == 0L || (length(x) == 1L && isTRUE(x[[1]] == 0)),
+    logical(1)
+  )
+  nb[is_island] <- list(0L)
+  wt[is_island] <- list(0)
+
+  # Store spatial weights (normalised)
   model$nb <- nb
   model$wt <- wt
   model$unit_ids <- unit_ids
   model$island_default <- if (is.null(island_default)) NA_real_ else island_default
-
-  # Pre-compute island mask (units with no neighbors)
-  model$is_island <- lengths(nb) == 0
+  model$is_island <- is_island
 
   # Set outcome name
   model$outcome <- base::all.vars(rlang::f_lhs(formula))
@@ -56,25 +82,27 @@ spatial_lag_model <- function(formula, nb, wt, unit_ids, island_default = NA_rea
 #'
 #' @param model A \code{spatial_lag} model object.
 #' @param t The current time step.
-#' @param data A tsibble with the full simulation data.
+#' @param data A data.table with the full simulation data.
+#' @param ctx A panel_context object.
 #' @param ... Not used.
 #'
-#' @return A tsibble keyed by the group variables with the spatial lag values at
-#'   time \code{t}.
+#' @return A data.table with the spatial lag values at time \code{t}.
+#' @family spatial
 #' @export
-predict.spatial_lag <- function(model, t, data, ...) {
-  grp <- tsibble::key_vars(data)
-  idx <- tsibble::index_var(data)
+predict.spatial_lag <- function(model, t, data, ctx, ...) {
+  geo_var <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  sim_var <- ctx_sim(ctx)
+  all_keys <- ctx_keys(ctx)
   outcome <- model$outcome
-
-  # Separate the geographic unit key from the simulation index key
-  geo_var <- setdiff(grp, "sim")
-  sim_var <- intersect(grp, "sim")
 
   t_source <- if (model$use_lag) t - 1L else t
 
-  source_data <- dplyr::as_tibble(data) |>
-    dplyr::filter(!!rlang::sym(idx) == t_source)
+  if (!data.table::is.data.table(data)) {
+    data <- data.table::as.data.table(as.data.frame(data))
+  }
+
+  source_data <- data[data[[idx]] == t_source]
 
   # Compute the spatial lag for one data.frame (single sim, all geo units at t_source)
   compute_sl <- function(df) {
@@ -116,22 +144,28 @@ predict.spatial_lag <- function(model, t, data, ...) {
     sl_mapped
   }
 
-  if (length(sim_var) > 0) {
+  if (!is.null(sim_var)) {
     sims <- unique(source_data[[sim_var]])
     result_list <- lapply(sims, function(s) {
-      df <- source_data[source_data[[sim_var]] == s, , drop = FALSE]
-      df[[outcome]] <- compute_sl(df)
-      df[[idx]] <- t  # assign result at time t (matters for the lagged variant)
-      df[, c(grp, idx, outcome), drop = FALSE]
+      df <- source_data[source_data[[sim_var]] == s]
+      sl_values <- compute_sl(df)
+      # Build result for this sim at time t
+      result_cols <- c(all_keys, idx)
+      out <- df[, ..result_cols]
+      data.table::set(out, j = idx, value = t)
+      data.table::set(out, j = outcome, value = sl_values)
+      out
     })
-    result <- do.call(rbind, result_list)
+    result <- data.table::rbindlist(result_list)
   } else {
-    source_data[[outcome]] <- compute_sl(source_data)
-    source_data[[idx]] <- t
-    result <- source_data[, c(grp, idx, outcome), drop = FALSE]
+    sl_values <- compute_sl(source_data)
+    result_cols <- c(all_keys, idx)
+    result <- source_data[, ..result_cols]
+    data.table::set(result, j = idx, value = t)
+    data.table::set(result, j = outcome, value = sl_values)
   }
 
-  tsibble::as_tsibble(result, key = grp, index = idx)
+  return(result)
 }
 
 
@@ -149,6 +183,7 @@ predict.spatial_lag <- function(model, t, data, ...) {
 #'   \code{\link[sfdep]{st_weights}} (e.g., \code{list(style = "W")}).
 #'
 #' @return A list with elements \code{nb}, \code{wt}, and \code{unit_ids}.
+#' @family spatial
 #' @export
 st_weights_from_sf <- function(sf_data, id_col, contiguity_args = list(), weights_args = list()) {
   if (!requireNamespace("sfdep", quietly = TRUE)) {
