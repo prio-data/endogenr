@@ -24,7 +24,7 @@
 #' get_train_window(1970, 2010, min_window = 10)
 get_train_window <- function(earliest_train_start, test_start, min_window = NULL){
   if(is.null(min_window)){
-    return(list("start" = earliest_train_start, "end" = test_start -1, "window" = NULL))
+    return(list("start" = earliest_train_start, "end" = test_start - 1L, "window" = NULL))
   }
   full_range <- test_start - earliest_train_start
   if(min_window > full_range){
@@ -34,9 +34,13 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
     stop("Train min_window must be 1 or larger")
   }
 
-  start_increment <- sample.int(full_range-min_window, 1) - 1
-  stop_decrement <- sample.int(full_range-min_window-start_increment, 1) - 1
-  return(list("start" = earliest_train_start+start_increment, "end" = test_start - stop_decrement))
+  if (min_window == full_range) {
+    return(list("start" = earliest_train_start, "end" = test_start - 1L))
+  }
+  start_increment <- sample.int(full_range - min_window, 1) - 1
+  stop_decrement  <- sample.int(full_range - min_window - start_increment, 1) - 1
+  return(list("start" = earliest_train_start + start_increment,
+              "end"   = min(test_start - 1L, test_start - stop_decrement)))
 }
 
 #' Inject a positional lag function into a formula's environment

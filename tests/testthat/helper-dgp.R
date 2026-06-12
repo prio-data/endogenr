@@ -31,6 +31,24 @@ sim_panel_ar1 <- function(units = 30L, n_time = 40L, rho = 0.6, beta = 0.4,
   dt[]
 }
 
+# Ragged-panel wrapper around sim_panel_ar1: trims per-unit spans so units may
+# enter late or exit early. `enter`/`exit` are named vectors mapping unit ->
+# first/last retained time step (names are coerced with as.integer()).
+sim_panel_ragged <- function(units = 6L, n_time = 40L, enter = NULL,
+                             exit = NULL, groupvar = "unit",
+                             timevar = "time", ...) {
+  dt <- sim_panel_ar1(units = units, n_time = n_time,
+                      groupvar = groupvar, timevar = timevar, ...)
+  u  <- dt[[groupvar]]
+  tt <- dt[[timevar]]
+  keep <- rep(TRUE, nrow(dt))
+  for (nm in names(enter)) keep <- keep & !(u == as.integer(nm) & tt < enter[[nm]])
+  for (nm in names(exit))  keep <- keep & !(u == as.integer(nm) & tt > exit[[nm]])
+  dt <- dt[keep]
+  data.table::setkeyv(dt, c(groupvar, timevar))
+  dt[]
+}
+
 # Pooled cross-sectional DGP: y = b0 + b1 * x1 + b2 * x2 + e (homoscedastic).
 # Independent rows, correct functional form -> a setting where the per-equation
 # estimator's assumptions actually hold (used as the calibration baseline).

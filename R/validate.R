@@ -1,8 +1,14 @@
 #' Validate panel data integrity for simulation
 #'
 #' Checks that the input data meets the structural requirements for the endogenr
-#' simulation system: integer time steps, contiguous series, balanced panel,
-#' complete initial state, and correct sort order.
+#' simulation system: integer time steps, contiguous series per unit, complete
+#' initial state, and correct sort order.
+#'
+#' Panels may be unbalanced: each unit's series must be contiguous with integer
+#' time steps, but units may enter late or exit early. Units with no row at
+#' `test_start - 1` are used for fitting only and are excluded from the
+#' simulation; all units present at `test_start - 1` must have a complete
+#' initial state in every modelled outcome.
 #'
 #' @param data A data.table.
 #' @param ctx A panel_context object.
@@ -51,16 +57,11 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
     }
   }
 
-  # 4. Balanced panel (all units have the same time range)
-  unit_ranges <- tapply(data[[time_col]], data[[unit_col]], range, simplify = FALSE)
-  ref_range <- unit_ranges[[1]]
-  for (u in names(unit_ranges)) {
-    if (!identical(unit_ranges[[u]], ref_range)) {
-      stop("Unbalanced panel: unit '", u, "' has time range [",
-           unit_ranges[[u]][1], ", ", unit_ranges[[u]][2],
-           "] but expected [", ref_range[1], ", ", ref_range[2], "]",
-           call. = FALSE)
-    }
+  # 4. At least one unit must have data at the forecast origin
+  origin_units <- unique(data[[unit_col]][data[[time_col]] == (test_start - 1L)])
+  if (length(origin_units) == 0L) {
+    stop("No units have data at the forecast origin (test_start - 1 = ",
+         test_start - 1L, "). Cannot simulate.", call. = FALSE)
   }
 
   # 5. Complete initial state (no NAs at test_start - 1 for model outcomes)

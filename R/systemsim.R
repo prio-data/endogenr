@@ -20,8 +20,9 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   # Training data only (data is already filtered to train_start..test_start+horizon-1)
   train <- data[data[[time_col]] < test_start]
 
-  # Create CJ grid
-  all_units <- unique(train[[unit_col]])
+  # Simulate only units present at the forecast origin; units that exit before
+  # test_start - 1 stay in the training data but get no grid rows.
+  all_units <- unique(train[[unit_col]][train[[time_col]] == (test_start - 1L)])
   all_times <- seq(train_start, test_start + horizon - 1)
 
   # Memory warning for large grids
@@ -163,8 +164,9 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #'   \item The panel is coerced to a `data.table`, sorted by
 #'     `(groupvar, timevar)`, and filtered to
 #'     `[train_start, test_start + horizon - 1]`.
-#'   \item [validate_panel()] checks contiguous integer time, balanced units,
-#'     correct sort order, and complete initial state at `test_start - 1`.
+#'   \item [validate_panel()] checks contiguous integer time per unit,
+#'     correct sort order, and complete initial state at `test_start - 1`
+#'     for units present there (panels may be unbalanced).
 #'   \item [validate_system_closure()] checks that every RHS variable is
 #'     produced either by another model or by a data column, that all
 #'     formula-referenced columns exist in `data`, and that no two models
@@ -252,6 +254,20 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   # Validate system closure (before fitting)
   validate_system_closure(specs, names(data))
 
+  # Unbalanced panels: units with no row at the forecast origin are kept for
+  # fitting but excluded from the simulation grid (see prepare_simulation_data).
+  origin_units <- unique(train[[groupvar]][train[[timevar]] == (test_start - 1L)])
+  train_only   <- setdiff(unique(train[[groupvar]]), origin_units)
+  if (length(train_only) > 0L) {
+    message(length(train_only), " unit(s) have no data at the forecast origin (",
+            test_start - 1L, ") and will be used for training only: ",
+            paste(utils::head(train_only, 10L), collapse = ", "),
+            if (length(train_only) > 10L) ", ..." else "")
+  }
+
+  # Entering units must supply the history depth the model formulas require.
+  .check_entry_depth(train, ctx, specs, test_start)
+
   # Build the dependency graph directly from the specs. parse_formula() only
   # needs the formula, the class token, and (for heterolm) the variance
   # formula, so the graph is identical to one built from fitted models without
@@ -298,6 +314,50 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
     ),
     class = "endogenr_system_setup"
   )
+}
+
+#' Check that origin units can supply the models' history depth
+#'
+#' Computes the maximum finite history depth required by any spec formula (and
+#' heterolm variance formula) via [.required_history()], and errors when a unit
+#' present at the forecast origin enters the panel too late to supply rows
+#' `[test_start - max_need, test_start - 1]` (contiguity is already validated).
+#' Infinite needs (cumulative ts functions) are ignored: they consume whatever
+#' history exists, by design (see `.history_subset()`).
+#'
+#' @param train A data.table with the training rows (`time < test_start`).
+#' @param ctx A panel_context object (unit/time, no sim).
+#' @param specs A list of model specs from [build_model()].
+#' @param test_start Integer. First forecast time step.
+#' @return Invisible NULL; throws on violation.
+#' @keywords internal
+.check_entry_depth <- function(train, ctx, specs, test_start) {
+  unit_col <- ctx_unit(ctx)
+  time_col <- ctx_time(ctx)
+
+  needs <- vapply(specs, function(spec) {
+    need <- .required_history(spec$formula)
+    if (!is.null(spec$args$variance)) {
+      need <- max(need, .required_history(spec$args$variance))
+    }
+    as.numeric(need)
+  }, numeric(1))
+  needs <- needs[is.finite(needs)]
+  max_need <- if (length(needs) > 0L) max(needs) else 0
+  if (max_need < 1) return(invisible(NULL))
+
+  origin_units <- unique(train[[unit_col]][train[[time_col]] == (test_start - 1L)])
+  entry <- vapply(origin_units,
+                  function(u) min(train[[time_col]][train[[unit_col]] == u]),
+                  numeric(1))
+  bad_units <- origin_units[entry > test_start - max_need]
+  if (length(bad_units) > 0L) {
+    stop("Unit(s) enter too late for the models' history depth (models need ",
+         max_need, " time step(s) before test_start = ", test_start, "): ",
+         paste(utils::head(bad_units, 10L), collapse = ", "),
+         ". Drop these units, reduce lag depth, or move test_start.", call. = FALSE)
+  }
+  invisible(NULL)
 }
 
 #' Build a lightweight dependency-graph node from a model spec

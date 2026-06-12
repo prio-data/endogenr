@@ -21,9 +21,8 @@ bootstraplm <- function(formula, data, type){
     stop("Unknown bootstrap type")
   }
 
-  outcome <- fitted$terms |> rlang::f_lhs() |> as.character()
-  data[[outcome]] <- fitted$fitted.values + resampled_residuals
-  stats::lm(formula, data)
+  data[[".boot_y"]] <- fitted$fitted.values + resampled_residuals
+  stats::lm(stats::update(formula, .boot_y ~ .), data)
 }
 
 
@@ -91,6 +90,11 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # are resolved across all units here; predict.lm stores predvars/xlevels for
   # coherent basis reconstruction at predict time.
   model$fit <- function(formula, data, boot, subset, timevar) {
+    # Restrict the fit data to the model's own columns (plus timevar for the
+    # window filter below), so na.omit in the bootstrap helpers drops only
+    # rows missing a model term — matching plain lm()'s estimation sample.
+    fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
+    data <- data[, ..fit_cols]
     if (!is.null(subset)) {
       data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
     }

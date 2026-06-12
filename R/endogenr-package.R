@@ -47,10 +47,6 @@
 #'   \item Hard-coded ribbon quantiles `c(.05, .5, .95)` in [plotsim()] and
 #'     `.cf_forecast_one()` (`R/coef_forecast.R`); `.cf_forecast_one()` also
 #'     requires at least 3 window anchors.
-#'   \item [get_train_window()] can nominally return `end = test_start` (a zero
-#'     random decrement). This is harmless - fitting always uses `train_data`
-#'     filtered to `time < test_start`, so the forecast origin never enters a
-#'     fit - but the `end` label is misleading (`R/utilities.R`).
 #' }
 #'
 #' @section Known issues - available generalisations:

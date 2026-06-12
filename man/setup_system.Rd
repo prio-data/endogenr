@@ -59,8 +59,9 @@ During setup the following happens, in order:
 \item The panel is coerced to a \code{data.table}, sorted by
 \verb{(groupvar, timevar)}, and filtered to
 \verb{[train_start, test_start + horizon - 1]}.
-\item \code{\link[=validate_panel]{validate_panel()}} checks contiguous integer time, balanced units,
-correct sort order, and complete initial state at \code{test_start - 1}.
+\item \code{\link[=validate_panel]{validate_panel()}} checks contiguous integer time per unit,
+correct sort order, and complete initial state at \code{test_start - 1}
+for units present there (panels may be unbalanced).
 \item \code{\link[=validate_system_closure]{validate_system_closure()}} checks that every RHS variable is
 produced either by another model or by a data column, that all
 formula-referenced columns exist in \code{data}, and that no two models

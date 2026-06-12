@@ -158,8 +158,17 @@ build_model("linear", formula = y ~ lag(x), boot = "resid")
 ### Panel and system validation
 
 * **`validate_panel(data, ctx, test_start, model_outcomes = NULL)`**
-  checks integer time steps, contiguous series per unit, balanced panel,
-  complete initial state, and sort order. Throws informative errors.
+  checks integer time steps, contiguous series per unit, origin coverage
+  (at least one unit must have data at `test_start - 1`), complete
+  initial state for units present at the origin, and sort order. Throws
+  informative errors.
+
+* **Unbalanced panels are supported.** Units may enter late or exit
+  early; each unit's series must still be contiguous. Units without
+  data at `test_start - 1` are used for training only and are excluded
+  from the simulation grid (with a message). `setup_system()` errors
+  when a unit present at the forecast origin enters too late to supply
+  the history depth the model formulas require.
 
 * **`validate_system_closure(models, data_columns)`** checks that every
   RHS predictor is produced by some model, no two models share an
@@ -214,6 +223,32 @@ build_model("linear", formula = y ~ lag(x), boot = "resid")
 ---
 
 ## Bug fixes
+
+* **Bootstrap fits now estimate on the same sample as a plain
+  regression.** `bootstraplm()`/`bootstrapglm()` previously ran
+  `na.omit()` on the entire materialized training table, so an `NA` in
+  any unrelated panel column silently dropped that row from every
+  `boot = "resid"`/`"wild"` fit — but not from a plain `lm()`/`glm()`
+  on the same window. Regression fits are now restricted to the
+  model's own columns before fitting, so the bootstrap estimation
+  sample equals `lm()`'s complete cases on the model terms. Previously
+  this could materially attenuate coefficients (e.g. conflict effects)
+  whenever unrelated columns had missing values.
+
+* **Bootstrap refits now assign the resampled response to a dedicated
+  `.boot_y` column.** Previously the resampled response was written to
+  `as.character()` of the formula LHS; a call LHS (e.g. `log(y)`) made
+  the refit error out or silently ignore the resampled response,
+  collapsing every "draw" onto the base fit (fake zero parameter
+  uncertainty). Poisson-family refits on the intentionally continuous
+  link-scale reconstruction no longer emit `non-integer` warnings
+  (muffled locally inside `bootstrapglm()`).
+
+* **`get_train_window()` now always returns `end <= test_start - 1`**
+  (the documented contract; previously a zero random decrement labelled
+  the window as ending at `test_start`) **and handles `min_window`
+  equal to the full training range** (previously `sample.int(0)`
+  errored). Random-window RNG streams shift accordingly.
 
 * **`poly(dem, 2)` and other data-dependent design bases now work inside
   panel model formulas.** Previously, `linearmodel()`, `glmmodel()`, and

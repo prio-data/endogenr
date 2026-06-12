@@ -13,17 +13,19 @@ test_that("get_train_window returns the full range when min_window is NULL", {
 })
 
 test_that("get_train_window honours min_window bounds within the training span", {
-  # NOTE: the random `end` can nominally equal test_start (a 0 decrement); this
-  # is harmless because fitting always uses train_data filtered to
-  # time < test_start, so test_start data never enters a fit. See "Known
-  # issues" in ?endogenr. The guaranteed invariants are bounds + length.
   set.seed(1)
   for (i in 1:300) {
     w <- get_train_window(1990, 2010, min_window = 8)
     expect_gte(w$start, 1990)
-    expect_lte(w$end, 2010)                  # <= test_start (label cap)
+    expect_lte(w$end, 2009)                  # always <= test_start - 1
     expect_gte(w$end - w$start + 1, 8)       # at least min_window long
   }
+})
+
+test_that("get_train_window returns the full window when min_window equals the range", {
+  w <- get_train_window(1990, 2010, min_window = 20)
+  expect_equal(w$start, 1990)
+  expect_equal(w$end, 2009)
 })
 
 test_that("get_train_window rejects an impossible min_window", {

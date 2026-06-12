@@ -22,8 +22,15 @@ Invisible TRUE if all checks pass. Throws informative errors otherwise.
 }
 \description{
 Checks that the input data meets the structural requirements for the endogenr
-simulation system: integer time steps, contiguous series, balanced panel,
-complete initial state, and correct sort order.
+simulation system: integer time steps, contiguous series per unit, complete
+initial state, and correct sort order.
+}
+\details{
+Panels may be unbalanced: each unit's series must be contiguous with integer
+time steps, but units may enter late or exit early. Units with no row at
+\code{test_start - 1} are used for fitting only and are excluded from the
+simulation; all units present at \code{test_start - 1} must have a complete
+initial state in every modelled outcome.
 }
 \seealso{
 Other validate:

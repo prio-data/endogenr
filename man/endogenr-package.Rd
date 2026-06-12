@@ -58,10 +58,6 @@ the whole prior series, so \code{.required_history()} reports \code{Inf} for the
 \item Hard-coded ribbon quantiles \code{c(.05, .5, .95)} in \code{\link[=plotsim]{plotsim()}} and
 \code{.cf_forecast_one()} (\code{R/coef_forecast.R}); \code{.cf_forecast_one()} also
 requires at least 3 window anchors.
-\item \code{\link[=get_train_window]{get_train_window()}} can nominally return \code{end = test_start} (a zero
-random decrement). This is harmless - fitting always uses \code{train_data}
-filtered to \code{time < test_start}, so the forecast origin never enters a
-fit - but the \code{end} label is misleading (\code{R/utilities.R}).
 }
 }
 

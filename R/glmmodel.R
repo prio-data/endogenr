@@ -25,9 +25,14 @@ bootstrapglm <- function(formula, data, family, type){
     stop("Unknown bootstrap type")
   }
 
-  outcome <- fitted$terms |> rlang::f_lhs() |> as.character()
-  data[[outcome]] <- family$linkinv(eta + resampled_residuals)
-  stats::glm(formula, data, family = family)
+  data[[".boot_y"]] <- family$linkinv(eta + resampled_residuals)
+  refit <- stats::update(formula, .boot_y ~ .)
+  withCallingHandlers(
+    stats::glm(refit, data, family = family),
+    warning = function(w) {
+      if (grepl("non-integer", conditionMessage(w))) invokeRestart("muffleWarning")
+    }
+  )
 }
 
 
@@ -85,6 +90,11 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
 
   # Stage 2: pooled GLM fit.
   model$fit <- function(formula, data, family, boot, subset, timevar) {
+    # Restrict the fit data to the model's own columns (plus timevar for the
+    # window filter below), so na.omit in the bootstrap helpers drops only
+    # rows missing a model term — matching plain glm()'s estimation sample.
+    fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
+    data <- data[, ..fit_cols]
     if (!is.null(subset)) {
       data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
     }

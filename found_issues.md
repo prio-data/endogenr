@@ -29,7 +29,7 @@ construction for both encodings and the all-connected no-op regression.
 
 ---
 
-## 2. `get_train_window()` can return `end = test_start` (doc/impl mismatch)
+## ~~2. `get_train_window()` can return `end = test_start` (doc/impl mismatch)~~ — **FIXED**
 
 **Where:** `R/utilities.R` lines 25–40 (docstring lines 5–6, 12 vs body lines 37–39).
 
@@ -45,18 +45,17 @@ pre-filtered to `time < test_start`, so even `end = test_start` cannot pull a
 forecast-period row into a fit. The bug is a **misleading label**, not actual
 leakage.
 
-**Suggested fix:** either cap `end` at `test_start - 1` in the body, or update
-the docstring to state that `end` is an inclusive upper bound that the
-`train_data` filter clips. (Changing the body alters the RNG stream and would
-shift existing simulations, so it is not a free change.)
-
-**Where it is already noted:** `?endogenr` "Known issues – arbitrary constants"
-and a comment in `tests/testthat/test-estimation.R`
-(`get_train_window honours min_window bounds...`).
+**Fix applied:** the body now caps the random window at the forecast origin
+(`end = min(test_start - 1L, test_start - stop_decrement)`) and returns the
+full window `[earliest_train_start, test_start - 1]` when
+`min_window == full_range` (previously `sample.int(0)` errored). The
+`?endogenr` known-issues bullet and the bound expectations in
+`tests/testthat/test-estimation.R` were updated; random-window RNG streams
+shift accordingly (the branch already declares results non-bit-identical).
 
 ---
 
-## 3. `bootstrapglm()` on count families: spurious warnings + SE inflation
+## ~~3. `bootstrapglm()` on count families: spurious warnings~~ — **warnings FIXED**; SE inflation documented
 
 **Where:** `R/glmmodel.R` (`bootstrapglm()`), exercised by `test-estimation.R`.
 
@@ -78,10 +77,13 @@ calibrated SE estimator for non-Gaussian families.
 for `linear + boot + min_window` (over-counting parameter uncertainty); it is
 documented, not fixed. The non-integer warning is a cosmetic code smell on top.
 
-**Suggested fix:** for the SE concern, prefer a parametric/cases bootstrap for
-GLMs, or document that `boot` for GLMs is indicative only. For the warning,
-suppress it locally inside `bootstrapglm()` (the continuous reconstruction is
-intentional) rather than letting it surface to users.
+**Fix applied (warnings):** `bootstrapglm()` now muffles only the
+`non-integer` warning around its refit via `withCallingHandlers()` — the
+continuous link-scale reconstruction is intentional; other warnings still
+surface. The SE-calibration concern is statistical, remains out of scope, and
+stays documented in `?endogenr` ("Known issues"): prefer a parametric/cases
+bootstrap for GLMs, or treat `boot` SEs for non-Gaussian families as
+indicative only.
 
 ---
 

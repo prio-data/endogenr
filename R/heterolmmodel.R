@@ -123,6 +123,15 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
 
   # Apply subset if provided
   fit_data <- model$data
+  # Restrict the fit data to the model's own columns (mean + variance terms,
+  # outcome, timevar) and take complete cases, so the estimation sample is
+  # "complete cases on model columns" — NAs in unrelated panel columns cannot
+  # shrink it. "1" is the intercept-only sentinel, never a column.
+  fit_cols <- unique(c(outcome_clean,
+                       setdiff(mean_col_names, "1"),
+                       setdiff(var_col_names, "1"),
+                       timevar))
+  fit_data <- stats::na.omit(fit_data[, intersect(fit_cols, names(fit_data)), with = FALSE])
   if (!is.null(subset)) {
     fit_data <- fit_data[fit_data[[timevar]] >= subset$start &
                            fit_data[[timevar]] <= subset$end]

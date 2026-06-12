@@ -54,14 +54,29 @@ test_that("validate_panel errors on gap in time series", {
   expect_error(validate_panel(dt, ctx, test_start = 2008), "Non-contiguous.*gap after time step 2004")
 })
 
-test_that("validate_panel errors on unbalanced panel", {
+test_that("validate_panel accepts late entry (unbalanced panel)", {
   dt <- make_panel()
-  # Add extra year for unit 1
-  extra <- data.table::data.table(gwcode = 1, year = 2011, x = 0, y = 0)
-  dt <- rbind(dt, extra)
-  data.table::setkeyv(dt, c("gwcode", "year"))
+  # Unit 2 enters in 2003
+  dt <- dt[!(gwcode == 2 & year < 2003)]
   ctx <- make_ctx()
-  expect_error(validate_panel(dt, ctx, test_start = 2008), "Unbalanced panel")
+  expect_true(validate_panel(dt, ctx, test_start = 2008))
+})
+
+test_that("validate_panel accepts early exit (unbalanced panel)", {
+  dt <- make_panel()
+  # Unit 2 exits after 2005; unit 1 spans the full range
+  dt <- dt[!(gwcode == 2 & year > 2005)]
+  ctx <- make_ctx()
+  expect_true(validate_panel(dt, ctx, test_start = 2008))
+})
+
+test_that("validate_panel errors when no unit covers the forecast origin", {
+  dt <- make_panel()
+  # Every unit ends before test_start - 1 = 2007
+  dt <- dt[year <= 2005]
+  ctx <- make_ctx()
+  expect_error(validate_panel(dt, ctx, test_start = 2008),
+               "No units have data at the forecast origin")
 })
 
 test_that("validate_panel errors on NA initial state", {

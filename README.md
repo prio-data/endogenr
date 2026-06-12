@@ -83,12 +83,16 @@ model_system <- list(
 
 `setup_system()` runs `validate_panel()` and `validate_system_closure()`
 on your inputs and builds the dependency graph (no models are fit yet).
-These check that the panel is balanced, time is contiguous and
-integer-valued, the initial state at `test_start - 1` has no NAs in any
-modelled outcome, and every variable referenced by a formula is either
-modelled or supplied as a column. See `?validate_panel` and
-`?validate_system_closure` if you want to run them ad-hoc on a candidate
-panel.
+These check that time is contiguous and integer-valued within each
+unit, the initial state at `test_start - 1` has no NAs in any modelled
+outcome for units present there, and every variable referenced by a
+formula is either modelled or supplied as a column. Panels may be
+unbalanced: units may enter late or exit early. Units without a row at
+`test_start - 1` are used for training only and are excluded from the
+simulation. With `factor()` terms, prefer pre-converted factor columns
+so window fits keep all levels. See `?validate_panel` and
+`?validate_system_closure` if you want to run them ad-hoc on a
+candidate panel.
 
 ``` r
 sys <- setup_system(
@@ -176,6 +180,33 @@ get_coefficients(fit)
 #> 14: -3.2365470  1.231689e-03
 #> 15: -0.9197488  3.578265e-01
 #> 16:  2.5489444  1.088676e-02
+```
+
+### Checking the fit against a plain regression
+
+The fit path is designed to match a plain pooled regression exactly.
+With `boot = NULL` on a spec and no `min_window`, `fit_system()` fits
+that spec once on the full training window
+`[train_start, test_start - 1]`, and its coefficients equal `lm()` on
+the materialized training data. With `boot = "resid"` the bootstrap
+draws centre on that fit and use the same estimation sample (complete
+cases on the model's own columns). If a spec ever looks off, compare it
+against the reference regression directly:
+
+``` r
+# endogenr's fit (one shared draw, full window)
+sys <- setup_system(
+  list(build_model("linear", formula = y ~ lag(y) + lag(x)),
+       build_model("exogen", formula = ~x)),
+  dt, train_start = 1965, test_start = 2010, horizon = 5,
+  groupvar = "unit", timevar = "time", inner_sims = 1
+)
+fit <- fit_system(sys, nsim = 1)
+get_coefficients(fit)
+
+# the same regression by hand
+dt[, `:=`(lag_y = shift(y), lag_x = shift(x)), by = unit]
+coef(lm(y ~ lag_y + lag_x, dt[time < 2010]))
 ```
 
 ### Parallel execution and progress
