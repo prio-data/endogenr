@@ -7,8 +7,14 @@
 select_col_per_row(mat, column_ids)
 }
 \arguments{
-\item{column_ids}{}
+\item{mat}{A numeric matrix.}
+
+\item{column_ids}{Integer vector. One column index per row of \code{mat}.}
+}
+\value{
+A numeric vector with one value per row.
 }
 \description{
 Selects a column per row in a matrix
 }
+\keyword{internal}

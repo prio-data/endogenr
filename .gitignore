@@ -3,3 +3,6 @@
 .RData
 .Ruserdata
 package_test.R
+.positai
+.DS_Store
+Rplots.pdf

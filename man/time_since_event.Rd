@@ -28,3 +28,12 @@ recovery effect.
 x <- c(0, 0, 1, 0, 0, 0, 1, 0, 0)
 time_since_event(x, lambda = 0.5)
 }
+\seealso{
+Other formula_helpers:
+\code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=inject_positional_lag]{inject_positional_lag()}},
+\code{\link[=intensity_decay]{intensity_decay()}},
+\code{\link[=materialize_formula]{materialize_formula()}}
+}
+\concept{formula_helpers}

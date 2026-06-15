@@ -4,11 +4,32 @@
 \alias{linearmodel}
 \title{Linear model}
 \usage{
-linearmodel(formula = NULL, boot = NULL, data = NULL, subset = NULL, ...)
+linearmodel(
+  formula = NULL,
+  boot = NULL,
+  data = NULL,
+  ctx = NULL,
+  subset = NULL,
+  ...
+)
 }
 \arguments{
-\item{...}{}
+\item{formula}{A two-sided R formula.}
+
+\item{boot}{Optional bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}.}
+
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
+
+\item{subset}{Optional list with start/end for training window.}
+
+\item{...}{Additional arguments stored on the model spec.}
+}
+\value{
+An endogenmodel of class \code{linear}.
 }
 \description{
 Linear model
 }
+\keyword{internal}

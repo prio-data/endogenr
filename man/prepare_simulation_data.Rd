@@ -6,17 +6,34 @@
 \usage{
 prepare_simulation_data(
   data,
-  groupvar,
-  timevar,
+  ctx,
   train_start,
   test_start,
   horizon,
-  inner_sims
+  inner_sims,
+  keep_cols = NULL
 )
 }
 \arguments{
-\item{inner_sims}{}
+\item{data}{A data.table with training data.}
+
+\item{ctx}{A panel_context object.}
+
+\item{train_start}{Integer.}
+
+\item{test_start}{Integer.}
+
+\item{horizon}{Integer.}
+
+\item{inner_sims}{Integer.}
+
+\item{keep_cols}{Optional character vector of column names to keep from the
+merged training data (in addition to unit/time/sim). \code{NULL} keeps all.}
+}
+\value{
+A data.table with CJ grid of (unit, time, sim) filled with training data.
 }
 \description{
 Prepares simulation data (subset data, expand simulations, include future horizon)
 }
+\keyword{internal}

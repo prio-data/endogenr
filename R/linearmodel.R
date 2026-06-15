@@ -2,14 +2,12 @@
 #'
 #' Supports residual based bootstrapping and wild bootstrapping.
 #'
-#' @param formula
-#' @param data
-#' @param type
+#' @param formula A two-sided R formula.
+#' @param data A data.frame or data.table.
+#' @param type Bootstrap type: `"resid"` or `"wild"`.
 #'
-#' @return
-#' @export
-#'
-#' @examples
+#' @return A fitted `lm` object.
+#' @keywords internal
 bootstraplm <- function(formula, data, type){
   data <- na.omit(data)
   fitted <- stats::lm(formula, data)
@@ -23,69 +21,107 @@ bootstraplm <- function(formula, data, type){
     stop("Unknown bootstrap type")
   }
 
-  outcome <- fitted$terms |> rlang::f_lhs() |> as.character()
-  data[[outcome]] <- fitted$fitted.values + resampled_residuals
-  stats::lm(formula, data)
+  data[[".boot_y"]] <- fitted$fitted.values + resampled_residuals
+  stats::lm(stats::update(formula, .boot_y ~ .), data)
 }
 
 
 
+#' @exportS3Method
+fit_model.linear_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
+  linearmodel(
+    formula = spec$formula,
+    boot = spec$args$boot,
+    data = data, ctx = ctx, subset = subset,
+    outcome = spec$args$outcome
+  )
+}
+
 #' Linear model
 #'
-#' @param formula
-#' @param boot
-#' @param data
-#' @param ...
+#' @param formula A two-sided R formula.
+#' @param boot Optional bootstrap type: `"resid"`, `"wild"`, or `NULL`.
+#' @param data A data.table or data.frame.
+#' @param ctx A panel_context object.
+#' @param subset Optional list with start/end for training window.
+#' @param ... Additional arguments stored on the model spec.
 #'
-#' @return
-#' @export
-#'
-#' @examples
-linearmodel <- function(formula = NULL, boot = NULL, data = NULL, subset = NULL, ...){
+#' @return An endogenmodel of class `linear`.
+#' @keywords internal
+linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
+                        subset = NULL, ...) {
   model <- new_endogenmodel(formula)
-  model$boot <- boot
-  model$fit_args <- rlang::list2(...)
+  model$boot      <- boot
+  model$fit_args  <- rlang::list2(...)
   model$independent <- FALSE
 
-  panel_frame <- create_panel_frame(model$formula, data)
-  model$naive_formula <- panel_frame$naive_formula
-  model$data <- panel_frame$data
-  model$timevar <- tsibble::index_var(data)
-  model$subset <- subset
+  grp_keys <- ctx_keys(ctx)
+  timevar  <- ctx_time(ctx)
+
+  # Stage 1: per-unit ts materialisation. Every maximal time-series
+  # sub-expression in the formula is evaluated within group, time-ordered,
+  # and stored as a `.pt#` synthetic column. The formula is rewritten to
+  # reference those columns so Stage 2 sees only plain variables.
+  pm        <- panel_materialize(model$formula, data,
+                                 groupvar = grp_keys, timevar = timevar)
+
+  # Build human-readable aliases for the synthetic columns and rename them
+  # in-place: `.pt1` -> `lag_x`, `.pt2` -> `lag_log_gdppc`, etc. This keeps
+  # coefficient names identical to what base `lm()` would show with a
+  # janitor-cleaned column name.
+  alias_map <- .pt_make_aliases(pm$map)
+  old <- intersect(names(alias_map), names(pm$data))
+  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+
+  # Rewrite the pooled formula to use the alias names.
+  fit_formula <- .pt_alias_formula(pm$formula, alias_map)
+
+  model$ts_map      <- pm$map
+  model$pt_alias_map <- alias_map
+  model$fit_formula  <- fit_formula
+  model$data         <- pm$data
+  model$timevar      <- timevar
+  model$groupvar     <- grp_keys
+  model$subset       <- subset
+
   class(model) <- c("linear", class(model))
 
-  model$fit <- function(formula, data, boot, subset, timevar){
-    if(!is.null(subset)){
-      data <- data |> dplyr::filter(!!rlang::sym(timevar) >= subset$start, !!rlang::sym(timevar) <= subset$end)
+  # Stage 2: pooled fit. factor contrasts / poly / spline / interaction bases
+  # are resolved across all units here; predict.lm stores predvars/xlevels for
+  # coherent basis reconstruction at predict time.
+  model$fit <- function(formula, data, boot, subset, timevar) {
+    # Restrict the fit data to the model's own columns (plus timevar for the
+    # window filter below), so na.omit in the bootstrap helpers drops only
+    # rows missing a model term — matching plain lm()'s estimation sample.
+    fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
+    data <- data[, ..fit_cols]
+    if (!is.null(subset)) {
+      data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
     }
-
-    if(!is.null(boot)){
-      fitted <- bootstraplm(formula, data, type = boot)
-    } else(
-      fitted = stats::lm(formula, data)
-    )
+    if (!is.null(boot)) {
+      bootstraplm(formula, data, type = boot)
+    } else {
+      stats::lm(formula, data)
+    }
   }
 
-  model$fitted <- model$fit(model$naive_formula, model$data, model$boot, model$subset, model$timevar)
-
-  model$coefs <- broom::tidy(model$fitted)
-  model$gof <- broom::glance(model$fitted)
-
+  model$fitted  <- model$fit(model$fit_formula, model$data, model$boot,
+                             model$subset, model$timevar)
+  model$coefs   <- broom::tidy(model$fitted)
+  model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
+  model$required_history <- .required_history(model$formula)
 
   return(model)
 }
 
 #' Get the standard error for prediction
 #'
-#' @param lmpred
+#' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
 #'
-#' @return
-#' @export
-#'
-#' @examples
+#' @return Numeric vector. Per-row standard error including residual scale.
+#' @keywords internal
 get_sepi <- function(lmpred){
-  #lmpred <- predict(lmfit, se.fit = T)
   se <- lmpred$se.fit
   scale <- lmpred$residual.scale
   sqrt(se^2 + scale^2)
@@ -93,13 +129,11 @@ get_sepi <- function(lmpred){
 
 #' Selects a column per row in a matrix
 #'
-#' @param mat
-#' @param column_ids
+#' @param mat A numeric matrix.
+#' @param column_ids Integer vector. One column index per row of `mat`.
 #'
-#' @return
-#' @export
-#'
-#' @examples
+#' @return A numeric vector with one value per row.
+#' @keywords internal
 select_col_per_row <- function(mat, column_ids){
   cidx <- cbind(1:nrow(mat), column_ids)
   mat[cidx]
@@ -109,80 +143,67 @@ select_col_per_row <- function(mat, column_ids){
 #'
 #' Samples nsamples points from the predictive distribution.
 #'
-#' @param lmpred
-#' @param nsamples
+#' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
+#' @param nsamples Integer. Number of draws (1 for row-expansion path).
 #'
-#' @return
-#' @export
-#'
-#' @examples
+#' @return Numeric vector (or matrix if `nsamples > 1`) of predictive draws.
+#' @keywords internal
 getpi <- function(lmpred, nsamples = 1){
   sepi <- get_sepi(lmpred)
-  pi <- lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
-  if(nsamples == 1){
-    pi <- as.vector(pi)
+  if (nsamples == 1) {
+    # Row-expansion architecture: each row is already one sim instance, so draw
+    # one independent t-value per row (length(sepi) draws).
+    as.vector(lmpred$fit + sepi * stats::rt(length(sepi), lmpred$df))
+  } else {
+    # Multi-sample path (e.g. longhorizon): one row per unit, nsamples draws
+    # each — outer() produces an n x nsamples matrix.
+    lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
   }
-  return(pi)
 }
 
 #' Predict function for a linear model
 #'
-#' @param model
-#' @param data
-#' @param t
-#' @param what
-#' @param ...
+#' @param model A `linear` endogenmodel.
+#' @param data A data.table.
+#' @param t Time step to predict.
+#' @param ctx A panel_context object.
+#' @param what Either "pi" or "expectation".
+#' @param ... Ignored, accepted for S3 generic consistency.
 #'
-#' @return
+#' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
-#'
-#' @examples
-predict.linear <- function(model, data, t, what = "pi", ...) {
-  # Get index and key variables
-  idx <- tsibble::index_var(data)
-  grp <- tsibble::key_vars(data)
+predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
+  idx      <- ctx_time(ctx)
+  all_keys <- ctx_keys(ctx)
 
-  # Find any numbers in the RHS and use that as the max number of past time periods to include.
-  # Default to 1 when the RHS contains no numeric literals (e.g. plain lag() calls).
-  nums <- stringr::str_extract_all(model$formula |> as.character(), "[0-9]+")[[3]] |> as.numeric()
-  max_history <- if (length(nums) > 0) max(nums) else 1L
+  # Subset to the per-unit history window the RHS actually needs.
+  data <- .history_subset(data, idx, t, model$required_history)
 
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t-max_history-1))
+  # Stage 1 (predict path): re-materialise the per-unit ts columns from the
+  # stored ts_map, then rename `.pt#` to readable aliases so newdata column
+  # names match those in the fitted model.
+  env <- rlang::f_env(model$formula)
+  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
+  old <- intersect(names(model$pt_alias_map), names(mat))
+  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 
-  # Create panel frame using the tsibble version
-  data <- create_panel_frame(model$formula, data)$data
+  # Filter to the prediction time step.
+  mat <- mat[mat[[idx]] == t]
 
-  # Filter for specific time point
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) == t)
+  # Stage 2: predict.lm reproduces the pooled design (factor contrasts,
+  # poly/spline bases, interactions) via its stored predvars/xlevels.
+  pred <- predict(model$fitted, newdata = mat, se.fit = TRUE)
 
-  # Make predictions
-  if (!is.null(model$boot)) {
-    pred <- predict(model$fitted, newdata = data, se.fit = TRUE)
-  } else {
-    pred <- predict(model$fitted, newdata = data, se.fit = TRUE)
-  }
+  result_cols <- c(all_keys, idx, model$outcome)
+  result      <- mat[, ..result_cols]
 
-  # Create result tsibble with only necessary columns
-  result <- data |>
-    dplyr::select(!!!rlang::syms(c(grp, idx, model$outcome))) |>
-    tsibble::as_tsibble(
-      key = grp,
-      index = idx
-    )
-
-  # Update outcome column based on prediction type
   if (what == "expectation") {
-    result <- result |>
-      dplyr::mutate(!!rlang::sym(model$outcome) := pred$fit)
+    data.table::set(result, j = model$outcome, value = pred$fit)
   } else if (what == "pi") {
-    result <- result |>
-      dplyr::mutate(
-        !!rlang::sym(model$outcome) := getpi(pred)
-      )
-  } else{
-    stop("`what´ must be either `pi´ or `expectation´")
+    data.table::set(result, j = model$outcome, value = getpi(pred))
+  } else {
+    stop("`what` must be either `pi` or `expectation`")
   }
 
   return(result)

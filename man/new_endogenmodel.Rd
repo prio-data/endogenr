@@ -7,7 +7,7 @@
 new_endogenmodel(formula)
 }
 \arguments{
-\item{formula}{}
+\item{formula}{A two-sided R formula stored on the model spec.}
 }
 \value{
 A list with class endogenmodel
@@ -15,3 +15,4 @@ A list with class endogenmodel
 \description{
 Do not use directly.
 }
+\keyword{internal}

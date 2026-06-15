@@ -9,15 +9,30 @@ glmmodel(
   family = stats::gaussian(),
   boot = NULL,
   data = NULL,
+  ctx = NULL,
   subset = NULL,
   ...
 )
 }
 \arguments{
+\item{formula}{A two-sided R formula.}
+
 \item{family}{A family object (e.g. quasibinomial(), gaussian(), poisson())}
 
-\item{...}{}
+\item{boot}{Optional bootstrap type: \code{"resid"}, \code{"wild"}, or \code{NULL}.}
+
+\item{data}{A data.table or data.frame.}
+
+\item{ctx}{A panel_context object.}
+
+\item{subset}{Optional list with start/end for training window.}
+
+\item{...}{Additional arguments stored on the model spec.}
+}
+\value{
+An endogenmodel of class \code{glm_endogenr}.
 }
 \description{
 GLM model
 }
+\keyword{internal}

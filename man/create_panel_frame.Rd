@@ -2,13 +2,26 @@
 % Please edit documentation in R/utilities.R
 \name{create_panel_frame}
 \alias{create_panel_frame}
-\title{Creates a panel data frame based on a formula and tsibble}
+\title{Creates a panel data frame based on a formula and data.table}
 \usage{
-create_panel_frame(formula, data)
+create_panel_frame(formula, data, ctx)
 }
 \arguments{
-\item{data}{}
+\item{formula}{An R formula.}
+
+\item{data}{A data.table (or data.frame/tsibble — will be coerced).}
+
+\item{ctx}{A \code{panel_context} object.}
+}
+\value{
+A list with \code{data} (data.table), \code{naive_formula}, \code{mat_formula},
+and \code{col_mapping}.
 }
 \description{
-This correctly handles by-group functions in a formula, unlike stats::model.frame.
+Builds a materialization cache once via \code{\link[=.build_mat_cache]{.build_mat_cache()}}, then
+materializes the formula and derives the naive formula from the original
+term structure (preserving interactions, factor() calls, and intercept
+suppression). Returns the materialized data together with the naive formula
+and the cache components for reuse in \verb{predict.*} methods.
 }
+\keyword{internal}

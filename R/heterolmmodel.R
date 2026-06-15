@@ -1,89 +1,153 @@
 #' Heteroscedastic linear model
 #'
-#' Fits a heteroscedastic linear model using [heterolm::hetero()], where both the mean
-#' and variance are modeled as functions of covariates. The variance model uses a
-#' log-link, so observation-specific prediction intervals are wider where predicted
-#' variance is higher.
+#' Fits a heteroscedastic linear model using [heterolm::hetero()], where both
+#' the mean and variance are modelled as functions of covariates. The variance
+#' model uses a log-link, so observation-specific prediction intervals are
+#' wider where predicted variance is higher.
 #'
-#' @param formula A two-sided formula for the mean equation (e.g. \code{y ~ lag(x1) + lag(x2)}).
-#' @param variance A one-sided formula for the log-variance equation (e.g. \code{~ lag(z1) + lag(z2)}).
-#'   Defaults to \code{~ 1} (homoscedastic).
-#' @param data A tsibble.
+#' Use [build_model()] with `type = "heterolm"`. Pass the mean equation as the
+#' main `formula`, and the (one-sided) log-variance equation through `variance`
+#' (defaults to `~ 1`).
+#'
+#' @param spec A `heterolm_spec` object from [build_model()].
+#' @param data A data.table or data.frame.
+#' @param ctx A panel_context object.
 #' @param subset Optional list with \code{start} and \code{end} for subsetting training data.
-#' @param ... Additional arguments passed to [heterolm::hetero()].
+#' @param ... Additional arguments forwarded to [heterolm::hetero()].
 #'
 #' @return An endogenmodel of class \code{heterolm}.
+#' @family simulation
 #' @export
-heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset = NULL, ...) {
+#' @exportS3Method
+fit_model.heterolm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
+  extra_args <- spec$args[!names(spec$args) %in% "variance"]
+  do.call(heterolmmodel, c(
+    list(formula = spec$formula, variance = spec$args$variance,
+         data = data, ctx = ctx, subset = subset),
+    extra_args
+  ))
+}
+
+#' @keywords internal
+heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
+                          ctx = NULL, subset = NULL, ...) {
   if (!requireNamespace("heterolm", quietly = TRUE)) {
     stop("Package 'heterolm' is required for heterolm models. Install it from GitHub.")
   }
 
   model <- new_endogenmodel(formula)
   model$independent <- FALSE
-  model$variance_formula <- if (is.null(variance)) ~ 1 else variance
+  # Default to an intercept-only log-variance. Keep this a one-sided formula
+  # (not the literal `1`) so terms()/.max_lag_depth()/.edges_from_formula() all
+  # accept it; `labels(terms(~1))` is empty, which the naive-name logic below
+  # already maps to the intercept "1".
+  model$variance_formula <- if (is.null(variance)) ~1 else variance
   model$fit_args <- rlang::list2(...)
 
-  # Get tsibble metadata
-  grp <- tsibble::key_vars(data)
-  idx <- tsibble::index_var(data)
-  model$timevar <- idx
-  model$subset <- subset
+  # Get panel metadata from context
+  grp_keys <- ctx_keys(ctx)
+  timevar  <- ctx_time(ctx)
+  model$timevar <- timevar
+  model$subset  <- subset
 
   # Get outcome name
   outcome_name <- base::all.vars(rlang::f_lhs(formula))
 
-  # Build combined formula with all terms from both mean and variance
+  # Build a combined formula covering all terms from both mean and variance
+  # formulas. This is materialised once so ts columns are shared.
   mean_terms <- labels(stats::terms(formula))
-  var_terms <- labels(stats::terms(model$variance_formula))
-  all_terms <- unique(c(mean_terms, var_terms))
-  combined_formula <- stats::reformulate(all_terms, response = outcome_name)
-  model$combined_formula <- combined_formula
+  var_terms  <- labels(stats::terms(model$variance_formula))
+  all_terms  <- unique(c(mean_terms, var_terms))
+  combined_formula <- stats::reformulate(all_terms, response = outcome_name,
+                                         env = rlang::f_env(formula))
 
-  # Run create_panel_frame on combined formula for the full data
-  combined_cpf <- create_panel_frame(combined_formula, data)
+  # Stage 1: per-unit ts materialisation of the combined formula. `poly(dem,2)`
+  # and other design operators are NOT extracted here — they stay in the formula
+  # and are evaluated pooled by model.matrix() in Stage 2.
+  pm        <- panel_materialize(combined_formula, data,
+                                 groupvar = grp_keys, timevar = timevar)
+  alias_map <- .pt_make_aliases(pm$map)
+  old <- intersect(names(alias_map), names(pm$data))
+  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
 
-  # Run create_panel_frame on mean-only formula to identify mean columns
-  mean_cpf <- create_panel_frame(formula, data)
+  model$ts_map       <- pm$map
+  model$pt_alias_map <- alias_map
 
-  # Determine naive column names for mean and variance
-  mean_naive_names <- setdiff(names(mean_cpf$data), c(grp, idx, outcome_name))
-  var_naive_names <- setdiff(names(combined_cpf$data), names(mean_cpf$data))
+  # Rewrite the mean and variance formulas through the combined ts_map, then
+  # apply aliases. `.rewrite_from_map()` re-uses the same map built for the
+  # combined formula so no ts expression is extracted twice.
+  mean_rw <- .rewrite_from_map(formula,                  pm$map)
+  var_rw  <- .rewrite_from_map(model$variance_formula,   pm$map)
+  mean_fit_formula <- .pt_alias_formula(mean_rw, alias_map)
+  var_fit_formula  <- .pt_alias_formula(var_rw,  alias_map)
 
-  # If variance is intercept-only, use "1"
-  if (length(var_naive_names) == 0) {
-    var_naive_names <- "1"
+  # Stage 2: model.matrix expansion for heterolm column-name lookups.
+  # heterolm::hetero() does not use R's formula algebra — interaction terms
+  # (a:b) and factor dummy codes must be pre-computed as flat columns.
+  mat_data <- pm$data
+  mean_labels <- labels(stats::terms(mean_fit_formula))
+  var_labels  <- labels(stats::terms(var_fit_formula))
+
+  # Clean outcome name (apply alias map for consistency)
+  outcome_clean <- if (outcome_name %in% names(alias_map)) {
+    alias_map[[outcome_name]]
+  } else {
+    outcome_name
   }
 
-  model$naive_mean_names <- mean_naive_names
-  model$naive_var_names <- var_naive_names
+  mean_exp <- .hetero_expand_terms(mean_labels, mat_data)
+  var_exp  <- .hetero_expand_terms(var_labels,  mat_data)
+
+  # Store terms + xlevels for coherent predict-time reconstruction
+  model$hetero_mean_terms   <- mean_exp$terms_obj
+  model$hetero_mean_xlevels <- mean_exp$xlevels
+  model$hetero_var_terms    <- var_exp$terms_obj
+  model$hetero_var_xlevels  <- var_exp$xlevels
+
+  mean_col_names <- if (length(mean_exp$col_names) == 0L) "1" else mean_exp$col_names
+  var_col_names  <- if (length(var_exp$col_names)  == 0L) "1" else var_exp$col_names
 
   # Build heterolm formula: outcome ~ mean_vars | var_vars
   hetero_formula_str <- paste0(
-    outcome_name, " ~ ",
-    paste(mean_naive_names, collapse = " + "),
+    outcome_clean, " ~ ",
+    paste(mean_col_names, collapse = " + "),
     " | ",
-    paste(var_naive_names, collapse = " + ")
+    paste(var_col_names, collapse = " + ")
   )
   model$naive_hetero_formula <- stats::as.formula(hetero_formula_str)
 
-  # Store data
-  model$data <- combined_cpf$data
+  # Store data (with newly-expanded columns) and the combined formula for
+  # predict-time ts rematerialisation
+  model$data             <- mat_data
+  model$combined_formula <- combined_formula
 
   # Apply subset if provided
   fit_data <- model$data
+  # Restrict the fit data to the model's own columns (mean + variance terms,
+  # outcome, timevar) and take complete cases, so the estimation sample is
+  # "complete cases on model columns" — NAs in unrelated panel columns cannot
+  # shrink it. "1" is the intercept-only sentinel, never a column.
+  fit_cols <- unique(c(outcome_clean,
+                       setdiff(mean_col_names, "1"),
+                       setdiff(var_col_names, "1"),
+                       timevar))
+  fit_data <- stats::na.omit(fit_data[, intersect(fit_cols, names(fit_data)), with = FALSE])
   if (!is.null(subset)) {
-    fit_data <- fit_data |> dplyr::filter(!!rlang::sym(idx) >= subset$start, !!rlang::sym(idx) <= subset$end)
+    fit_data <- fit_data[fit_data[[timevar]] >= subset$start &
+                           fit_data[[timevar]] <= subset$end]
   }
 
   # Fit the model
   fit_args <- c(
-    list(formula = model$naive_hetero_formula, data = as.data.frame(fit_data), panel.id = NULL),
+    list(formula = model$naive_hetero_formula, data = as.data.frame(fit_data),
+         panel.id = NULL),
     model$fit_args
   )
   model$fitted <- do.call(heterolm::hetero, fit_args)
 
   model$outcome <- outcome_name
+  model$required_history <- max(.required_history(model$formula),
+                                .required_history(model$variance_formula))
 
   class(model) <- c("heterolm", class(model))
   return(model)
@@ -96,55 +160,49 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL, subset =
 #' heterolm variance model.
 #'
 #' @param model A heterolm model object.
-#' @param data A tsibble with simulation data.
+#' @param data A data.table.
 #' @param t The time point to predict for.
+#' @param ctx A panel_context object.
 #' @param what Either \code{"pi"} (prediction interval sample) or \code{"expectation"}.
 #' @param ... Not used.
 #'
-#' @return A tsibble with key + index + outcome column.
+#' @return A data.table with key + index + outcome columns.
+#' @family simulation
 #' @export
-predict.heterolm <- function(model, data, t, what = "pi", ...) {
-  # Get index and key variables
-  idx <- tsibble::index_var(data)
-  grp <- tsibble::key_vars(data)
+predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
+  idx      <- ctx_time(ctx)
+  all_keys <- ctx_keys(ctx)
 
-  # Find max_history from both formulas
-  mean_nums <- stringr::str_extract_all(as.character(model$formula)[[3]], "[0-9]+")[[1]] |> as.numeric()
-  var_char <- as.character(model$variance_formula)
-  var_nums <- stringr::str_extract_all(var_char[length(var_char)], "[0-9]+")[[1]] |> as.numeric()
-  all_nums <- c(mean_nums, var_nums)
-  max_history <- if (length(all_nums) > 0) max(all_nums) else 1
+  # Subset to the per-unit history window the mean/variance RHS actually needs.
+  data <- .history_subset(data, idx, t, model$required_history)
 
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) <= t, !!rlang::sym(idx) > (t - max_history - 1))
+  # Re-materialise ts columns per (unit, sim) group.
+  env <- rlang::f_env(model$combined_formula)
+  mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
+  old <- intersect(names(model$pt_alias_map), names(mat))
+  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 
-  # Create panel frame using the combined formula
-  data <- create_panel_frame(model$combined_formula, data)$data
+  # Filter to the prediction time step.
+  mat <- mat[mat[[idx]] == t]
 
-  # Filter for specific time point
-  data <- data |>
-    dplyr::filter(!!rlang::sym(idx) == t)
+  # Re-expand interaction/factor columns using the stored training-time terms
+  # objects (coherent basis: same poly scaling, factor contrasts, etc. as fit).
+  .hetero_expand_from_terms(model$hetero_mean_terms, model$hetero_mean_xlevels, mat)
+  .hetero_expand_from_terms(model$hetero_var_terms,  model$hetero_var_xlevels,  mat)
 
-  # Make predictions using heterolm (returns data.table with mu and sigma)
-  pred <- predict(model$fitted, newdata = as.data.frame(data), type = "response")
+  # Make predictions using heterolm (returns list with mu and sigma)
+  pred <- predict(model$fitted, newdata = as.data.frame(mat), type = "response")
 
-  # Create result tsibble with only necessary columns
-  result <- data |>
-    dplyr::select(!!!rlang::syms(c(grp, idx, model$outcome))) |>
-    tsibble::as_tsibble(
-      key = grp,
-      index = idx
-    )
+  # Build result data.table with only necessary columns
+  result_cols <- c(all_keys, idx, model$outcome)
+  result <- mat[, ..result_cols]
 
   # Update outcome column based on prediction type
   if (what == "expectation") {
-    result <- result |>
-      dplyr::mutate(!!rlang::sym(model$outcome) := pred$mu)
+    data.table::set(result, j = model$outcome, value = pred$mu)
   } else if (what == "pi") {
-    result <- result |>
-      dplyr::mutate(
-        !!rlang::sym(model$outcome) := stats::rnorm(dplyr::n(), pred$mu, pred$sigma)
-      )
+    data.table::set(result, j = model$outcome,
+                    value = stats::rnorm(nrow(result), pred$mu, pred$sigma))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

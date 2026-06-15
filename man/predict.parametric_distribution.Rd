@@ -4,11 +4,43 @@
 \alias{predict.parametric_distribution}
 \title{Predict function for parametric_distribution models}
 \usage{
-\method{predict}{parametric_distribution}(model, data, test_start, ...)
+\method{predict}{parametric_distribution}(model, data, ctx, test_start, horizon, inner_sims, ...)
 }
 \arguments{
-\item{...}{}
+\item{model}{A parametric_distribution endogenmodel.}
+
+\item{data}{A data.table (the simulation grid).}
+
+\item{ctx}{A panel_context object.}
+
+\item{test_start}{Integer. Start of the forecast period.}
+
+\item{horizon}{Integer. Number of forecast steps.}
+
+\item{inner_sims}{Integer. Number of inner simulations.}
+
+\item{...}{Ignored.}
+}
+\value{
+A data.table with columns: unit, sim, time, outcome.
 }
 \description{
-Predict function for parametric_distribution models
+Generates random samples from the fitted distribution for all forecast rows.
 }
+\seealso{
+Other simulation:
+\code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
+\code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
+\code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
+\code{\link[=fit_system]{fit_system()}},
+\code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.exogen]{predict.exogen()}},
+\code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.heterolm]{predict.heterolm()}},
+\code{\link[=predict.linear]{predict.linear()}},
+\code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=setup_system]{setup_system()}},
+\code{\link[=simulate_system]{simulate_system()}}
+}
+\concept{simulation}

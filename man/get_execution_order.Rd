@@ -2,13 +2,36 @@
 % Please edit documentation in R/systemgraph.R
 \name{get_execution_order}
 \alias{get_execution_order}
-\title{Get the order of calculation from the dependency graph of a model system}
+\title{Determine the order of calculation from a model-system dependency graph}
 \usage{
 get_execution_order(dependency_graph)
 }
 \arguments{
-\item{dependency_graph}{}
+\item{dependency_graph}{A directed \code{igraph} graph whose vertices are
+variable names (with \code{lag_} prefix for lagged inputs) and whose edges
+point from input to outcome.}
+}
+\value{
+Character vector. Variable names in execution order.
 }
 \description{
-Get the order of calculation from the dependency graph of a model system
+Given the directed dependency graph built by \code{\link[=update_dependency_graph]{update_dependency_graph()}},
+returns a character vector ordering the model outcomes so that every
+dependency is computed before any model that requires it. The order is:
+lagged inputs are stripped, exogenous variables (isolated after the strip)
+come first, then the remaining endogenous outcomes are topologically sorted
+along their \verb{in → out} edges.
 }
+\examples{
+g <- igraph::make_empty_graph(directed = TRUE) |>
+  igraph::add_vertices(3, name = c("lag_x", "x", "y")) |>
+  igraph::add_edges(c("lag_x", "y"))
+get_execution_order(g)
+}
+\seealso{
+Other build:
+\code{\link[=build_model]{build_model()}},
+\code{\link[=fit_model]{fit_model()}},
+\code{\link[=get_train_window]{get_train_window()}}
+}
+\concept{build}

@@ -7,7 +7,7 @@
 forecast_long_horizon(
   lh_setup,
   data,
-  test_start,
+  test_start = NULL,
   nsim = 500L,
   inner_sims = 10L
 )
@@ -16,23 +16,54 @@ forecast_long_horizon(
 \item{lh_setup}{A setup object from \code{\link[=setup_long_horizon]{setup_long_horizon()}}.}
 
 \item{data}{The full dataset (original, not aligned). Used to extract
-baseline covariates at \code{test_start}.}
+baseline covariates at the origin.}
 
-\item{test_start}{Numeric. The first forecast year (same convention as
-\code{\link[=simulate_endogenr]{simulate_endogenr()}}). Covariates are observed at \code{test_start - 1}, and
-horizon h=1 targets \code{test_start}, h=2 targets \code{test_start + 1}, etc.}
+\item{test_start}{Numeric or NULL. The first forecast year (same convention as
+\code{\link[=simulate_system]{simulate_system()}}). Covariates are observed at \code{test_start - 1}, horizon
+h=1 targets \code{test_start}, h=2 targets \code{test_start + 1}, etc. Defaults to the
+\code{test_start} stored in \code{lh_setup}; a value below it triggers a leakage
+warning.}
 
-\item{nsim}{Integer. Number of outer simulations (bootstrap draws if boot is
-set; otherwise multiplied with \code{inner_sims} for total draws).}
+\item{nsim}{Integer. Number of bootstrap refits (parameter uncertainty) when
+\code{boot} is set; with plain OLS it only scales the total draw count. Mirrors
+\code{nsim} in \code{\link[=fit_system]{fit_system()}}.}
 
-\item{inner_sims}{Integer. Number of inner draws per simulation.}
+\item{inner_sims}{Integer. Number of predictive draws drawn per refit
+(residual uncertainty). Total draws per unit and horizon are
+\code{nsim * inner_sims}. Mirrors \code{inner_sims} in \code{\link[=setup_system]{setup_system()}}.}
 }
 \value{
-A tibble with columns: \code{groupvar}, \code{test_start}, \code{horizon},
-\code{year_target}, \code{variant}, \code{.draws} (list-column of numeric vectors).
+A data.table with columns: \code{groupvar}, \code{test_start}, \code{horizon},
+\code{year_target}, \code{variant}, \code{.draws} (list-column of numeric vectors). The
+result carries \code{lh_formulas}, \code{panel_unit}, and \code{panel_time} attributes so
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}} can recover the per-variant outcomes and panel context.
 }
 \description{
 For each (variant, horizon) combination in a \code{lh_setup} object, draws
 \code{nsim * inner_sims} samples from the predictive distribution conditioned on
-covariates observed at \code{test_start}.
+covariates observed at the forecast origin (\code{test_start - 1}).
 }
+\details{
+The predictive sample is drawn with a nested Monte Carlo, identical in spirit
+to the dynamic simulator. \code{nsim} is the number of bootstrap \emph{refits}
+(parameter / model uncertainty) and \code{inner_sims} the number of predictive
+draws \emph{per refit} (residual / sampling uncertainty), for a total of
+\code{nsim * inner_sims} draws per unit and horizon. Refitting is the expensive
+step, so taking several cheap predictive draws per refit (\code{inner_sims > 1})
+is an efficiency lever, not an extra source of randomness. With \code{boot = NULL}
+(plain OLS) there is a single fit and only the product \code{nsim * inner_sims}
+matters. These arguments deliberately mirror \code{nsim} in \code{\link[=fit_system]{fit_system()}}
+and \code{inner_sims} in \code{\link[=setup_system]{setup_system()}}; pass the same values to both
+approaches to keep a benchmark apples-to-apples.
+}
+\seealso{
+Other long_horizon:
+\code{\link[=compare_approaches]{compare_approaches()}},
+\code{\link[=create_lh_data]{create_lh_data()}},
+\code{\link[=cv_long_horizon]{cv_long_horizon()}},
+\code{\link[=fit_lh_model]{fit_lh_model()}},
+\code{\link[=get_lh_accuracy]{get_lh_accuracy()}},
+\code{\link[=lead_horizon]{lead_horizon()}},
+\code{\link[=setup_long_horizon]{setup_long_horizon()}}
+}
+\concept{long_horizon}

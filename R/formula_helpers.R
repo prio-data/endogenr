@@ -17,6 +17,7 @@
 #'   observed event. Also used as the floor for the decay.
 #'
 #' @return A numeric vector the same length as \code{event}.
+#' @family formula_helpers
 #' @export
 #'
 #' @examples
@@ -51,6 +52,7 @@ decay_since_event <- function(event, lambda = 0.5, max_years = 50) {
 #' @inheritParams decay_since_event
 #'
 #' @return A numeric vector the same length as \code{event}.
+#' @family formula_helpers
 #' @export
 #'
 #' @examples
@@ -84,6 +86,7 @@ time_since_event <- function(event, lambda = 0.5, max_years = 50) {
 #' @param max_years Used to set the floor per-event contribution.
 #'
 #' @return A numeric vector the same length as \code{event}.
+#' @family formula_helpers
 #' @export
 #'
 #' @examples

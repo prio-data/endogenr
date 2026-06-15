@@ -6,10 +6,117 @@
 \alias{endogenr-package}
 \title{endogenr: A Dynamic Endogenous Simulator of Statistical Models}
 \description{
-This package allows you to dynamically simulate a set of statistical or mathematical models. The simulator schedules the simulation based on a network graph, and uses the R formula language as the main tool for defining models.
+\code{endogenr} dynamically simulates a system of statistical / mathematical
+models. The pipeline is three stages: \code{\link[=setup_system]{setup_system()}} validates the panel
+and the system, builds the dependency DAG, computes a topological execution
+order, and materialises the \verb{(unit x time x inner_sims)} grid;
+\code{\link[=fit_system]{fit_system()}} produces \code{nsim} coefficient draws (parameter / model
+uncertainty); \code{\link[=simulate_system]{simulate_system()}} runs the dynamic loop in topological order,
+drawing one predictive (innovation) realisation per \verb{(unit, time, sim)} row.
+The ensemble over \verb{nsim x inner_sims} trajectories is the intended predictive
+distribution.
 }
+\section{Conceptual contract}{
+
+Each \verb{(unit, sim)} series \strong{is} one coherent trajectory: \verb{predict.*} reads
+every lag from the same \verb{(unit, sim)} series, so multi-step error propagation
+(regressors that are themselves simulated become random) is captured by Monte
+Carlo over \code{inner_sims}. The row-expansion architecture and the scheduling
+are the load-bearing, well-tested core.
+}
+
+\section{Known issues - unclear semantics}{
+
+\itemize{
+\item \strong{What the ensemble estimates.} \code{nsim} (parameter) x \code{inner_sims}
+(innovation) reads as a clean nested Monte Carlo \emph{only if} each family
+separates the two. It does not (see below), so the ensemble is \strong{not} a
+calibrated posterior-predictive of a single coherent generative object.
+Treat it as a nested-MC predictive distribution with per-family draws.
+\item \strong{\code{nsim} vs \code{inner_sims} differ by family.} For \code{linear}/\code{glm}/
+\code{heterolm} with \code{min_window}, parameter uncertainty enters across draws.
+For \code{parametric_distribution}, \code{univariate_fable}, and \code{exogen} the model
+is fit \strong{once and shared across all \code{nsim} draws}, so those components
+carry \strong{zero parameter uncertainty} regardless of \code{nsim}. This asymmetry
+is real and currently undocumented at the call site.
+}
+}
+
+\section{Known issues - arbitrary constants / heuristics}{
+
+\itemize{
+\item \code{min_window} fallback \code{10L}, duplicated in the sliding-window
+\code{\link[=fit_system]{fit_system()}}, \code{\link[=forecast_coefficients]{forecast_coefficients()}}, and \code{.fit_window_grid()}
+(\code{R/systemsim.R}, \code{R/coef_forecast.R}).
+\item \code{max_years = 50} default in \code{decay_since_event()}/\code{time_since_event()}/
+\code{intensity_decay()} (\code{R/formula_helpers.R}). These transforms depend on
+the whole prior series, so \code{.required_history()} reports \code{Inf} for them.
+\item Winkler \code{level = 50} default in \code{\link[=get_accuracy]{get_accuracy()}} (\code{R/systemsim.R}) - a
+50\% interval is an unusual reporting default.
+\item \code{est_mb > 1000} memory-warning threshold in \code{prepare_simulation_data()}
+(\code{R/systemsim.R}).
+\item Hard-coded ribbon quantiles \code{c(.05, .5, .95)} in \code{\link[=plotsim]{plotsim()}} and
+\code{.cf_forecast_one()} (\code{R/coef_forecast.R}); \code{.cf_forecast_one()} also
+requires at least 3 window anchors.
+}
+}
+
+\section{Known issues - available generalisations}{
+
+\itemize{
+\item \strong{Unified predictive-draw interface.} The per-family draw logic
+(\code{getpi}, \code{getpi_glm}, \code{predict.heterolm}'s \code{rnorm},
+\code{.sample_from_fitdist}, fable's \code{generate}) could be a single
+\code{draw_predictive(model, newdata, n_param, n_innov)} contract that
+explicitly separates parameter from innovation uncertainty.
+\item \strong{Pooled vs panel-heterogeneous estimation.} \code{linear}/\code{glm} are
+pooled OLS/MLE with no unit effects unless the user writes \code{factor(unit)}.
+First-class fixed/random effects could be offered.
+}
+}
+
+\section{Known issues - where brute force should become statistics}{
+
+\itemize{
+\item \strong{Random-window refit (\code{min_window})} "confounds recency with sample
+size" (\code{R/coef_forecast.R}). Principled replacements are prototyped in
+\code{\link[=forecast_coefficients]{forecast_coefficients()}}: state-space time-varying-parameter models
+(dlm / KFAS) or a fixed-window residual/parametric coefficient bootstrap.
+Wiring the TVP path into the simulator is recommended.
+\item \strong{Independent per-row innovations.} Each \verb{(unit, time, sim)} row
+draws an independent innovation, so the engine ignores \strong{contemporaneous
+cross-unit} correlation (common shocks) and \strong{cross-equation} residual
+correlation. The statistical object is a SUR / seemingly-unrelated
+residual covariance (optionally spatially structured); joint innovation
+draws from an estimated covariance would capture it. The gap is
+demonstrated in \code{tests/testthat/test-uncertainty.R}.
+\item \strong{Distribution-parameter uncertainty ignored.} \code{parametric_distribution}
+draws from the point-estimate MLE, and the shared independent fits carry
+no parameter uncertainty; both could propagate it via the MLE asymptotic
+vcov or a parametric bootstrap.
+\item \strong{Double/triple-counted parameter uncertainty} for \code{linear} + \code{boot}
++ \code{min_window}: the random window perturbs coefficients, the residual
+bootstrap perturbs them again, and \code{predict.lm(se.fit)} adds parameter
+variance a third time on top of the residual scale. This is very likely
+over-dispersed; \code{tests/testthat/test-uncertainty.R} measures (rather than
+silently re-architects) the effect.
+\item \strong{GLM proportion draws.} For \code{binomial}/\code{quasibinomial} outcomes with
+no trial count in the grid, \code{getpi_glm()} samples a Beta with mean \code{mu}
+and a precision derived from the dispersion. The Beta variance is capped
+at the Bernoulli value \code{mu(1 - mu)}, so quasibinomial overdispersion
+beyond that cannot be represented without a trial count and collapses to
+~Bernoulli draws. Unsupported families fall back to a link-scale
+(parameter-only) draw with a one-time warning.
+}
+}
+
 \author{
 \strong{Maintainer}: Jonas Vestby \email{jonves@prio.org} (\href{https://orcid.org/0000-0002-3054-977X}{ORCID})
+
+Authors:
+\itemize{
+  \item Jonas Vestby \email{jonves@prio.org} (\href{https://orcid.org/0000-0002-3054-977X}{ORCID})
+}
 
 }
 \keyword{internal}

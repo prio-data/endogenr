@@ -7,8 +7,18 @@
 rt_ls(n, df = 1, mu = 0, sigma = 1)
 }
 \arguments{
-\item{sigma}{}
+\item{n}{Number of observations.}
+
+\item{df}{Degrees of freedom.}
+
+\item{mu}{Location parameter.}
+
+\item{sigma}{Scale parameter.}
+}
+\value{
+Numeric vector of random deviates.
 }
 \description{
 Student-t distribution random generation
 }
+\keyword{internal}
