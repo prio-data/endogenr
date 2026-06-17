@@ -7,8 +7,9 @@
 build_model(type, formula, ...)
 }
 \arguments{
-\item{type}{One of "deterministic", "parametric_distribution", "linear",
-"glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".}
+\item{type}{One of \code{"deterministic"}, \code{"parametric_distribution"},
+\code{"linear"}, \code{"glm"}, \code{"exogen"}, \code{"univariate_fable"}, \code{"heterolm"},
+\code{"spatial_lag"}, \code{"glmmTMB"}, or \code{"gamlss"}.}
 
 \item{formula}{An R formula. See the model-type section for the expected
 shape per type.}
@@ -54,6 +55,24 @@ packages.}
 to avoid a circular dependency on a same-period outcome). Pass \code{nb},
 \code{wt}, and \code{unit_ids} from \code{\link[=st_weights_from_sf]{st_weights_from_sf()}} or \code{sfdep}
 directly. Optional \code{island_default} for units with no neighbours.}
+\item{\code{"glmmTMB"}}{Two-sided formula, including lme4-style random-effects
+bars \code{(1 + lag(x) | group)} and glmmTMB covariance-structure wrappers
+(e.g. \code{ar1(times + 0 | group)}, \verb{us(…|g)}). Pass \verb{family =} (default
+\code{stats::gaussian()}), \verb{dispformula = ~…} (default \code{~1}), \verb{ziformula = ~…} (default \code{~0}), and optionally \code{control = glmmTMB::glmmTMBControl()}. Grouping factors and cov-struct coordinate
+columns (e.g. \code{region}, \code{times}) are read at every forecast step, so —
+like any predictor — they must be produced by some model: add an
+\code{exogen} (e.g. \code{build_model("exogen", formula = ~region)}) to carry the
+column forward, or group by a panel key (\code{unit}/\code{time}), which is always
+present. Requires the \code{glmmTMB} package.}
+\item{\code{"gamlss"}}{Two-sided \code{formula} for the location parameter \code{mu}
+(may include \code{pb()}/\code{cs()}/\code{lo()} smoothers and \code{random()}/\code{ra()}/\code{re()}
+grouping terms). Optional \code{sigma.formula}, \code{nu.formula}, \code{tau.formula}
+(one-sided, default \code{~1}). \verb{family =} a \code{gamlss.family} object (default
+\code{gamlss.dist::NO()}). Optional \code{control = gamlss::gamlss.control(...)}.
+Grouping factors inside \code{random()}/\code{ra()}/\code{re()} are read at every
+forecast step, so they must be produced by some model — add an \code{exogen}
+(e.g. \code{build_model("exogen", formula = ~region)}) to carry the grouping
+column forward, or group by a panel key. Requires the \code{gamlss} package.}
 }
 }
 

@@ -1,5 +1,55 @@
 # endogenr 0.1.0.9000
 
+## New features
+
+- **`build_model("glmmTMB", …)` — glmmTMB mixed-effects models.** Adds
+  first-class support for `glmmTMB::glmmTMB()` models inside the endogenr
+  dynamic simulation loop. Supports lme4-style random-effects bars
+  (`(1 + lag(x) | group)`), glmmTMB covariance-structure wrappers
+  (`ar1(times + 0 | group)`, `us`, `exp`, `mat`, …), a separate
+  `dispformula` (per-row heteroscedasticity / overdispersion), and a
+  `ziformula` for zero-inflation. Families with a response-scale draw:
+  `gaussian`, `poisson`, `binomial`, `Gamma`, `nbinom1`, `nbinom2`,
+  `beta`, `betabinomial`; unsupported families fall back to the
+  conditional mean with a one-time warning. Grouping factors and cov-struct
+  coordinates are ordinary predictors: like any predictor they must be
+  produced by some model — add an `exogen` (e.g.
+  `build_model("exogen", formula = ~region)`) to carry the grouping column
+  into the forecast horizon, or group by a panel key. Setup errors if a
+  grouping column has no producer. Requires the `glmmTMB` CRAN package
+  (`install.packages("glmmTMB")`).
+
+  ```r
+  build_model("glmmTMB",
+              formula     = gdppc_grwt ~ lag(dem) + lag(log(gdppc)) +
+                              (1 + lag(dem) | region),
+              dispformula = ~ lag(dem),
+              family      = stats::gaussian())
+  ```
+
+
+- **`build_model("gamlss", …)` — GAMLSS distributional-regression models.**
+  Adds support for `gamlss::gamlss()` models (Generalized Additive Models for
+  Location, Scale and Shape). Each of the four distribution parameters (`mu`,
+  `sigma`, `nu`, `tau`) gets its own formula, enabling modelling of
+  heteroscedasticity, skewness, and kurtosis as functions of covariates.
+  Supports all `gamlss.dist` families (Normal, BCT, BCCG, Gamma, …) with
+  automatic draw via `r<FAMILY>()`. Smoother terms (`pb()`, `cs()`, `lo()`)
+  and grouping terms (`random()`, `ra()`, `re()`) are handled correctly: the
+  dependency graph is built from a smoother/bar-free representation. Grouping
+  factors are ordinary predictors that must be produced by some model — add an
+  `exogen` (e.g. `build_model("exogen", formula = ~region)`) to carry the
+  grouping column into the forecast horizon, or group by a panel key. Setup
+  errors if a grouping column has no producer. Requires the `gamlss` CRAN
+  package (`install.packages("gamlss")`).
+
+  ```r
+  build_model("gamlss",
+              formula       = gdppc_grwt ~ pb(lag(dem)) + random(region),
+              sigma.formula = ~ lag(dem),
+              family        = gamlss.dist::NO())
+  ```
+
 ## Migration guide
 
 The three-stage pipeline replaces the old two-stage API. The minimum

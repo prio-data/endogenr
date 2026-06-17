@@ -15,6 +15,8 @@ A list classed \code{c(spec$type, "endogenmodel")}.
 \description{
 Produces the minimal object \code{\link[=parse_formula]{parse_formula()}} needs to derive the
 input/output dependency edges without fitting the model: the formula, the
-model-type class token, and (for heterolm) the variance formula.
+model-type class token, and (for heterolm) the variance formula. For
+glmmTMB specs the node carries a bar-free \code{graph_formula} so that
+\code{parse_formula()} never sees random-effects bars.
 }
 \keyword{internal}

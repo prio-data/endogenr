@@ -51,10 +51,31 @@ new_endogenmodel <- function(formula){
 #'     to avoid a circular dependency on a same-period outcome). Pass `nb`,
 #'     `wt`, and `unit_ids` from [st_weights_from_sf()] or `sfdep`
 #'     directly. Optional `island_default` for units with no neighbours.}
+#'   \item{`"glmmTMB"`}{Two-sided formula, including lme4-style random-effects
+#'     bars `(1 + lag(x) | group)` and glmmTMB covariance-structure wrappers
+#'     (e.g. `ar1(times + 0 | group)`, `us(…|g)`). Pass `family =` (default
+#'     `stats::gaussian()`), `dispformula = ~…` (default `~1`), `ziformula =
+#'     ~…` (default `~0`), and optionally `control =
+#'     glmmTMB::glmmTMBControl()`. Grouping factors and cov-struct coordinate
+#'     columns (e.g. `region`, `times`) are read at every forecast step, so —
+#'     like any predictor — they must be produced by some model: add an
+#'     `exogen` (e.g. `build_model("exogen", formula = ~region)`) to carry the
+#'     column forward, or group by a panel key (`unit`/`time`), which is always
+#'     present. Requires the `glmmTMB` package.}
+#'   \item{`"gamlss"`}{Two-sided `formula` for the location parameter `mu`
+#'     (may include `pb()`/`cs()`/`lo()` smoothers and `random()`/`ra()`/`re()`
+#'     grouping terms). Optional `sigma.formula`, `nu.formula`, `tau.formula`
+#'     (one-sided, default `~1`). `family =` a `gamlss.family` object (default
+#'     `gamlss.dist::NO()`). Optional `control = gamlss::gamlss.control(...)`.
+#'     Grouping factors inside `random()`/`ra()`/`re()` are read at every
+#'     forecast step, so they must be produced by some model — add an `exogen`
+#'     (e.g. `build_model("exogen", formula = ~region)`) to carry the grouping
+#'     column forward, or group by a panel key. Requires the `gamlss` package.}
 #' }
 #'
-#' @param type One of "deterministic", "parametric_distribution", "linear",
-#'   "glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".
+#' @param type One of `"deterministic"`, `"parametric_distribution"`,
+#'   `"linear"`, `"glm"`, `"exogen"`, `"univariate_fable"`, `"heterolm"`,
+#'   `"spatial_lag"`, `"glmmTMB"`, or `"gamlss"`.
 #' @param formula An R formula. See the model-type section for the expected
 #'   shape per type.
 #' @param ... Model-specific arguments. See the model-type section.
@@ -79,7 +100,8 @@ new_endogenmodel <- function(formula){
 #' )
 build_model <- function(type, formula, ...) {
   valid_types <- c("deterministic", "parametric_distribution", "linear", "glm",
-                   "exogen", "univariate_fable", "heterolm", "spatial_lag")
+                   "exogen", "univariate_fable", "heterolm", "spatial_lag",
+                   "glmmTMB", "gamlss")
   if (!type %in% valid_types) {
     stop("Unknown model type: ", type)
   }

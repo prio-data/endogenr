@@ -36,7 +36,7 @@ future exogenous data through \code{test_start + horizon - 1}.}
 
 \item{inner_sims}{Integer. Number of inner simulations per outer sim.}
 
-\item{min_window}{Integer or \code{NULL}. If set, \code{linear}/\code{glm}/\code{heterolm}
+\item{min_window}{Integer or \code{NULL}. If set, \code{linear}/\code{glm}/\code{heterolm}/\code{glmmTMB}
 models are refit on a random training window of at least this length
 per coefficient draw in \code{\link[=fit_system]{fit_system()}}.}
 
@@ -78,7 +78,7 @@ predict time) and \code{fit_ctx} (without \code{sim}, used when fitting). Both a
 produced by \code{\link[=panel_context]{panel_context()}}.
 
 \code{min_window} is recorded on the setup and consumed later by \code{\link[=fit_system]{fit_system()}}:
-when set, the parametric regression families (\code{linear}/\code{glm}/\code{heterolm})
+when set, the parametric regression families (\code{linear}/\code{glm}/\code{heterolm}/\code{glmmTMB})
 are refit on a random training window per coefficient draw. Leave it \code{NULL}
 for a fixed window \verb{[train_start, test_start - 1]} (one shared fit).
 
@@ -109,13 +109,17 @@ res <- simulate_system(fit)
 
 Other simulation:
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
+\code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=fit_system]{fit_system()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},
 \code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.glmmTMB_endogenr]{predict.glmmTMB_endogenr()}},
 \code{\link[=predict.heterolm]{predict.heterolm()}},
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},

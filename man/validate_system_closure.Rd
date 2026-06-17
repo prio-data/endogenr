@@ -4,13 +4,18 @@
 \alias{validate_system_closure}
 \title{Validate that the model system is closed}
 \usage{
-validate_system_closure(models, data_columns)
+validate_system_closure(models, data_columns, keys = NULL)
 }
 \arguments{
 \item{models}{A list of models (unfitted specs or fitted model objects with
 a \verb{$formula} field).}
 
 \item{data_columns}{Character vector. Column names available in the data.}
+
+\item{keys}{Character vector of panel key columns (unit/time). These are
+always present in every simulation-grid row (the grid is a CJ over keys),
+so a predictor that is a panel key — e.g. a \code{(1 | unit)} random intercept —
+is exempt from the "must be produced by a model" closure check.}
 }
 \value{
 Invisible TRUE if valid. Throws informative errors otherwise.

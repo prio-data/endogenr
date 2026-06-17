@@ -30,13 +30,17 @@ Generates random samples from the fitted distribution for all forecast rows.
 \seealso{
 Other simulation:
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
+\code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=fit_system]{fit_system()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},
 \code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.glmmTMB_endogenr]{predict.glmmTMB_endogenr()}},
 \code{\link[=predict.heterolm]{predict.heterolm()}},
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},

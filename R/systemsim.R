@@ -183,7 +183,7 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #' produced by [panel_context()].
 #'
 #' `min_window` is recorded on the setup and consumed later by [fit_system()]:
-#' when set, the parametric regression families (`linear`/`glm`/`heterolm`)
+#' when set, the parametric regression families (`linear`/`glm`/`heterolm`/`glmmTMB`)
 #' are refit on a random training window per coefficient draw. Leave it `NULL`
 #' for a fixed window `[train_start, test_start - 1]` (one shared fit).
 #'
@@ -201,7 +201,7 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #' @param groupvar Character. Column name identifying panel units.
 #' @param timevar Character. Column name identifying time periods.
 #' @param inner_sims Integer. Number of inner simulations per outer sim.
-#' @param min_window Integer or `NULL`. If set, `linear`/`glm`/`heterolm`
+#' @param min_window Integer or `NULL`. If set, `linear`/`glm`/`heterolm`/`glmmTMB`
 #'   models are refit on a random training window of at least this length
 #'   per coefficient draw in [fit_system()].
 #' @param globals Named list of user functions to export to parallel workers.
@@ -252,7 +252,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   validate_panel(data, ctx, test_start, model_outcomes)
 
   # Validate system closure (before fitting)
-  validate_system_closure(specs, names(data))
+  validate_system_closure(specs, names(data), keys = c(groupvar, timevar))
 
   # Unbalanced panels: units with no row at the forecast origin are kept for
   # fitting but excluded from the simulation grid (see prepare_simulation_data).
@@ -285,9 +285,9 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   # variables referenced in any spec's formula or variance formula. This prunes
   # every column that no model reads, shrinking the grid and every per-draw copy.
   formula_vars <- unique(unlist(lapply(specs, function(spec) {
-    v <- all.vars(spec$formula)
-    if (!is.null(spec$args$variance)) v <- c(v, all.vars(spec$args$variance))
-    v
+    extra <- Filter(function(a) inherits(a, "formula"), spec$args)
+    c(all.vars(spec$formula),
+      unlist(lapply(extra, all.vars), use.names = FALSE))
   })))
   keep_cols <- union(c(groupvar, timevar, "sim"), formula_vars)
 
@@ -336,10 +336,9 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   time_col <- ctx_time(ctx)
 
   needs <- vapply(specs, function(spec) {
-    need <- .required_history(spec$formula)
-    if (!is.null(spec$args$variance)) {
-      need <- max(need, .required_history(spec$args$variance))
-    }
+    extra <- Filter(function(a) inherits(a, "formula"), spec$args)
+    need  <- .required_history(spec$formula)
+    for (f in extra) need <- max(need, .required_history(f))
     as.numeric(need)
   }, numeric(1))
   needs <- needs[is.finite(needs)]
@@ -364,12 +363,31 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #'
 #' Produces the minimal object [parse_formula()] needs to derive the
 #' input/output dependency edges without fitting the model: the formula, the
-#' model-type class token, and (for heterolm) the variance formula.
+#' model-type class token, and (for heterolm) the variance formula. For
+#' glmmTMB specs the node carries a bar-free `graph_formula` so that
+#' `parse_formula()` never sees random-effects bars.
 #'
 #' @param spec An `endogenr_spec` from [build_model()].
 #' @return A list classed `c(spec$type, "endogenmodel")`.
 #' @keywords internal
 .spec_to_node <- function(spec) {
+  if (identical(spec$type, "glmmTMB")) {
+    dec <- .glmmTMB_decompose(spec$formula, spec$args$dispformula, spec$args$ziformula)
+    return(structure(
+      list(formula = spec$formula, graph_formula = dec$graph_formula),
+      class = c("glmmTMB", "endogenmodel")
+    ))
+  }
+  if (identical(spec$type, "gamlss")) {
+    dec <- .gamlss_decompose(spec$formula,
+                             spec$args[["sigma.formula"]],
+                             spec$args[["nu.formula"]],
+                             spec$args[["tau.formula"]])
+    return(structure(
+      list(formula = spec$formula, graph_formula = dec$graph_formula),
+      class = c("gamlss", "endogenmodel")
+    ))
+  }
   structure(
     list(formula = spec$formula, variance_formula = spec$args$variance),
     class = c(spec$type, "endogenmodel")
@@ -387,14 +405,14 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #' @param sys An `endogenr_system_setup` (or trimmed copy) carrying
 #'   `fit_ctx`, `train_data`, `full_data`, `test_start`, and `inner_sims`.
 #' @param subset Optional list with `start`/`end` for a training window,
-#'   applied to the `linear`/`glm`/`heterolm` families.
+#'   applied to the `linear`/`glm`/`heterolm`/`glmmTMB`/`gamlss` families.
 #' @return A fitted endogenmodel object.
 #' @keywords internal
 .fit_spec <- function(spec, sys, subset = NULL) {
   type <- spec$type
   switch(type,
     "deterministic" = fit_model(spec, ctx = sys$fit_ctx),
-    "linear" =, "glm" =, "heterolm" =
+    "linear" =, "glm" =, "heterolm" =, "glmmTMB" =, "gamlss" =
       fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx, subset = subset),
     "exogen" = fit_model(spec, newdata = sys$full_data, ctx = sys$fit_ctx,
                          test_start = sys$test_start, inner_sims = sys$inner_sims),
@@ -532,14 +550,14 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #'
 #' \strong{Random windows} (`window = "random"`, the default) reproduce the
 #' historical behaviour. A spec is a *refit* spec when its type is one of
-#' `"linear"`, `"glm"`, or `"heterolm"` \strong{and} `min_window` was set on the
-#' setup. Refit specs are fit `nsim` times, each on a fresh random training
+#' `"linear"`, `"glm"`, `"heterolm"`, or `"glmmTMB"` \strong{and} `min_window` was set
+#' on the setup. Refit specs are fit `nsim` times, each on a fresh random training
 #' window from [get_train_window()] combined with the spec's `boot` resampling,
 #' so the draws differ. Non-refit specs (and all specs when `min_window` is
 #' `NULL`) are fit once and shared across draws.
 #'
 #' \strong{Sliding windows} (`window = "rolling"` or `"expanding"`) refit each
-#' `linear`/`glm`/`heterolm` spec on a deterministic grid of training windows
+#' `linear`/`glm`/`heterolm`/`glmmTMB` spec on a deterministic grid of training windows
 #' anchored at the window \emph{end} (the same grid used by
 #' [forecast_coefficients()]), giving one fit per window-end so the coefficient
 #' series is a clean function of time rather than of a random window. The grid
@@ -549,9 +567,9 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #' is fit `nsim` times when the spec has a `boot` resampler (distinct draws) or
 #' once and shared otherwise. The per-window fits are stored in `window_fits`;
 #' [simulate_system()] then mixes them per its `window_policy`. Unlike
-#' [forecast_coefficients()], `heterolm` is included (no tidy coefficients are
-#' required to simulate). The grid uses `min_window` as the minimum training
-#' length / default rolling `width` (falling back to `10` when unset).
+#' [forecast_coefficients()], `heterolm` and `glmmTMB` are included (no tidy
+#' coefficients are required to simulate). The grid uses `min_window` as the
+#' minimum training length / default rolling `width` (falling back to `10` when unset).
 #'
 #' The fitted regression objects have their cached training frame dropped via
 #' an internal helper — `predict()`/`model.matrix()` keep working because they
@@ -570,7 +588,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #' @param window One of `"random"` (default; random training windows gated by
 #'   `min_window`), `"rolling"` (deterministic fixed-width windows), or
 #'   `"expanding"` (deterministic windows growing from `train_start`). The two
-#'   sliding modes refit `linear`/`glm`/`heterolm` specs on a window-end grid.
+#'   sliding modes refit `linear`/`glm`/`heterolm`/`glmmTMB` specs on a window-end grid.
 #' @param width Integer or `NULL`. Rolling-window length (ignored for
 #'   `"random"`/`"expanding"`). Defaults to `min_window` (or `10`).
 #' @param step Integer. Spacing (in time units) between window-end anchors for
@@ -600,7 +618,7 @@ fit_system <- function(system_setup, nsim = 1L,
   }
 
   specs <- system_setup$specs
-  refit_types <- c("linear", "glm", "heterolm")
+  refit_types <- c("linear", "glm", "heterolm", "glmmTMB", "gamlss")
 
   # Fitting never needs the (large) simulation grid; drop it from the payload.
   fit_inputs <- system_setup
@@ -613,7 +631,7 @@ fit_system <- function(system_setup, nsim = 1L,
     is_refit <- vapply(specs, function(spec) spec$type %in% refit_types, logical(1))
     if (!any(is_refit)) {
       stop("Sliding-window fitting (window = \"", window, "\") needs at least one ",
-           "linear/glm/heterolm spec; none found.", call. = FALSE)
+           "linear/glm/heterolm/glmmTMB/gamlss spec; none found.", call. = FALSE)
     }
     refit_idx <- which(is_refit)
 
