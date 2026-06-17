@@ -63,7 +63,11 @@ columns (e.g. \code{region}, \code{times}) are read at every forecast step, so �
 like any predictor — they must be produced by some model: add an
 \code{exogen} (e.g. \code{build_model("exogen", formula = ~region)}) to carry the
 column forward, or group by a panel key (\code{unit}/\code{time}), which is always
-present. Requires the \code{glmmTMB} package.}
+present. Temporal covariance structures (\code{ar1}/\code{ou}/…) are forecast
+multi-step by predicting the whole forecast-so-far block at each step so
+glmmTMB applies the correct \code{phi^k} decay; the coordinate must be carried
+into the horizon and be contiguous and unit-spaced. Requires the
+\code{glmmTMB} package.}
 \item{\code{"gamlss"}}{Two-sided \code{formula} for the location parameter \code{mu}
 (may include \code{pb()}/\code{cs()}/\code{lo()} smoothers and \code{random()}/\code{ra()}/\code{re()}
 grouping terms). Optional \code{sigma.formula}, \code{nu.formula}, \code{tau.formula}

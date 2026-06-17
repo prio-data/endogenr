@@ -363,3 +363,169 @@ test_that("count family: nbinom2 draws are non-negative integers (slow)", {
   true_mu  <- mean(exp(0.5 + 0.7 * dt[year < 30L]$x))
   expect_lt(abs(grand_mu / true_mu - 1), 0.5)
 })
+
+# ============================================================================
+# TIER 2/3 — Temporal covariance structures (ar1/ou/…) forecasting
+# ============================================================================
+#
+# A temporal cov-struct RE (e.g. ar1(years + 0 | gwcode)) must be forecast with
+# the WHOLE forecast-so-far block in one prediction so glmmTMB applies the
+# correct phi^k correlation decay. predict.glmmTMB_endogenr does this for any
+# model whose $has_covstruct flag is TRUE; these tests pin that behaviour and
+# the related dispersion-prediction (interval-scale) fix.
+
+# Balanced panel with a genuine per-group AR(1) latent over the time coordinate,
+# so the estimated correlation phi and residual sigma are solidly non-degenerate
+# and the phi^k identity is discriminating.
+.make_panel_ar1 <- function(n_gw = 8L, years = 2000:2018,
+                            phi_true = 0.7, seed = 99L) {
+  set.seed(seed)
+  dt <- data.table::CJ(gwcode = seq_len(n_gw), year = years)
+  re_path <- function(n) {
+    e <- stats::rnorm(n, sd = 0.5)
+    r <- numeric(n)
+    r[1L] <- e[1L]
+    for (i in seq.int(2L, n)) r[i] <- phi_true * r[i - 1L] + e[i]
+    r
+  }
+  dt[, lat := re_path(.N), by = gwcode]
+  dt[, y := 1 + lat + stats::rnorm(.N, sd = 0.6)]
+  dt[, lat := NULL]
+  dt[, years := factor(year)]
+  dt[, gwcode := factor(gwcode)]
+  data.table::setkey(dt, gwcode, year)
+  dt[]
+}
+
+test_that("glmmTMBmodel: has_covstruct + last_train_time set at fit", {
+  skip_if_no_glmmTMB()
+
+  dt  <- .make_panel_ar1()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  m_ar <- glmmTMBmodel(y ~ ar1(years + 0 | gwcode),
+                       data = dt[year <= 2015L], ctx = ctx)
+  expect_true(isTRUE(m_ar$has_covstruct))
+  expect_equal(m_ar$last_train_time, 2015)
+
+  # A plain random intercept is NOT a covariance structure.
+  dt2  <- .make_panel_glmmtmb(units = 6L, n_time = 20L)
+  ctx2 <- panel_context(unit = "unit", time = "year")
+  m_re <- glmmTMBmodel(y ~ lag(x) + (1 | region), data = dt2, ctx = ctx2)
+  expect_false(isTRUE(m_re$has_covstruct))
+  expect_equal(m_re$last_train_time, max(dt2$year))
+})
+
+test_that("glmmTMB ar1: step-by-step predict yields phi^k decay (block path)", {
+  skip_if_no_glmmTMB()
+
+  dt  <- .make_panel_ar1()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  m   <- glmmTMBmodel(y ~ ar1(years + 0 | gwcode),
+                      data = dt[year <= 2015L], ctx = ctx)
+
+  phi <- attr(glmmTMB::VarCorr(m$fitted)$cond$gwcode, "correlation")[1, 2]
+  re  <- glmmTMB::ranef(m$fitted)$cond$gwcode
+  b0  <- glmmTMB::fixef(m$fitted)$cond[[1]]
+  expect_match(colnames(re)[ncol(re)], "2015")   # last col = last training year
+  re_last <- as.numeric(re[, ncol(re)])
+  expect_gt(abs(phi), 0.1)                        # AR1 signal present
+
+  sim_ctx <- panel_context(unit = "gwcode", time = "year", sim = "sim")
+  g <- data.table::copy(dt)
+  g[, sim := 1L]
+
+  # Conditional mean at forecast step k must be intercept + phi^k * RE(last train).
+  for (k in 1:3) {
+    p <- predict(m, data = g, t = 2015L + k, ctx = sim_ctx, what = "expectation")
+    data.table::setorder(p, gwcode)
+    expect_equal(p$y - b0, phi^k * re_last, tolerance = 1e-4)
+  }
+
+  # Discrimination vs the old single-step bug (which returned phi^1 every step):
+  # the step-2 random effect must differ from the step-1 random effect.
+  p1 <- predict(m, data = g, t = 2016L, ctx = sim_ctx, what = "expectation")
+  p2 <- predict(m, data = g, t = 2017L, ctx = sim_ctx, what = "expectation")
+  data.table::setorder(p1, gwcode)
+  data.table::setorder(p2, gwcode)
+  expect_false(isTRUE(all.equal(p2$y, p1$y)))
+})
+
+test_that("glmmTMB ar1: disp predict needs allow.new.levels (interval-scale fix)", {
+  skip_if_no_glmmTMB()
+
+  dt  <- .make_panel_ar1()
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  m   <- glmmTMBmodel(y ~ ar1(years + 0 | gwcode),
+                      data = dt[year <= 2015L], ctx = ctx)
+  blk <- as.data.frame(dt[year >= 2016L & year <= 2018L])
+
+  # Without the flag glmmTMB cannot place new cov-struct levels -> it errors,
+  # which the predict method's tryCatch swallowed, falling back to dispersion = 1
+  # and inflating gaussian predictive intervals. The fix passes the flag so the
+  # true model sigma reaches the response draw.
+  expect_error(stats::predict(m$fitted, newdata = blk, type = "disp"))
+  d <- stats::predict(m$fitted, newdata = blk, type = "disp",
+                      allow.new.levels = TRUE)
+  expect_equal(as.numeric(d), rep(sigma(m$fitted), nrow(blk)), tolerance = 1e-6)
+})
+
+test_that("end-to-end: ar1 cov-struct simulate runs, no NA, no new-level warnings", {
+  skip_if_no_glmmTMB()
+
+  dt <- .make_panel_ar1()
+  dt[, x := stats::rnorm(.N)]   # real predictor -> lag(x) materialised in the block
+
+  system <- list(
+    build_model("glmmTMB", formula = y ~ lag(x) + ar1(years + 0 | gwcode),
+                family = stats::gaussian()),
+    build_model("exogen", formula = ~x),
+    build_model("exogen", formula = ~years)
+  )
+
+  warns <- character(0)
+  sim <- withCallingHandlers(
+    {
+      sys <- setup_system(system, dt, train_start = 2000L, test_start = 2016L,
+                          horizon = 3L, groupvar = "gwcode", timevar = "year",
+                          inner_sims = 3L)
+      f <- fit_system(sys, nsim = 4L)
+      simulate_system(f)
+    },
+    warning = function(w) {
+      warns <<- c(warns, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  fc <- sim[year >= 2016L]
+  expect_gt(nrow(fc), 0L)
+  expect_false(anyNA(fc$y))
+  expect_true(all(c("gwcode", "year", ".sim", "y") %in% names(sim)))
+  expect_false(any(grepl("new random effect levels", warns)))
+})
+
+test_that("glmmTMB ar1: RE contribution decays over a longer horizon (slow)", {
+  skip_if_no_glmmTMB()
+  skip_if_not_slow()
+
+  dt  <- .make_panel_ar1(years = 2000:2020)
+  ctx <- panel_context(unit = "gwcode", time = "year")
+  m   <- glmmTMBmodel(y ~ ar1(years + 0 | gwcode),
+                      data = dt[year <= 2015L], ctx = ctx)
+
+  phi <- attr(glmmTMB::VarCorr(m$fitted)$cond$gwcode, "correlation")[1, 2]
+  re  <- glmmTMB::ranef(m$fitted)$cond$gwcode
+  b0  <- glmmTMB::fixef(m$fitted)$cond[[1]]
+  re_last <- as.numeric(re[, ncol(re)])
+
+  sim_ctx <- panel_context(unit = "gwcode", time = "year", sim = "sim")
+  g <- data.table::copy(dt)
+  g[, sim := 1L]
+  p1 <- predict(m, data = g, t = 2016L, ctx = sim_ctx, what = "expectation")
+  p5 <- predict(m, data = g, t = 2020L, ctx = sim_ctx, what = "expectation")
+  data.table::setorder(p1, gwcode)
+  data.table::setorder(p5, gwcode)
+
+  expect_equal(p5$y - b0, phi^5 * re_last, tolerance = 1e-4)  # identity holds at k=5
+  expect_lt(mean(abs(p5$y - b0)), mean(abs(p1$y - b0)))       # magnitude decays
+})

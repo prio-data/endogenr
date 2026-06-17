@@ -61,7 +61,11 @@ new_endogenmodel <- function(formula){
 #'     like any predictor — they must be produced by some model: add an
 #'     `exogen` (e.g. `build_model("exogen", formula = ~region)`) to carry the
 #'     column forward, or group by a panel key (`unit`/`time`), which is always
-#'     present. Requires the `glmmTMB` package.}
+#'     present. Temporal covariance structures (`ar1`/`ou`/…) are forecast
+#'     multi-step by predicting the whole forecast-so-far block at each step so
+#'     glmmTMB applies the correct `phi^k` decay; the coordinate must be carried
+#'     into the horizon and be contiguous and unit-spaced. Requires the
+#'     `glmmTMB` package.}
 #'   \item{`"gamlss"`}{Two-sided `formula` for the location parameter `mu`
 #'     (may include `pb()`/`cs()`/`lo()` smoothers and `random()`/`ra()`/`re()`
 #'     grouping terms). Optional `sigma.formula`, `nu.formula`, `tau.formula`

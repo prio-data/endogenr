@@ -16,8 +16,14 @@
   produced by some model — add an `exogen` (e.g.
   `build_model("exogen", formula = ~region)`) to carry the grouping column
   into the forecast horizon, or group by a panel key. Setup errors if a
-  grouping column has no producer. Requires the `glmmTMB` CRAN package
-  (`install.packages("glmmTMB")`).
+  grouping column has no producer. Temporal covariance structures
+  (`ar1`/`ou`/…) are forecast correctly multi-step: at each forecast step the
+  whole forecast-so-far block is predicted in one call so glmmTMB applies the
+  proper `phi^k` correlation decay, and the dispersion prediction passes
+  `allow.new.levels` so the predictive-interval scale is correct for
+  covariance-structure models. The covariance coordinate must be carried into
+  the horizon (e.g. via an `exogen`) and be contiguous and unit-spaced.
+  Requires the `glmmTMB` CRAN package (`install.packages("glmmTMB")`).
 
   ```r
   build_model("glmmTMB",

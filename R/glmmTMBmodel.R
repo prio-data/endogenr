@@ -323,6 +323,24 @@ glmmTMBmodel <- function(formula = NULL,
   dec <- .glmmTMB_decompose(formula, dispformula, ziformula)
   model$graph_formula <- dec$graph_formula
 
+  # Covariance-structure detection + forecast origin (consumed by the predict
+  # method). TRUE if any formula part carries a cov-struct RE term (ar1/ou/exp/…),
+  # whose multi-step forecast needs the whole forecast-so-far block in one
+  # prediction so glmmTMB applies the correct phi^k correlation decay.
+  model$has_covstruct <- {
+    cs_parts <- Filter(function(f) inherits(f, "formula"),
+                       list(formula, dispformula, ziformula))
+    any(unlist(lapply(cs_parts, function(p)
+      vapply(.flatten_additive_terms(rlang::f_rhs(p)),
+             function(tm) { re <- .glmmTMB_as_re(tm); !is.null(re) && isTRUE(re$covstruct) },
+             logical(1)))))
+  }
+  # Forecast origin: the last time index the fit conditions on. The baseline fit
+  # uses the whole training frame (max = test_start - 1); a sliding/min_window
+  # refit ends at subset$end.
+  model$last_train_time <- if (!is.null(subset)) subset$end
+                           else max(data[[timevar]], na.rm = TRUE)
+
   # ── Stage 1: shared materialization across all formula parts ──────────────
   # Build a combined RHS at the AST level (NOT via terms()/reformulate() which
   # break on RE bars).  The combined formula is never fit; it drives panel_materialize
@@ -462,8 +480,17 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   idx      <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
 
-  # Subset to the per-unit history window the RHS actually needs
-  data <- .history_subset(data, idx, t, model$required_history)
+  # Covariance-structure terms (ar1, ou, exp, …) need the WHOLE forecast-so-far
+  # block in one prediction so glmmTMB applies the correct multi-step correlation
+  # decay (phi^k) and growing variance. Pass rows [last_train_time + 1 .. t]
+  # (plus required_history rows for lag materialization) and keep only the rows
+  # at t. Plain-RE / fixed-effect models predict only the rows at t.
+  if (isTRUE(model$has_covstruct)) {
+    lo   <- model$last_train_time + 1L - model$required_history
+    data <- data[data[[idx]] >= lo & data[[idx]] <= t]
+  } else {
+    data <- .history_subset(data, idx, t, model$required_history)
+  }
 
   # Re-materialise ts columns per (unit, sim) group
   env <- rlang::f_env(model$mat_formula)
@@ -471,22 +498,27 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   old <- intersect(names(model$pt_alias_map), names(mat))
   if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
 
-  # Filter to the prediction time step
-  mat <- mat[mat[[idx]] == t]
-  df  <- as.data.frame(mat)
+  # Block of rows to predict over; only the rows at t are written back.
+  if (isTRUE(model$has_covstruct)) {
+    mat <- mat[mat[[idx]] >= model$last_train_time + 1L & mat[[idx]] <= t]
+  } else {
+    mat <- mat[mat[[idx]] == t]
+  }
+  at_t <- mat[[idx]] == t
+  df   <- as.data.frame(mat)
 
   result_cols <- c(all_keys, idx, model$outcome)
-  result      <- mat[, ..result_cols]
+  result      <- mat[at_t, ..result_cols]
+  if (nrow(mat) == 0L) return(result)
 
   if (what == "expectation") {
-    val <- stats::predict(model$fitted, newdata = df,
-                          type = "response", re.form = NULL, allow.new.levels = TRUE)
-    data.table::set(result, j = model$outcome, value = as.numeric(val))
+    val <- stats::predict(model$fitted, newdata = df, type = "response",
+                          re.form = NULL, allow.new.levels = TRUE)
+    data.table::set(result, j = model$outcome, value = as.numeric(val[at_t]))
 
   } else if (what == "pi") {
     # Link-scale prediction with SE for parameter uncertainty
-    pl  <- stats::predict(model$fitted, newdata = df,
-                          type = "link", se.fit = TRUE,
+    pl  <- stats::predict(model$fitted, newdata = df, type = "link", se.fit = TRUE,
                           re.form = NULL, allow.new.levels = TRUE)
     # Asymptotic normal draw on link scale (standard for ML mixed models)
     eta <- pl$fit + pl$se.fit * stats::rnorm(length(pl$fit))
@@ -494,7 +526,8 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
 
     # Per-row dispersion (handles dispformula heteroscedasticity)
     disp <- tryCatch(
-      as.numeric(stats::predict(model$fitted, newdata = df, type = "disp")),
+      as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
+                                allow.new.levels = TRUE)),
       error = function(e) rep(1, length(mu))
     )
 
@@ -504,15 +537,16 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
     # Structural-zero mask for zero-inflated models
     if (!.is_trivial_rhs(model$ziformula)) {
       p_zero <- tryCatch(
-        as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob")),
+        as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob",
+                                  allow.new.levels = TRUE)),
         error = function(e) rep(0, length(draw))
       )
-      p_zero  <- pmin(pmax(p_zero, 0), 1)
+      p_zero   <- pmin(pmax(p_zero, 0), 1)
       not_zero <- stats::rbinom(length(draw), size = 1L, prob = 1 - p_zero)
-      draw    <- draw * not_zero
+      draw     <- draw * not_zero
     }
 
-    data.table::set(result, j = model$outcome, value = as.numeric(draw))
+    data.table::set(result, j = model$outcome, value = as.numeric(draw[at_t]))
 
   } else {
     stop("`what` must be either `pi` or `expectation`", call. = FALSE)
