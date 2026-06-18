@@ -64,8 +64,13 @@ new_endogenmodel <- function(formula){
 #'     present. Temporal covariance structures (`ar1`/`ou`/…) are forecast
 #'     multi-step by predicting the whole forecast-so-far block at each step so
 #'     glmmTMB applies the correct `phi^k` decay; the coordinate must be carried
-#'     into the horizon and be contiguous and unit-spaced. Requires the
-#'     `glmmTMB` package.}
+#'     into the horizon and be contiguous and unit-spaced. Response-scale
+#'     predictive draws are implemented for `gaussian`, `poisson`, `binomial`,
+#'     `Gamma`, `nbinom1`, `nbinom2`, `beta`, `betabinomial`, `t`, `lognormal`,
+#'     `skewnormal`, and
+#'     `truncated_poisson`/`truncated_nbinom1`/`truncated_nbinom2`; `tweedie`
+#'     needs the `tweedie` package; other families fall back to the conditional
+#'     mean. Requires the `glmmTMB` package.}
 #'   \item{`"gamlss"`}{Two-sided `formula` for the location parameter `mu`
 #'     (may include `pb()`/`cs()`/`lo()` smoothers and `random()`/`ra()`/`re()`
 #'     grouping terms). Optional `sigma.formula`, `nu.formula`, `tau.formula`

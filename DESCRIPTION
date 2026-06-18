@@ -37,6 +37,7 @@ Suggests:
     tidyr,
     actuar,
     tsibble,
+    tweedie,
     zoo
 Remotes:
     kvelleby/poldat,

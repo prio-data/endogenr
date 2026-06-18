@@ -173,10 +173,49 @@ test_that(".glmmTMB_response_draw returns correct length and sign", {
 
   # Unsupported family warns and returns mu
   expect_warning(
-    d_unk <- endogenr:::.glmmTMB_response_draw(mu, "tweedie", disp),
+    d_unk <- endogenr:::.glmmTMB_response_draw(mu, "genpois", disp),
     regexp = "no response-scale predictive draw"
   )
   expect_equal(d_unk, mu)
+})
+
+test_that(".glmmTMB_response_draw: new continuous families match target moments", {
+  set.seed(1); n <- 1e5
+  dt_ <- endogenr:::.glmmTMB_response_draw(rep(5, n), "t", rep(2, n),
+                                           c("Student-t df" = 10))
+  expect_equal(mean(dt_), 5, tolerance = 0.05)
+  expect_equal(stats::sd(dt_), 2 * sqrt(10 / 8), tolerance = 0.1)   # disp*sqrt(df/(df-2))
+
+  dl <- endogenr:::.glmmTMB_response_draw(rep(10, n), "lognormal", rep(4, n))
+  expect_true(all(dl > 0))
+  expect_equal(mean(dl), 10, tolerance = 0.2)
+  expect_equal(stats::sd(dl), 4, tolerance = 0.3)
+
+  ds <- endogenr:::.glmmTMB_response_draw(rep(0, n), "skewnormal", rep(1, n),
+                                          c("Skewnormal shape" = 6))
+  expect_equal(mean(ds), 0, tolerance = 0.05)
+  expect_gt(mean(((ds - mean(ds)) / stats::sd(ds))^3), 0.2)         # right-skewed
+})
+
+test_that(".glmmTMB_response_draw: truncated counts are positive integers", {
+  set.seed(2); n <- 1e5
+  for (fam_disp in list(c("truncated_poisson", NA), c("truncated_nbinom2", 2),
+                        c("truncated_nbinom1", 0.5))) {
+    fam  <- fam_disp[[1]]
+    disp <- if (is.na(fam_disp[[2]])) rep(1, n) else rep(as.numeric(fam_disp[[2]]), n)
+    d <- endogenr:::.glmmTMB_response_draw(rep(0.7, n), fam, disp)
+    expect_true(all(d >= 1), info = fam)
+    expect_true(all(d == as.integer(d)), info = fam)
+  }
+})
+
+test_that(".glmmTMB_response_draw: tweedie draw (requires tweedie pkg)", {
+  skip_if_not_installed("tweedie")
+  set.seed(3); n <- 1e5
+  out <- endogenr:::.glmmTMB_response_draw(rep(5, n), "tweedie", rep(2, n),
+                                           c("Tweedie power" = 1.5))
+  expect_true(all(out >= 0))
+  expect_equal(mean(out), 5, tolerance = 0.2)
 })
 
 test_that(".glmmTMB_linkinv returns a function", {
@@ -528,4 +567,62 @@ test_that("glmmTMB ar1: RE contribution decays over a longer horizon (slow)", {
 
   expect_equal(p5$y - b0, phi^5 * re_last, tolerance = 1e-4)  # identity holds at k=5
   expect_lt(mean(abs(p5$y - b0)), mean(abs(p1$y - b0)))       # magnitude decays
+})
+
+# ============================================================================
+# TIER 2 — Additional family response draws (t/lognormal/truncated_poisson)
+# ============================================================================
+
+test_that("glmmTMBmodel: t_family stores df and predicts finite draws", {
+  skip_if_no_glmmTMB()
+  dt <- .make_panel_glmmtmb(units = 8L, n_time = 25L)
+  set.seed(5); dt[, y := 2 + 0.5 * x + stats::rt(.N, df = 6)]
+  ctx <- panel_context(unit = "unit", time = "year")
+  m <- glmmTMBmodel(y ~ lag(x), data = dt, ctx = ctx, family = glmmTMB::t_family())
+  expect_true("Student-t df" %in% names(m$family_params))
+  sim_ctx <- panel_context(unit = "unit", time = "year", sim = "sim")
+  g <- data.table::copy(dt); g[, sim := 1L]
+  p <- predict(m, data = g, t = 18L, ctx = sim_ctx, what = "pi")
+  expect_false(anyNA(p$y))
+})
+
+test_that("glmmTMBmodel: lognormal predicts strictly positive draws", {
+  skip_if_no_glmmTMB()
+  dt <- .make_panel_glmmtmb(units = 6L, n_time = 25L)
+  set.seed(6); dt[, y := stats::rlnorm(.N, meanlog = 0.2 + 0.3 * x, sdlog = 0.4)]
+  ctx <- panel_context(unit = "unit", time = "year")
+  m <- glmmTMBmodel(y ~ lag(x), data = dt, ctx = ctx, family = glmmTMB::lognormal())
+  sim_ctx <- panel_context(unit = "unit", time = "year", sim = "sim")
+  g <- data.table::copy(dt); g[, sim := 1L]
+  p <- predict(m, data = g, t = 18L, ctx = sim_ctx, what = "pi")
+  expect_true(all(p$y > 0)); expect_false(anyNA(p$y))
+})
+
+test_that("glmmTMBmodel: truncated_poisson predicts positive integer draws", {
+  skip_if_no_glmmTMB()
+  dt <- .make_panel_glmmtmb(units = 6L, n_time = 25L)
+  set.seed(7); lam <- exp(0.3 + 0.3 * dt$x)
+  dt[, y := stats::qpois(stats::runif(.N, stats::dpois(0L, lam), 1), lam)]
+  ctx <- panel_context(unit = "unit", time = "year")
+  m <- glmmTMBmodel(y ~ lag(x), data = dt, ctx = ctx,
+                    family = glmmTMB::truncated_poisson())
+  sim_ctx <- panel_context(unit = "unit", time = "year", sim = "sim")
+  g <- data.table::copy(dt); g[, sim := 1L]
+  p <- predict(m, data = g, t = 18L, ctx = sim_ctx, what = "pi")
+  expect_true(all(p$y >= 1)); expect_true(all(p$y == as.integer(p$y)))
+})
+
+test_that("end-to-end: t_family simulate runs and forecasts finite values", {
+  skip_if_no_glmmTMB()
+  dt <- .make_panel_glmmtmb(units = 6L, n_time = 25L)
+  set.seed(8); dt[, y := 1 + 0.4 * x + stats::rt(.N, df = 8)]
+  system <- list(
+    build_model("glmmTMB", formula = y ~ lag(x), family = glmmTMB::t_family()),
+    build_model("exogen", formula = ~x)
+  )
+  sys <- setup_system(system, dt, train_start = 1L, test_start = 22L, horizon = 3L,
+                      groupvar = "unit", timevar = "year", inner_sims = 3L)
+  sim <- simulate_system(fit_system(sys, nsim = 4L))
+  fc <- sim[year >= 22L]
+  expect_gt(nrow(fc), 0L); expect_false(anyNA(fc$y))
 })

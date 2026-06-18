@@ -159,7 +159,7 @@
 # `family_name`— string from family(fitted)$family.
 # `disp`       — per-row dispersion from predict(type="disp"),
 #                as defined by sigma.glmmTMB for each family.
-.glmmTMB_response_draw <- function(mu, family_name, disp) {
+.glmmTMB_response_draw <- function(mu, family_name, disp, fam_pars = NULL) {
   n   <- length(mu)
   eps <- .Machine$double.eps
 
@@ -214,6 +214,67 @@
                    shape2 = pmax((1 - mu2) * disp, eps))
     },
 
+    "t" = {
+      # t_family: location = mu, scale = disp (sigma), df = family_params.
+      # link is identity, so mu (=linkinv(eta)) is the location/mean (df>1).
+      df <- as.numeric(fam_pars)[1L]
+      if (!is.finite(df) || df <= 0) { .glmmTMB_warn_unsupported("t"); return(mu) }
+      mu + pmax(disp, 0) * stats::rt(n, df = df)
+    },
+
+    "lognormal" = {
+      # mu (=exp(eta)) is the response MEAN; disp is the response SD. Recover the
+      # log-scale params so E[Y]=mu and SD[Y]=disp, then draw.
+      mu_s  <- pmax(mu, eps)
+      sdlog <- sqrt(log1p((disp / mu_s)^2))
+      stats::rlnorm(n, meanlog = log(mu_s) - sdlog^2 / 2, sdlog = sdlog)
+    },
+
+    "skewnormal" = {
+      # dskewnorm reparam (glmmTMB src/distrib.h): mu = mean, disp = sigma,
+      # alpha = shape (family_params). Draw via the standard CSN construction.
+      alpha <- as.numeric(fam_pars)[1L]
+      if (!is.finite(alpha)) alpha <- 0
+      delta <- alpha / sqrt(1 + alpha^2)
+      omega <- pmax(disp, eps) / sqrt(1 - (2 / pi) * delta^2)
+      xi    <- mu - omega * delta * sqrt(2 / pi)
+      xi + omega * (delta * abs(stats::rnorm(n)) + sqrt(1 - delta^2) * stats::rnorm(n))
+    },
+
+    "truncated_poisson" = {
+      # mu (=exp(eta)) is the UNtruncated rate; zero-truncate by inverse CDF.
+      lambda <- pmax(mu, eps)
+      stats::qpois(stats::runif(n, stats::dpois(0L, lambda), 1), lambda)
+    },
+
+    "truncated_nbinom2" = {
+      # mu = untruncated mean, disp = theta (size); zero-truncate by inverse CDF.
+      mu_s <- pmax(mu, eps)
+      size <- pmax(disp, eps)
+      stats::qnbinom(stats::runif(n, stats::dnbinom(0L, size = size, mu = mu_s), 1),
+                     size = size, mu = mu_s)
+    },
+
+    "truncated_nbinom1" = {
+      # nbinom1: disp = alpha, size = mu/alpha; zero-truncate by inverse CDF.
+      mu_s <- pmax(mu, eps)
+      size <- mu_s / pmax(disp, eps)
+      stats::qnbinom(stats::runif(n, stats::dnbinom(0L, size = size, mu = mu_s), 1),
+                     size = size, mu = mu_s)
+    },
+
+    "tweedie" = {
+      # var = phi*mu^p: phi = disp, p = family_params ("Tweedie power").
+      # Needs the tweedie package; fall back to the mean (warn once) if absent.
+      p <- as.numeric(fam_pars)[1L]
+      if (is.finite(p) && requireNamespace("tweedie", quietly = TRUE)) {
+        tweedie::rtweedie(n, mu = pmax(mu, eps), phi = pmax(disp, eps), power = p)
+      } else {
+        .glmmTMB_warn_unsupported("tweedie")
+        mu
+      }
+    },
+
     {
       # Unsupported family: warn once, fall back to point estimate (mean-only draw)
       .glmmTMB_warn_unsupported(family_name)
@@ -230,7 +291,9 @@
       "glmmTMB family '", family_name, "' has no response-scale predictive draw ",
       "in endogenr; falling back to the conditional mean (parameter-uncertainty-only draw), ",
       "which under-disperses. Supported families: gaussian, poisson, binomial, Gamma, ",
-      "nbinom1, nbinom2, beta, betabinomial.",
+      "nbinom1, nbinom2, beta, betabinomial, t, lognormal, skewnormal, ",
+      "truncated_poisson, truncated_nbinom1, truncated_nbinom2, and tweedie ",
+      "(requires the 'tweedie' package).",
       call. = FALSE
     )
     do.call(options, stats::setNames(list(TRUE), key))
@@ -409,6 +472,12 @@ glmmTMBmodel <- function(formula = NULL,
   model$fitted <- model$fit(fit_formula, disp_fit, zi_fit, pm$data,
                             family, control, subset, timevar)
 
+  # Extra family parameters (t df, skewnormal shape, tweedie power, …) for the
+  # response draw; numeric(0) for families without any. Survives .strip_fit_data
+  # (which only nulls model$data and trims model$fitted sub-fields).
+  model$family_params <- tryCatch(glmmTMB::family_params(model$fitted),
+                                  error = function(e) numeric(0))
+
   # ── Coefficient + GOF fields for plot_coefficients() ─────────────────────
   co <- tryCatch(summary(model$fitted)$coefficients$cond, error = function(e) NULL)
   model$coefs <- if (!is.null(co) && nrow(co) > 0L) {
@@ -532,7 +601,7 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
     )
 
     fam_name <- family(model$fitted)$family
-    draw <- .glmmTMB_response_draw(mu, fam_name, disp)
+    draw <- .glmmTMB_response_draw(mu, fam_name, disp, model$family_params)
 
     # Structural-zero mask for zero-inflated models
     if (!.is_trivial_rhs(model$ziformula)) {

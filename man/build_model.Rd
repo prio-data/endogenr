@@ -66,8 +66,13 @@ column forward, or group by a panel key (\code{unit}/\code{time}), which is alwa
 present. Temporal covariance structures (\code{ar1}/\code{ou}/…) are forecast
 multi-step by predicting the whole forecast-so-far block at each step so
 glmmTMB applies the correct \code{phi^k} decay; the coordinate must be carried
-into the horizon and be contiguous and unit-spaced. Requires the
-\code{glmmTMB} package.}
+into the horizon and be contiguous and unit-spaced. Response-scale
+predictive draws are implemented for \code{gaussian}, \code{poisson}, \code{binomial},
+\code{Gamma}, \code{nbinom1}, \code{nbinom2}, \code{beta}, \code{betabinomial}, \code{t}, \code{lognormal},
+\code{skewnormal}, and
+\code{truncated_poisson}/\code{truncated_nbinom1}/\code{truncated_nbinom2}; \code{tweedie}
+needs the \code{tweedie} package; other families fall back to the conditional
+mean. Requires the \code{glmmTMB} package.}
 \item{\code{"gamlss"}}{Two-sided \code{formula} for the location parameter \code{mu}
 (may include \code{pb()}/\code{cs()}/\code{lo()} smoothers and \code{random()}/\code{ra()}/\code{re()}
 grouping terms). Optional \code{sigma.formula}, \code{nu.formula}, \code{tau.formula}

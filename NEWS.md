@@ -10,7 +10,10 @@
   `dispformula` (per-row heteroscedasticity / overdispersion), and a
   `ziformula` for zero-inflation. Families with a response-scale draw:
   `gaussian`, `poisson`, `binomial`, `Gamma`, `nbinom1`, `nbinom2`,
-  `beta`, `betabinomial`; unsupported families fall back to the
+  `beta`, `betabinomial`, `t`, `lognormal`, `skewnormal`,
+  `truncated_poisson`, `truncated_nbinom1`, `truncated_nbinom2`, and
+  `tweedie` (the last requires the `tweedie` package, else it falls back
+  to the mean); other unsupported families fall back to the
   conditional mean with a one-time warning. Grouping factors and cov-struct
   coordinates are ordinary predictors: like any predictor they must be
   produced by some model — add an `exogen` (e.g.
