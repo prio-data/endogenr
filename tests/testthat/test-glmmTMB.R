@@ -320,6 +320,27 @@ test_that("end-to-end: fit_system + simulate_system with glmmTMB spec", {
   expect_true(all(c("unit", "year", ".sim", "y") %in% names(sim)))
 })
 
+test_that("trivial dispformula caches constant dispersion (disp_const)", {
+  skip_if_no_glmmTMB()
+
+  dt  <- .make_panel_glmmtmb(units = 6L, n_time = 20L)
+  ctx <- panel_context(unit = "unit", time = "year")
+
+  # Default dispformula (~1): disp_const is the scalar sigma(fitted). (The per-row
+  # equivalence disp == sigma(fitted) is pinned by the ar1 disp test below, which
+  # materialises the predictor columns the fit expects.)
+  m <- glmmTMBmodel(y ~ lag(x) + (1 | region), data = dt, ctx = ctx)
+  expect_true(is.numeric(m$disp_const) && length(m$disp_const) == 1L)
+  expect_equal(m$disp_const, as.numeric(stats::sigma(m$fitted)))
+
+  # Cached family + link-inverse match the live ones.
+  expect_equal(m$fam_name, family(m$fitted)$family)
+
+  # Non-trivial dispformula: no constant cache -> predict method takes per-row path.
+  m_h <- glmmTMBmodel(y ~ lag(x), dispformula = ~ x, data = dt, ctx = ctx)
+  expect_null(m_h$disp_const)
+})
+
 test_that("dispformula: per-row dispersion reaches predict draw (slow)", {
   skip_if_no_glmmTMB()
   skip_if_not_slow()

@@ -478,6 +478,23 @@ glmmTMBmodel <- function(formula = NULL,
   model$family_params <- tryCatch(glmmTMB::family_params(model$fitted),
                                   error = function(e) numeric(0))
 
+  # Predict-invariant quantities cached once at fit time so the hot predict loop
+  # (called nsim * horizon times) avoids redundant work. The fitted model is fixed
+  # across all draws/steps, so its family, link-inverse, and — when dispformula is
+  # trivial — its dispersion are constant.
+  model$fam_name <- family(model$fitted)$family
+  model$linkinv  <- .glmmTMB_linkinv(model$fitted)
+  # Constant-dispersion fast path: when dispformula is trivial (~1 / ~0),
+  # predict(type = "disp") returns sigma(fitted) for every row (verified across
+  # gaussian/Gamma/nbinom2/poisson/beta), so cache the scalar and skip a full
+  # predict.glmmTMB rebuild at every forecast step. NULL signals the predict
+  # method to fall back to the per-row predict path (non-trivial dispformula).
+  model$disp_const <- if (.is_trivial_rhs(dispformula)) {
+    tryCatch(as.numeric(stats::sigma(model$fitted)), error = function(e) NULL)
+  } else {
+    NULL
+  }
+
   # ── Coefficient + GOF fields for plot_coefficients() ─────────────────────
   co <- tryCatch(summary(model$fitted)$coefficients$cond, error = function(e) NULL)
   model$coefs <- if (!is.null(co) && nrow(co) > 0L) {
@@ -591,16 +608,22 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
                           re.form = NULL, allow.new.levels = TRUE)
     # Asymptotic normal draw on link scale (standard for ML mixed models)
     eta <- pl$fit + pl$se.fit * stats::rnorm(length(pl$fit))
-    mu  <- .glmmTMB_linkinv(model$fitted)(eta)
+    mu  <- model$linkinv(eta)
 
-    # Per-row dispersion (handles dispformula heteroscedasticity)
-    disp <- tryCatch(
-      as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
-                                allow.new.levels = TRUE)),
-      error = function(e) rep(1, length(mu))
-    )
+    # Per-row dispersion. Trivial dispformula -> constant sigma cached at fit time
+    # (skips a full predict.glmmTMB rebuild each step). Non-trivial dispformula ->
+    # per-row predict as before.
+    disp <- if (!is.null(model$disp_const)) {
+      rep(model$disp_const, length(mu))
+    } else {
+      tryCatch(
+        as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
+                                  allow.new.levels = TRUE)),
+        error = function(e) rep(1, length(mu))
+      )
+    }
 
-    fam_name <- family(model$fitted)$family
+    fam_name <- model$fam_name
     draw <- .glmmTMB_response_draw(mu, fam_name, disp, model$family_params)
 
     # Structural-zero mask for zero-inflated models

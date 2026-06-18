@@ -74,6 +74,17 @@
 
 ## Bug fixes
 
+- **glmmTMB simulation is faster.** `predict.glmmTMB_endogenr()` no longer
+  issues a redundant `predict(type = "disp")` rebuild at every forecast step
+  when `dispformula` is trivial (`~1`, the default): the constant dispersion
+  `sigma(fitted)` is cached at fit time (alongside the family name and
+  link-inverse). This drops one of the two `predict.glmmTMB` rebuilds per step
+  — about 40% of raw per-step prediction cost, ~20% less `simulate_system()`
+  wall time in a typical gaussian configuration, and proportionally more for
+  `ar1`/cov-struct models whose disp call re-predicts a growing block. Output
+  is numerically identical; models with a non-trivial `dispformula` are
+  unaffected.
+
 - **`lag()` now preserves factor predictors.** A factor wrapped in `lag()`
   (e.g. `lag(conflict)`) was coerced to its integer codes during panel
   materialization, so it entered models as a single numeric term instead of
