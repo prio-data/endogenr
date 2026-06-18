@@ -14,7 +14,8 @@ The formula with modified environment.
 }
 \description{
 Replaces \code{lag()} in the formula's evaluation environment with a positional
-shift function: \code{c(rep(NA, n), head(x, -n))}. This ensures \code{lag()} in model
+shift that prepends \code{n} NAs and drops the last \code{n} elements, preserving the
+input type (factor levels, Date, etc.). This ensures \code{lag()} in model
 formulas performs a within-group positional shift rather than \code{stats::lag()}.
 }
 \seealso{

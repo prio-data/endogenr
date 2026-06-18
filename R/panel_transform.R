@@ -55,9 +55,13 @@
 )
 
 # Positional within-group lag, matching inject_positional_lag(): `lag(x, n)`
-# shifts `x` forward by `n` rows, padding the head with NA.
+# shifts `x` forward by `n` rows, padding the head with NA. Type-preserving
+# (index-based) so factor/Date/character columns keep their class and levels.
 .pt_positional_lag <- function(x, n = 1L) {
-  c(rep(NA_real_, n), utils::head(x, -n))
+  n   <- as.integer(n)
+  len <- length(x)
+  if (n >= len) return(x[rep(NA_integer_, len)])
+  x[c(rep(NA_integer_, n), seq_len(len - n))]
 }
 
 # Name of the function a call invokes, stripping a `pkg::`/`pkg:::` qualifier.

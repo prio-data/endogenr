@@ -59,6 +59,16 @@
               family        = gamlss.dist::NO())
   ```
 
+## Bug fixes
+
+- **`lag()` now preserves factor predictors.** A factor wrapped in `lag()`
+  (e.g. `lag(conflict)`) was coerced to its integer codes during panel
+  materialization, so it entered models as a single numeric term instead of
+  expanding into dummy columns. The positional-lag shift is now type-preserving,
+  so lagged factors (and `Date`/character columns) keep their class and levels
+  across all model types (`linear`, `glm`, `heterolm`, `glmmTMB`, `gamlss`,
+  `deterministic`).
+
 ## Migration guide
 
 The three-stage pipeline replaces the old two-stage API. The minimum
