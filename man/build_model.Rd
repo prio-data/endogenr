@@ -4,7 +4,7 @@
 \alias{build_model}
 \title{Build a model specification}
 \usage{
-build_model(type, formula, ...)
+build_model(type, formula, ..., bounds = NULL)
 }
 \arguments{
 \item{type}{One of \code{"deterministic"}, \code{"parametric_distribution"},
@@ -15,9 +15,20 @@ build_model(type, formula, ...)
 shape per type.}
 
 \item{...}{Model-specific arguments. See the model-type section.}
+
+\item{bounds}{Optional length-2 numeric \code{c(lower, upper)}. When set, this
+model's simulated outcome is clamped to \verb{[lower, upper]} at every forecast
+step of \code{\link[=simulate_system]{simulate_system()}}, before the value feeds later steps. Use it to
+stabilize autoregressive feedback (e.g. \code{bounds = c(-1, 1)} for a growth
+rate). Infinities are allowed for a one-sided limit (\code{c(0, Inf)}). A draw
+that returns non-finite after clamping is reset to a finite in-range value
+(the midpoint of two finite bounds, or the finite bound of a one-sided
+limit), so a bounded outcome never propagates \code{NaN}/\code{Inf}. Default \code{NULL}
+applies no clamping.}
 }
 \value{
-An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb{$args}).
+An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb{$args},
+and \verb{$bounds}).
 }
 \description{
 Creates a model specification that will become part of a simulation system.

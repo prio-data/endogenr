@@ -74,6 +74,15 @@ test_that("build_model spec has type, formula, and args fields", {
   expect_equal(spec$type, "deterministic")
 })
 
+test_that("build_model stores and validates bounds", {
+  expect_equal(build_model("linear", y ~ lag(x), bounds = c(-1, 1))$bounds, c(-1, 1))
+  expect_null(build_model("linear", y ~ lag(x))$bounds)
+  expect_error(build_model("linear", y ~ lag(x), bounds = c(1, -1)), "lower <= upper")
+  expect_error(build_model("linear", y ~ lag(x), bounds = 1), "length-2")
+  # bounds is a named formal after ...; it must not leak into spec$args
+  expect_null(build_model("linear", y ~ lag(x), bounds = c(0, 1))$args$bounds)
+})
+
 # ── fit_model tests ─────────────────────────────────────────────────────────
 
 test_that("fit_model.linear_spec produces a fitted linear model", {

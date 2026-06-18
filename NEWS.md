@@ -59,6 +59,19 @@
               family        = gamlss.dist::NO())
   ```
 
+- **`build_model(…, bounds = c(lower, upper))` — per-model output bounds.**
+  Any model's simulated outcome can be constrained to `[lower, upper]`: the
+  dynamic simulator clamps the predicted value at every forecast step before it
+  feeds later steps, stabilizing autoregressive feedback (e.g.
+  `bounds = c(-1, 1)` on a growth rate). A draw that is still non-finite after
+  clamping is reset to a finite in-range value (the midpoint of two finite
+  bounds, or the finite bound of a one-sided `c(0, Inf)` limit), so a bounded
+  outcome never propagates `NaN`/`Inf`. This prevents the
+  `(subscript) logical subscript too long` crash seen when a divergent
+  autoregressive term (e.g. a gamlss `sigma.formula` containing
+  `abs(lag(outcome))`) drove a predictor to `Inf`/`NaN`. Default `NULL` leaves
+  all behavior unchanged.
+
 ## Bug fixes
 
 - **`lag()` now preserves factor predictors.** A factor wrapped in `lag()`

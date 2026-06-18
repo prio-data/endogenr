@@ -57,6 +57,34 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   return(result)
 }
 
+# Clamp a model's outcome column(s) of a prediction data.table to its bounds,
+# in place. `bounds` is NULL (no-op) or c(lower, upper) from build_model().
+#
+# pmin/pmax clamp finite values and map +Inf -> upper, -Inf -> lower. A draw
+# can still come back NaN (e.g. a heavy-tailed family evaluated at a degenerate
+# linear predictor); NaN survives pmin/pmax and, left in the grid, becomes a
+# non-finite lag predictor that crashes the next prediction. So any value that
+# is still non-finite after clamping is reset to a finite in-range fallback:
+# the midpoint of two finite bounds, or the single finite bound for a one-sided
+# limit. This guarantees a bounded outcome is always finite and within range.
+# Only numeric outcome column(s) are touched.
+.apply_bounds <- function(pred, cols, bounds) {
+  if (is.null(bounds) || length(cols) == 0L) return(pred)
+  lo <- bounds[1L]; hi <- bounds[2L]
+  fill <- if (is.finite(lo) && is.finite(hi)) (lo + hi) / 2
+          else if (is.finite(lo)) lo
+          else if (is.finite(hi)) hi
+          else NA_real_
+  for (cc in cols) {
+    v <- pred[[cc]]
+    if (!is.numeric(v)) next
+    w <- pmin(pmax(v, lo), hi)
+    if (!is.na(fill)) w[!is.finite(w)] <- fill
+    data.table::set(pred, j = cc, value = w)
+  }
+  pred
+}
+
 #' Imputes the time-independent forecasts
 #'
 #' @param simulation_data A data.table.
@@ -93,6 +121,7 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
     )
 
     cols <- setdiff(names(pred), join_keys)
+    pred <- .apply_bounds(pred, cols, model$bounds)
     simulation_data[pred, (cols) := mget(paste0("i.", cols)), on = join_keys]
   }
 
@@ -142,6 +171,7 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
         }
       )
       cols <- setdiff(names(pred), join_keys)
+      pred <- .apply_bounds(pred, cols, model$bounds)
       simulation_data[pred, (cols) := mget(paste0("i.", cols)), on = join_keys]
     }
   }
@@ -410,7 +440,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 #' @keywords internal
 .fit_spec <- function(spec, sys, subset = NULL) {
   type <- spec$type
-  switch(type,
+  model <- switch(type,
     "deterministic" = fit_model(spec, ctx = sys$fit_ctx),
     "linear" =, "glm" =, "heterolm" =, "glmmTMB" =, "gamlss" =
       fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx, subset = subset),
@@ -421,6 +451,8 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
     "spatial_lag" = fit_model(spec, ctx = sys$fit_ctx),
     stop("Unknown spec type: ", type)
   )
+  model$bounds <- spec$bounds
+  model
 }
 
 #' Drop the cached training frame and fitting-only payloads from a fitted model

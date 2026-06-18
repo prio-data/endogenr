@@ -88,8 +88,18 @@ new_endogenmodel <- function(formula){
 #' @param formula An R formula. See the model-type section for the expected
 #'   shape per type.
 #' @param ... Model-specific arguments. See the model-type section.
+#' @param bounds Optional length-2 numeric `c(lower, upper)`. When set, this
+#'   model's simulated outcome is clamped to `[lower, upper]` at every forecast
+#'   step of [simulate_system()], before the value feeds later steps. Use it to
+#'   stabilize autoregressive feedback (e.g. `bounds = c(-1, 1)` for a growth
+#'   rate). Infinities are allowed for a one-sided limit (`c(0, Inf)`). A draw
+#'   that returns non-finite after clamping is reset to a finite in-range value
+#'   (the midpoint of two finite bounds, or the finite bound of a one-sided
+#'   limit), so a bounded outcome never propagates `NaN`/`Inf`. Default `NULL`
+#'   applies no clamping.
 #'
-#' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`).
+#' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`,
+#'   and `$bounds`).
 #' @seealso [setup_system()], [fit_system()], [simulate_system()], [fit_model()]
 #' @family build
 #' @export
@@ -107,7 +117,7 @@ new_endogenmodel <- function(formula){
 #'   build_model("exogen", formula = ~psecprop),
 #'   build_model("exogen", formula = ~population)
 #' )
-build_model <- function(type, formula, ...) {
+build_model <- function(type, formula, ..., bounds = NULL) {
   valid_types <- c("deterministic", "parametric_distribution", "linear", "glm",
                    "exogen", "univariate_fable", "heterolm", "spatial_lag",
                    "glmmTMB", "gamlss")
@@ -115,10 +125,18 @@ build_model <- function(type, formula, ...) {
     stop("Unknown model type: ", type)
   }
 
+  if (!is.null(bounds)) {
+    if (!is.numeric(bounds) || length(bounds) != 2L ||
+        anyNA(bounds) || bounds[1L] > bounds[2L]) {
+      stop("`bounds` must be a length-2 numeric c(lower, upper) with lower <= upper.",
+           call. = FALSE)
+    }
+  }
+
   dots <- list(...)
 
   spec <- structure(
-    list(type = type, formula = formula, args = dots),
+    list(type = type, formula = formula, args = dots, bounds = bounds),
     class = c(paste0(type, "_spec"), "endogenr_spec")
   )
   spec
