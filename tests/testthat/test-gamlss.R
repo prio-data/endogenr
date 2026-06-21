@@ -75,6 +75,18 @@ test_that(".gamlss_decompose deduplicates pred_terms across formulas", {
   expect_equal(sum(grhs == "x"), 1L)
 })
 
+test_that(".gamlss_decompose: intercept-only mu formula yields a variable-free graph RHS", {
+  dec <- endogenr:::.gamlss_decompose(gdppc_grwt ~ 1)
+  expect_equal(dec$outcome, "gdppc_grwt")
+  expect_equal(all.vars(rlang::f_rhs(dec$graph_formula)), character(0))
+})
+
+test_that("validate_system_closure accepts an intercept-only gamlss model", {
+  # Regression: graph RHS for `y ~ 1` must not introduce a phantom "1" predictor.
+  spec <- list(type = "gamlss", formula = y ~ 1, args = list())
+  expect_no_error(validate_system_closure(list(spec), data_columns = "y"))
+})
+
 # ── build_model ───────────────────────────────────────────────────────────────
 
 test_that("build_model('gamlss', ...) returns correctly classed spec", {

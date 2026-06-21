@@ -135,7 +135,7 @@
 
   # Build the bar-free graph RHS
   graph_rhs <- if (length(pred_terms) == 0L) {
-    as.symbol("1")
+    1
   } else {
     Reduce(function(a, b) call("+", a, b), pred_terms)
   }

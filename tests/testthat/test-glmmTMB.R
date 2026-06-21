@@ -62,6 +62,17 @@ test_that(".glmmTMB_decompose: y ~ (1 | g) yields graph RHS 'g' (grouping is pre
   expect_equal(all.vars(rlang::f_rhs(dec$graph_formula)), "g")
 })
 
+test_that(".glmmTMB_decompose: intercept-only formula yields a variable-free graph RHS", {
+  dec <- endogenr:::.glmmTMB_decompose(y ~ 1)
+  expect_equal(dec$outcome, "y")
+  expect_equal(all.vars(rlang::f_rhs(dec$graph_formula)), character(0))
+})
+
+test_that("validate_system_closure accepts an intercept-only glmmTMB model", {
+  spec <- list(type = "glmmTMB", formula = y ~ 1, args = list())
+  expect_no_error(validate_system_closure(list(spec), data_columns = "y"))
+})
+
 test_that("build_model('glmmTMB', ...) returns correctly classed spec", {
   f <- y ~ lag(x) + (1 | region)
   spec <- build_model("glmmTMB", formula = f,

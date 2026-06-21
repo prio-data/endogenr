@@ -74,6 +74,15 @@
 
 ## Bug fixes
 
+- **Intercept-only `gamlss`/`glmmTMB` formulas no longer fail closure
+  validation.** A parameter formula with no predictors (e.g.
+  `gdppc_grwt ~ 1`) built its dependency-graph RHS as the symbol `` `1` ``
+  instead of the numeric intercept, so `all.vars()` reported a phantom
+  predictor named `1`. `validate_system_closure()` then aborted with
+  *"variables ... missing from the input data: 1"*. The empty-predictor
+  graph RHS is now the numeric intercept `1`, so intercept-only mu/sigma/nu/tau
+  (gamlss) and main/disp/zi (glmmTMB) formulas validate and simulate.
+
 - **glmmTMB simulation is faster.** `predict.glmmTMB_endogenr()` no longer
   issues a redundant `predict(type = "disp")` rebuild at every forecast step
   when `dispformula` is trivial (`~1`, the default): the constant dispersion
