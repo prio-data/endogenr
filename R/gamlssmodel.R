@@ -198,6 +198,58 @@
 # Part 3: fit_model dispatch + gamlssmodel constructor
 # --------------------------------------------------------------------------
 
+#' Stage-2 pooled gamlss fit on materialized data
+#'
+#' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
+#' fit step must not be a closure stored on the model object.
+#'
+#' @param mu_fit,sigma_fit,nu_fit,tau_fit Rewritten, aliased parameter formulas.
+#' @param data The materialized data.table.
+#' @param family A `gamlss.family` object.
+#' @param ctrl A `gamlss::gamlss.control()` list.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A list with `fitted` (the gamlss fit) and `frame` (the EXACT
+#'   data.frame the fit saw — required by `predictAll(data = ...)`).
+#' @keywords internal
+.gamlss_stage2_fit <- function(mu_fit, sigma_fit, nu_fit, tau_fit, data,
+                               family, ctrl, subset, timevar) {
+  fit_cols <- unique(c(
+    intersect(all.vars(mu_fit),    names(data)),
+    intersect(all.vars(sigma_fit), names(data)),
+    intersect(all.vars(nu_fit),    names(data)),
+    intersect(all.vars(tau_fit),   names(data)),
+    timevar
+  ))
+  d <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    d <- .dt_rows(d, d[[timevar]] >= subset$start & d[[timevar]] <= subset$end)
+  }
+  d <- stats::na.omit(as.data.frame(d))
+  # Ensure gamlss functions (pb, cs, lo, random, ra, re, etc.) are findable
+  # when gamlss evaluates formula terms in model.frame. Required because
+  # requireNamespace() loads but does not attach the package.
+  gamlss_ns <- asNamespace("gamlss")
+  .set_gamlss_env <- function(f) {
+    environment(f) <- new.env(parent = gamlss_ns)
+    f
+  }
+  mu_fit    <- .set_gamlss_env(mu_fit)
+  sigma_fit <- .set_gamlss_env(sigma_fit)
+  nu_fit    <- .set_gamlss_env(nu_fit)
+  tau_fit   <- .set_gamlss_env(tau_fit)
+  fitted <- gamlss::gamlss(
+    formula       = mu_fit,
+    sigma.formula = sigma_fit,
+    nu.formula    = nu_fit,
+    tau.formula   = tau_fit,
+    family        = family,
+    data          = d,
+    control       = ctrl
+  )
+  list(fitted = fitted, frame = d)
+}
+
 #' Fit a gamlss model
 #'
 #' S3 dispatch for `gamlss_spec` objects. Delegates to [gamlssmodel()].
@@ -299,8 +351,7 @@ gamlssmodel <- function(formula       = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -319,52 +370,16 @@ gamlssmodel <- function(formula       = NULL,
   class(model) <- c("endogenr_gamlss", class(model))
 
   # ── Stage 2: fit ─────────────────────────────────────────────────────────
-  # The fit closure is called once here. In min_window mode it may also be
-  # called per-draw with a different data subset.
+  # File-level helper — see .lm_stage2_fit for why this must not be a closure
+  # stored on the model object (serialization payload).
   #
-  # CRITICAL: store the exact fit frame (d) so predictAll() can always receive
+  # CRITICAL: store the exact fit frame so predictAll() can always receive
   # data = model$gamlss_data. Without this, predictAll errors or gives wrong
   # predictions when called from inside a function scope (name lookup fails).
   ctrl <- if (!is.null(control)) control else gamlss::gamlss.control(trace = FALSE)
 
-  model$fit <- function(mu_fit, sigma_fit, nu_fit, tau_fit, data, family, ctrl, subset, timevar) {
-    fit_cols <- unique(c(
-      intersect(all.vars(mu_fit),    names(data)),
-      intersect(all.vars(sigma_fit), names(data)),
-      intersect(all.vars(nu_fit),    names(data)),
-      intersect(all.vars(tau_fit),   names(data)),
-      timevar
-    ))
-    d <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      d <- d[d[[timevar]] >= subset$start & d[[timevar]] <= subset$end]
-    }
-    d <- stats::na.omit(as.data.frame(d))
-    # Ensure gamlss functions (pb, cs, lo, random, ra, re, etc.) are findable
-    # when gamlss evaluates formula terms in model.frame. Required because
-    # requireNamespace() loads but does not attach the package.
-    gamlss_ns <- asNamespace("gamlss")
-    .set_gamlss_env <- function(f) {
-      environment(f) <- new.env(parent = gamlss_ns); f
-    }
-    mu_fit    <- .set_gamlss_env(mu_fit)
-    sigma_fit <- .set_gamlss_env(sigma_fit)
-    nu_fit    <- .set_gamlss_env(nu_fit)
-    tau_fit   <- .set_gamlss_env(tau_fit)
-    fitted <- gamlss::gamlss(
-      formula       = mu_fit,
-      sigma.formula = sigma_fit,
-      nu.formula    = nu_fit,
-      tau.formula   = tau_fit,
-      family        = family,
-      data          = d,
-      control       = ctrl
-    )
-    list(fitted = fitted, frame = d)
-  }
-
-  fitres            <- model$fit(mu_fit, sigma_fit, nu_fit, tau_fit,
-                                 pm$data, family, ctrl, subset, timevar)
+  fitres            <- .gamlss_stage2_fit(mu_fit, sigma_fit, nu_fit, tau_fit,
+                                          pm$data, family, ctrl, subset, timevar)
   model$fitted      <- fitres$fitted
   model$gamlss_data <- fitres$frame  # EXACT frame; never replaced; passed as data= to predictAll
 
@@ -445,11 +460,10 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group
   env <- rlang::f_env(model$mat_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]

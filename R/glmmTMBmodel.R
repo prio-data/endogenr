@@ -313,6 +313,49 @@
 # Part 3: fit_model dispatch + glmmTMBmodel constructor
 # --------------------------------------------------------------------------
 
+#' Stage-2 pooled glmmTMB fit on materialized data
+#'
+#' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
+#' fit step must not be a closure stored on the model object.
+#'
+#' @param fit_formula Rewritten, aliased main formula (RE bars intact).
+#' @param disp_fit Rewritten dispersion formula.
+#' @param zi_fit Rewritten zero-inflation formula.
+#' @param data The materialized data.table.
+#' @param family A family object.
+#' @param control Optional `glmmTMB::glmmTMBControl()`.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A fitted `glmmTMB` object.
+#' @keywords internal
+.glmmTMB_stage2_fit <- function(fit_formula, disp_fit, zi_fit, data,
+                                family, control, subset, timevar) {
+  # Restrict to columns the model actually reads (keeps grouping vars and
+  # cov-struct coordinates because all.vars() walks through bars).
+  fit_cols <- unique(c(
+    intersect(all.vars(fit_formula), names(data)),
+    intersect(all.vars(disp_fit),   names(data)),
+    intersect(all.vars(zi_fit),     names(data)),
+    timevar
+  ))
+  data <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    data <- .dt_rows(data, data[[timevar]] >= subset$start &
+                             data[[timevar]] <= subset$end)
+  }
+  data <- stats::na.omit(as.data.frame(data))
+
+  args <- list(
+    formula     = fit_formula,
+    data        = data,
+    family      = family,
+    dispformula = disp_fit,
+    ziformula   = zi_fit
+  )
+  if (!is.null(control)) args$control <- control
+  do.call(glmmTMB::glmmTMB, args)
+}
+
 #' Fit a glmmTMB model
 #'
 #' S3 dispatch for `glmmTMB_spec` objects. Delegates to [glmmTMBmodel()].
@@ -418,8 +461,7 @@ glmmTMBmodel <- function(formula = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -441,36 +483,10 @@ glmmTMBmodel <- function(formula = NULL,
   class(model) <- c("glmmTMB_endogenr", class(model))
 
   # ── Stage 2: fit ─────────────────────────────────────────────────────────
-  # Closure captures pm$data; called once here and optionally again per-draw
-  # in refit scenarios (min_window mode).
-  model$fit <- function(fit_formula, disp_fit, zi_fit, data, family, control, subset, timevar) {
-    # Restrict to columns the model actually reads (keeps grouping vars and
-    # cov-struct coordinates because all.vars() walks through bars).
-    fit_cols <- unique(c(
-      intersect(all.vars(fit_formula), names(data)),
-      intersect(all.vars(disp_fit),   names(data)),
-      intersect(all.vars(zi_fit),     names(data)),
-      timevar
-    ))
-    data <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
-    }
-    data <- stats::na.omit(as.data.frame(data))
-
-    args <- list(
-      formula     = fit_formula,
-      data        = data,
-      family      = family,
-      dispformula = disp_fit,
-      ziformula   = zi_fit
-    )
-    if (!is.null(control)) args$control <- control
-    do.call(glmmTMB::glmmTMB, args)
-  }
-
-  model$fitted <- model$fit(fit_formula, disp_fit, zi_fit, pm$data,
-                            family, control, subset, timevar)
+  # File-level helper — see .lm_stage2_fit for why this must not be a closure
+  # stored on the model object (serialization payload).
+  model$fitted <- .glmmTMB_stage2_fit(fit_formula, disp_fit, zi_fit, pm$data,
+                                      family, control, subset, timevar)
 
   # Extra family parameters (t df, skewnormal shape, tweedie power, …) for the
   # response draw; numeric(0) for families without any. Survives .strip_fit_data
@@ -573,7 +589,7 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # at t. Plain-RE / fixed-effect models predict only the rows at t.
   if (isTRUE(model$has_covstruct)) {
     lo   <- model$last_train_time + 1L - model$required_history
-    data <- data[data[[idx]] >= lo & data[[idx]] <= t]
+    data <- .dt_rows(data, data[[idx]] >= lo & data[[idx]] <= t)
   } else {
     data <- .history_subset(data, idx, t, model$required_history)
   }
@@ -581,20 +597,19 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group
   env <- rlang::f_env(model$mat_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Block of rows to predict over; only the rows at t are written back.
   if (isTRUE(model$has_covstruct)) {
-    mat <- mat[mat[[idx]] >= model$last_train_time + 1L & mat[[idx]] <= t]
+    mat <- .dt_rows(mat, mat[[idx]] >= model$last_train_time + 1L & mat[[idx]] <= t)
   } else {
-    mat <- mat[mat[[idx]] == t]
+    mat <- .dt_rows(mat, mat[[idx]] == t)
   }
   at_t <- mat[[idx]] == t
   df   <- as.data.frame(mat)
 
   result_cols <- c(all_keys, idx, model$outcome)
-  result      <- mat[at_t, ..result_cols]
+  result      <- .dt_rows(mat, at_t)[, ..result_cols]
   if (nrow(mat) == 0L) return(result)
 
   if (what == "expectation") {

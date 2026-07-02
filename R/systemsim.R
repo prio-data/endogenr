@@ -18,7 +18,7 @@ prepare_simulation_data <- function(data, ctx, train_start, test_start, horizon,
   time_col <- ctx_time(ctx)
 
   # Training data only (data is already filtered to train_start..test_start+horizon-1)
-  train <- data[data[[time_col]] < test_start]
+  train <- .dt_rows(data, data[[time_col]] < test_start)
 
   # Simulate only units present at the forecast origin; units that exit before
   # test_start - 1 stay in the training data but get no grid rows.
@@ -270,9 +270,10 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   }
 
   # Filter to relevant time range
-  data <- data[data[[timevar]] >= train_start & data[[timevar]] <= (test_start + horizon - 1)]
+  data <- .dt_rows(data, data[[timevar]] >= train_start &
+                           data[[timevar]] <= (test_start + horizon - 1))
   data.table::setkeyv(data, c(groupvar, timevar))
-  train <- data[data[[timevar]] < test_start]
+  train <- .dt_rows(data, data[[timevar]] < test_start)
 
   # Extract model outcomes for validation
   specs <- models
@@ -1031,7 +1032,7 @@ simulate_system <- function(fitted_system,
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
                                         execution_order, schedules = schedules)
-        .tc <- ctx_time(ctx); sim <- sim[get(.tc) >= test_start]
+        .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
       },
@@ -1059,7 +1060,7 @@ simulate_system <- function(fitted_system,
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
-        .tc <- ctx_time(ctx); sim <- sim[get(.tc) >= test_start]
+        .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
       },
@@ -1073,10 +1074,12 @@ simulate_system <- function(fitted_system,
   # Bind results and create .sim ID
   results <- data.table::rbindlist(simulation_results, idcol = ".id")
 
-  # Create unique .sim across (outer_id, inner_sim) pairs
-  ids <- unique(results[, .(.id, sim)])
-  ids[, .sim := .I]
-  results <- merge(results, ids, by = c(".id", "sim"))
+  # Unique .sim across (outer_id, inner_sim) pairs, computed arithmetically:
+  # the grid always carries sim = 1..inner_sims per outer draw, so this
+  # reproduces the old first-appearance numbering (unique() + merge) without
+  # a full-table merge — O(n) in place, and it keeps the (unit, sim, time)
+  # row order instead of re-sorting by (.id, sim).
+  results[, .sim := (.id - 1L) * inner_sims + sim]
   results[, c(".id", "sim") := NULL]
 
   # Stamp panel attributes (paneltools::as_panel convention) so downstream
@@ -1136,10 +1139,11 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
     if (length(d) == 0L || is.na(yi)) next
     crps[i] <- scoringRules::crps_sample(y = yi, dat = d)
     mae[i]  <- abs(stats::median(d) - yi)
-    lo <- unname(stats::quantile(d, alpha / 2))
-    hi <- unname(stats::quantile(d, 1 - alpha / 2))
-    penalty <- ifelse(yi < lo, (2 / alpha) * (lo - yi),
-                ifelse(yi > hi, (2 / alpha) * (yi - hi), 0))
+    qs <- unname(stats::quantile(d, c(alpha / 2, 1 - alpha / 2)))
+    lo <- qs[1L]; hi <- qs[2L]
+    penalty <- if (yi < lo) (2 / alpha) * (lo - yi)
+               else if (yi > hi) (2 / alpha) * (yi - hi)
+               else 0
     winkler[i] <- (hi - lo) + penalty
   }
   list(crps = crps, mae = mae, winkler = winkler)
@@ -1279,8 +1283,9 @@ plotsim <- function(simulation_results, outcome, units, true_data, ctx = NULL, s
   }
 
   # Filter to selected units
-  sim_sub <- simulation_results[simulation_results[[unit_col]] %in% units]
-  truth_sub <- true_data[true_data[[unit_col]] %in% units]
+  sim_sub <- .dt_rows(simulation_results,
+                      simulation_results[[unit_col]] %in% units)
+  truth_sub <- .dt_rows(true_data, true_data[[unit_col]] %in% units)
 
   # Compute quantile ribbons
   probs <- c(0.025, 0.10, 0.25, 0.50, 0.75, 0.90, 0.975)

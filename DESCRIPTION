@@ -10,7 +10,7 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:
     broom,
-    data.table,
+    data.table (>= 1.14.2),
     future,
     future.apply,
     ggh4x,

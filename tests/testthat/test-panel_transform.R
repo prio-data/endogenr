@@ -165,3 +165,66 @@ test_that("panel_materialize rewrites both sides and materialises ts columns", {
   # original data untouched
   expect_false(".pt1" %in% names(dt))
 })
+
+# ── positional diff / shift / lead overrides ───────────────────────────────
+
+test_that("diff(x) materialises per group, length-stable, NA-padded", {
+  dt <- data.table::data.table(g = rep(c(1, 2), each = 4), t = rep(1:4, 2),
+                               x = c(1, 3, 6, 10, 100, 90, 70, 40),
+                               y = stats::rnorm(8))
+  pm <- panel_materialize(y ~ diff(x), dt, "g", "t")
+  expect_true(".pt1" %in% names(pm$data))
+  expect_equal(pm$data[g == 1, .pt1], c(NA, 2, 3, 4))
+  expect_equal(pm$data[g == 2, .pt1], c(NA, -10, -20, -30))
+})
+
+test_that("diff(x, lag, differences) pads lag * differences leading NAs", {
+  dt <- data.table::data.table(g = 1, t = 1:6, x = c(1, 2, 4, 7, 11, 16),
+                               y = stats::rnorm(6))
+  pm <- panel_materialize(y ~ diff(x, 1, 2), dt, "g", "t")
+  expect_equal(pm$data$.pt1, c(NA, NA, 1, 1, 1, 1))
+})
+
+test_that("shift() and lead() work without data.table/dplyr attached", {
+  dt <- data.table::data.table(g = rep(c(1, 2), each = 3), t = rep(1:3, 2),
+                               x = c(1, 2, 3, 10, 20, 30),
+                               y = stats::rnorm(6))
+  f <- y ~ shift(x)
+  environment(f) <- new.env(parent = baseenv())  # nothing attached
+  pm <- panel_materialize(f, dt, "g", "t")
+  expect_equal(pm$data[g == 1, .pt1], c(NA, 1, 2))
+  expect_equal(pm$data[g == 2, .pt1], c(NA, 10, 20))
+
+  f2 <- y ~ lead(x)
+  environment(f2) <- new.env(parent = baseenv())
+  pm2 <- panel_materialize(f2, dt, "g", "t")
+  expect_equal(pm2$data[g == 1, .pt1], c(2, 3, NA))
+  expect_equal(pm2$data[g == 2, .pt1], c(20, 30, NA))
+})
+
+test_that("shift() preserves factors (delegates to data.table::shift)", {
+  dt <- data.table::data.table(
+    g = rep(1, 3), t = 1:3,
+    f = factor(c("lo", "mid", "hi"), levels = c("lo", "mid", "hi")),
+    y = stats::rnorm(3)
+  )
+  pm <- panel_materialize(y ~ shift(f), dt, "g", "t")
+  expect_s3_class(pm$data$.pt1, "factor")
+  expect_equal(levels(pm$data$.pt1), c("lo", "mid", "hi"))
+  expect_equal(as.character(pm$data$.pt1), c(NA, "lo", "mid"))
+})
+
+test_that("negative lag n errors with a clear message", {
+  dt <- data.table::data.table(g = 1, t = 1:3, x = 1:3, y = stats::rnorm(3))
+  expect_error(panel_materialize(y ~ lag(x, -1), dt, "g", "t"),
+               "non-negative")
+})
+
+test_that("inject_positional_lag binds the same lag/lead/shift/diff set", {
+  f <- inject_positional_lag(y ~ lag(x))
+  env <- environment(f)
+  expect_identical(env$lag,  endogenr:::.pt_positional_lag)
+  expect_identical(env$lead, endogenr:::.pt_positional_lead)
+  expect_identical(env$diff, endogenr:::.pt_positional_diff)
+  expect_identical(env$shift, data.table::shift)
+})

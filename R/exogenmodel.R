@@ -49,7 +49,8 @@ exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL,
   # Keep only the columns we need: unit, time, outcome variable(s)
   outcome_vars <- all.vars(formula)
   keep_cols <- c(grp, idx, outcome_vars)
-  model$source_data <- newdata[newdata[[idx]] >= impute_from, ..keep_cols]
+  model$source_data <-
+    .dt_rows(newdata, newdata[[idx]] >= impute_from)[, ..keep_cols]
 
   return(model)
 }
@@ -78,7 +79,8 @@ predict.exogen <- function(model, data, ctx, test_start, horizon, inner_sims, ..
   source <- model$source_data
 
   # Filter source to the relevant forecast window
-  source <- source[source[[idx]] >= test_start & source[[idx]] <= (test_start + horizon - 1)]
+  source <- .dt_rows(source, source[[idx]] >= test_start &
+                               source[[idx]] <= (test_start + horizon - 1))
 
   # Expand across sim dimension via CJ
   all_units <- unique(source[[grp]])

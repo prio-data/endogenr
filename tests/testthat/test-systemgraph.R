@@ -1,28 +1,5 @@
 # Tests for R/systemgraph.R ------------------------------------------------
 
-# ── .max_lag_depth ───────────────────────────────────────────────────────
-
-test_that(".max_lag_depth returns 1 for plain lag()", {
-  expect_equal(.max_lag_depth(y ~ lag(x)), 1L)
-})
-
-test_that(".max_lag_depth extracts n from lag(x, n)", {
-  expect_equal(.max_lag_depth(y ~ lag(x, 3) + lag(z)), 3L)
-})
-
-test_that(".max_lag_depth returns 0 when no lag or rolling calls", {
-  expect_equal(.max_lag_depth(y ~ x + I(100)), 0L)
-})
-
-test_that(".max_lag_depth handles rolling functions", {
-  expect_equal(.max_lag_depth(y ~ lag(zoo::rollsumr(x, 5))), 5L)
-})
-
-test_that(".max_lag_depth handles nested lag with rolling", {
-  # lag(rollsumr(x, k=5), 2) -> lag depth 2, rolling depth 5 -> max is 5
-  expect_equal(.max_lag_depth(y ~ lag(zoo::rollsumr(x, 5), 2)), 5L)
-})
-
 # ── get_independent_models ───────────────────────────────────────────────
 
 test_that("get_independent_models returns expected types", {
@@ -348,4 +325,70 @@ test_that("get_execution_order allows a lagged self-reference (no cycle)", {
 
   expect_no_error(order <- get_execution_order(g))
   expect_true("gdppc" %in% order)
+})
+# ── lag_ prefix anchoring (execution order) ───────────────────────────────
+
+test_that("variables merely containing 'lag_' are not stripped as lag vertices", {
+  # `flag_war` contains the substring "lag_": an unanchored match would strip
+  # it from the graph and silently drop its model from the execution order.
+  g <- igraph::make_empty_graph(directed = TRUE)
+  m1 <- new_endogenmodel(flag_war ~ lag(x))
+  class(m1) <- c("linear", class(m1))
+  m2 <- new_endogenmodel(x ~ lag(flag_war))
+  class(m2) <- c("linear", class(m2))
+  g <- update_dependency_graph(m1, g)
+  g <- update_dependency_graph(m2, g)
+
+  ord <- get_execution_order(g)
+  expect_true("flag_war" %in% ord)
+  expect_true("x" %in% ord)
+})
+
+test_that("a system with a 'lag_'-substring outcome simulates without NA", {
+  set.seed(42)
+  dt <- data.table::data.table(
+    u = rep(c("a", "b"), each = 20), t = rep(1:20, 2),
+    flag_war = stats::rnorm(40), x = stats::rnorm(40)
+  )
+  models <- list(
+    build_model("linear", formula = flag_war ~ lag(x)),
+    build_model("linear", formula = x ~ lag(flag_war))
+  )
+  sys <- setup_system(models, dt, train_start = 1, test_start = 16,
+                      horizon = 5, groupvar = "u", timevar = "t",
+                      inner_sims = 2)
+  expect_setequal(sys$execution_order, c("flag_war", "x"))
+  fit <- fit_system(sys, nsim = 2)
+  res <- simulate_system(fit)
+  expect_false(anyNA(res$flag_war))
+  expect_false(anyNA(res$x))
+})
+
+# ── shift() lag-context classification ────────────────────────────────────
+
+test_that(".classify_term_vars treats backward shift() like lag()", {
+  v <- .classify_term_vars(quote(shift(x)))
+  expect_equal(v$lagged, "x")
+  expect_equal(v$plain, character(0))
+
+  v2 <- .classify_term_vars(quote(shift(x, 2L, type = "lag")))
+  expect_equal(v2$lagged, "x")
+
+  # A forward shift reads the future: stays same-period (cannot be sequenced).
+  v3 <- .classify_term_vars(quote(shift(x, type = "lead")))
+  expect_equal(v3$plain, "x")
+  expect_equal(v3$lagged, character(0))
+})
+
+test_that("mutually shift()-lagged models get a valid execution order", {
+  g <- igraph::make_empty_graph(directed = TRUE)
+  m1 <- new_endogenmodel(y ~ shift(x))
+  class(m1) <- c("linear", class(m1))
+  m2 <- new_endogenmodel(x ~ shift(y))
+  class(m2) <- c("linear", class(m2))
+  g <- update_dependency_graph(m1, g)
+  g <- update_dependency_graph(m2, g)
+
+  expect_no_error(ord <- get_execution_order(g))
+  expect_setequal(ord, c("y", "x"))
 })

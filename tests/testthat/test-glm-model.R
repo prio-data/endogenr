@@ -171,3 +171,16 @@ test_that("Gamma draws have mean ~ mu and variance ~ dispersion * mu^2", {
   expect_equal(mean(draws), mu, tolerance = 0.1 * mu)
   expect_equal(stats::var(draws), disp * mu^2, tolerance = 0.3 * disp * mu^2)
 })
+
+test_that("row-expansion draw (nsamples = 1) uses an independent t per row", {
+  # With dispersion = 0 the gaussian response draw adds no noise, so the
+  # standardised draws recover the raw t values: one per row, all distinct.
+  # (The old behaviour shared ONE t draw across every row, freezing the
+  # parameter-uncertainty component across units and inner sims.)
+  pp <- list(fit = rep(0, 50), se.fit = stats::runif(50, 0.5, 2))
+  set.seed(99)
+  d <- getpi_glm(pp, stats::gaussian(), df = 30, dispersion = 0)
+  expect_length(d, 50)
+  tvals <- (d - pp$fit) / pp$se.fit
+  expect_equal(length(unique(round(tvals, 8))), 50)
+})

@@ -172,7 +172,8 @@ predict.parametric_distribution <- function(model, data, ctx, test_start, horizo
   all_keys <- ctx_keys(ctx)
 
   # Filter to forecast period
-  pred_data <- data[data[[time_col]] >= test_start & data[[time_col]] <= (test_start + horizon - 1)]
+  pred_data <- .dt_rows(data, data[[time_col]] >= test_start &
+                                data[[time_col]] <= (test_start + horizon - 1))
 
   # Keep only relevant columns
   result_cols <- c(all_keys, time_col, model$outcome)

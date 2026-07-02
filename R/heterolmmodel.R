@@ -38,9 +38,9 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
   model <- new_endogenmodel(formula)
   model$independent <- FALSE
   # Default to an intercept-only log-variance. Keep this a one-sided formula
-  # (not the literal `1`) so terms()/.max_lag_depth()/.edges_from_formula() all
-  # accept it; `labels(terms(~1))` is empty, which the naive-name logic below
-  # already maps to the intercept "1".
+  # (not the literal `1`) so terms()/.required_history()/.edges_from_formula()
+  # all accept it; `labels(terms(~1))` is empty, which the naive-name logic
+  # below already maps to the intercept "1".
   model$variance_formula <- if (is.null(variance)) ~1 else variance
   model$fit_args <- rlang::list2(...)
 
@@ -67,8 +67,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -133,8 +132,8 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
                        timevar))
   fit_data <- stats::na.omit(fit_data[, intersect(fit_cols, names(fit_data)), with = FALSE])
   if (!is.null(subset)) {
-    fit_data <- fit_data[fit_data[[timevar]] >= subset$start &
-                           fit_data[[timevar]] <= subset$end]
+    fit_data <- .dt_rows(fit_data, fit_data[[timevar]] >= subset$start &
+                                     fit_data[[timevar]] <= subset$end)
   }
 
   # Fit the model
@@ -179,11 +178,10 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group.
   env <- rlang::f_env(model$combined_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step.
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   # Re-expand interaction/factor columns using the stored training-time terms
   # objects (coherent basis: same poly scaling, factor contrasts, etc. as fit).

@@ -74,6 +74,59 @@
 
 ## Bug fixes
 
+- **Execution order no longer drops variables whose names contain `"lag_"`.**
+  The lag-vertex strip in `get_execution_order()` matched the substring
+  `"lag_"` anywhere in a vertex name, so an outcome named e.g. `flag_war`
+  was misclassified as a lagged input, removed from the execution order, and
+  its model silently never ran — the whole forecast degraded to `NA`. The
+  match is now anchored to the `lag_` prefix.
+
+- **User columns can no longer shadow internal filters (time column named
+  `t`, etc.).** Every `data[data[[idx]] == t]`-style subset in the predict
+  methods, the engine, validation, and scoring evaluated its expression
+  inside data.table's column scope, where a user column with the same name
+  as a function argument silently shadows it. A panel whose time column is
+  literally named `t` degenerated the per-step filter to *all rows*, made
+  the update-join overwrite observed training rows with `NA`, and cascaded
+  `NA` through the forecast. All row subsets now go through a scope-safe
+  helper (`.dt_rows()`, using data.table's `env=` substitution), so panel
+  column names can never collide with internals. data.table (>= 1.14.2) is
+  now required.
+
+- **GLM predictive draws no longer share one parameter-uncertainty draw
+  across all rows.** In the row-expansion path (one draw per row),
+  `getpi_glm()` drew a *single* t-quantile and applied it to every
+  `(unit, sim)` row at a time step, so the link-scale parameter-uncertainty
+  component was perfectly correlated across units *and* inner simulations —
+  under-dispersing the ensemble and breaking the documented `lm` parity for
+  gaussian GLMs. It now draws an independent t per row, matching `getpi()`
+  (linear) and the per-row normal draw in the glmmTMB predict method.
+
+- **`diff()` in formulas works.** The registry advertised `diff` as a
+  supported time-series function (and `.required_history()` composed its
+  depth), but materialization crashed with a length-mismatch error because
+  `base::diff()` returns `n - lag*differences` values. Materialization now
+  uses a length-stable positional `diff` that pads the leading rows with
+  `NA`, aligned row-for-row with the input series.
+
+- **`shift()` and `lead()` in formulas work without attaching data.table or
+  dplyr.** Both were in the time-series registry but had no binding in the
+  materialization environment, failing with *"could not find function"*
+  unless the user happened to have data.table/dplyr attached (and silently
+  using pooled semantics was never possible — but resolution depended on the
+  session). The materialization environment (and
+  `inject_positional_lag()`, used by deterministic models) now binds
+  positional `lag`/`lead`/`shift`/`diff` uniformly; `shift` delegates to
+  `data.table::shift` (type-preserving, supports `n`/`fill`/`type`).
+  `lag(x, -1)` now errors with a clear message pointing to `lead()`.
+
+- **`shift(x)` is classified as a prior-period dependency.** The
+  dependency-graph edge classifier only recognised `lag()` as lag context,
+  so a model using `shift(x)` got a same-period `x -> y` edge — producing
+  spurious "same-period dependency cycle" errors for legal mutually-lagged
+  systems. Backward `shift()` (no `type=`, or `type = "lag"`) now sets lag
+  context exactly like `lag()`; `shift(type = "lead")` stays same-period.
+
 - **Intercept-only `gamlss`/`glmmTMB` formulas no longer fail closure
   validation.** A parameter formula with no predictors (e.g.
   `gdppc_grwt ~ 1`) built its dependency-graph RHS as the symbol `` `1` ``
@@ -101,6 +154,50 @@
   so lagged factors (and `Date`/character columns) keep their class and levels
   across all model types (`linear`, `glm`, `heterolm`, `glmmTMB`, `gamlss`,
   `deterministic`).
+
+## Performance
+
+- **Fitted models no longer carry their constructor frame.** The regression
+  families (`linear`, `glm`, `glmmTMB`, `gamlss`) stored the stage-2 fit
+  step as a closure on the model object; its environment dragged the input
+  training data, the materialized copy, and a circular reference to the
+  model itself into every serialized draw shipped to parallel workers
+  (measured: a stripped linear model serialized at ~3.5 MB, of which
+  ~3.3 MB was the dead closure). The fit step is now a file-level function
+  per family, cutting the per-draw payload by an order of magnitude under
+  `future::multisession` plans.
+
+- **Deterministic models evaluate only the history they need.**
+  `predict.deterministic()` re-derived its evaluation formula and evaluated
+  the model frame over the *entire* simulation grid at every forecast step
+  (O(T x grid) per step). It now caches the prepared formula at build time
+  and subsets to the composed `.required_history()` window like every other
+  predict method.
+
+- **`simulate_system()` assigns `.sim` arithmetically.** The unique draw id
+  was built with `unique()` + a full-table `merge` (which also re-sorted the
+  result by `(.id, sim)`); it is now computed in place as
+  `(.id - 1) * inner_sims + sim`, preserving the `(unit, sim, time)` row
+  order and skipping the merge copy. The numbering is unchanged.
+
+- **`validate_panel()` contiguity check is a single grouped pass.** The
+  per-unit scan re-filtered the whole table once per unit
+  (O(units x rows)); it now runs one data.table by-group pass.
+
+- **`predict.spatial_lag()` splits the multi-sim frame once** instead of
+  re-scanning it per sim id (O(sims^2 x units) -> O(sims x units)), and
+  `.score_draws()` computes both Winkler quantiles in one `quantile()`
+  call.
+
+## Maintainability
+
+- Removed dead code: `.max_lag_depth()` (superseded by
+  `.required_history()`) and `select_col_per_row()` (no callers), plus
+  their tests. The duplicated positional-lag implementation and the
+  ten copies of the `.pt#` alias-rename block now share single helpers
+  (`.pt_bind_ts_fns()`, `.pt_apply_aliases()`).
+  `get_coefficients()`/`plot_coefficients()` docs now state that `glmmTMB`
+  and `gamlss` coefficients are included.
 
 ## Migration guide
 

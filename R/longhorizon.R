@@ -113,7 +113,7 @@ create_lh_data <- function(data, outcome, h, groupvar, timevar, test_start) {
   dt[, .target := lead_horizon(get(outcome), h), by = c(groupvar)]
 
   # Filter to valid training rows
-  dt <- dt[dt[[timevar]] < (test_start - h) & !is.na(.target)]
+  dt <- .dt_rows(dt, dt[[timevar]] < (test_start - h) & !is.na(dt[[".target"]]))
   return(dt)
 }
 
@@ -337,7 +337,7 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   need <- if (length(pred_map) == 0L) 0
           else max(vapply(pred_map, .req_hist_expr, numeric(1)))
 
-  recent <- data[data[[timevar]] <= origin]
+  recent <- .dt_rows(data, data[[timevar]] <= origin)
   data.table::setkeyv(recent, c(groupvar, timevar))
   if (is.finite(need)) {
     recent <- recent[, utils::tail(.SD, need + 1L), by = c(groupvar)]
@@ -345,11 +345,11 @@ setup_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   recent2  <- .apply_ts_map(pred_map, recent, groupvar, timevar, env)
 
   # Newdata at the origin; drop rows with any NA in an RHS term.
-  newdata   <- recent2[recent2[[timevar]] == origin]
+  newdata   <- .dt_rows(recent2, recent2[[timevar]] == origin)
   keep_vars <- intersect(rhs_vars, names(newdata))
   if (length(keep_vars) > 0L) {
     complete <- stats::complete.cases(newdata[, ..keep_vars])
-    newdata  <- newdata[complete]
+    newdata  <- .dt_rows(newdata, complete)
   }
 
   if (nrow(newdata) == 0L) {

@@ -171,9 +171,11 @@ plot_estimates <- function(
 #'
 #' Walks the stored coefficient fits of a [fit_system()] output and returns a
 #' tidy table of the regression coefficients that were actually used (or are
-#' available) for the simulation, tagged by draw, window, and outcome. Only
-#' `linear` and `glm` models carry coefficients (via [broom::tidy()]); other
-#' model types (including `heterolm`) are skipped.
+#' available) for the simulation, tagged by draw, window, and outcome. Any
+#' model that stores a tidy `$coefs` table contributes rows — `linear`/`glm`
+#' (via [broom::tidy()]) plus `glmmTMB` (conditional fixed effects) and
+#' `gamlss` (mu coefficients); model types without tidy coefficients
+#' (including `heterolm`) are skipped.
 #'
 #' For sliding-window fits (`window = "rolling"`/`"expanding"`) the table covers
 #' the full window-end grid — one row block per `(window, draw)` for bootstrapped
@@ -271,7 +273,8 @@ get_coefficients <- function(fitted_system) {
 #' draws stored by [fit_system()]. With refit specs (`min_window` set), the
 #' draws differ and the boxplots show genuine sampling spread; without refits
 #' every draw is identical and each box collapses to a point. The intercept is
-#' dropped. Built on [get_coefficients()], so it covers `linear`/`glm` models.
+#' dropped. Built on [get_coefficients()], so it covers every model type that
+#' stores tidy coefficients (`linear`, `glm`, `glmmTMB`, `gamlss`).
 #'
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #' @param outcome_labels An optional named character vector mapping outcome
@@ -286,7 +289,8 @@ get_coefficients <- function(fitted_system) {
 plot_coefficients <- function(fitted_system, outcome_labels = NULL, base_size = 9) {
   coefs <- get_coefficients(fitted_system)
   if (nrow(coefs) == 0L) {
-    stop("No coefficients to plot: only `linear`/`glm` models carry coefficients.",
+    stop("No coefficients to plot: no model in the system carries tidy ",
+         "coefficients (linear/glm/glmmTMB/gamlss do).",
          call. = FALSE)
   }
 

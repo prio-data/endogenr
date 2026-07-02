@@ -2,7 +2,7 @@
 % Please edit documentation in R/utilities.R
 \name{inject_positional_lag}
 \alias{inject_positional_lag}
-\title{Inject a positional lag function into a formula's environment}
+\title{Inject positional time-series functions into a formula's environment}
 \usage{
 inject_positional_lag(formula)
 }
@@ -13,10 +13,13 @@ inject_positional_lag(formula)
 The formula with modified environment.
 }
 \description{
-Replaces \code{lag()} in the formula's evaluation environment with a positional
-shift that prepends \code{n} NAs and drops the last \code{n} elements, preserving the
-input type (factor levels, Date, etc.). This ensures \code{lag()} in model
-formulas performs a within-group positional shift rather than \code{stats::lag()}.
+Replaces \code{lag()}, \code{lead()}, \code{shift()}, and \code{diff()} in the formula's
+evaluation environment with length-stable positional versions (see
+\code{.pt_bind_ts_fns()}), so time-series calls in model formulas perform a
+within-group positional shift — preserving input type (factor levels,
+Date, etc.) — rather than dispatching to \code{stats::lag()} / \code{base::diff()}
+or requiring data.table/dplyr to be attached. The same bindings back the
+\code{.pt#} materialisation path, keeping both evaluation contexts identical.
 }
 \seealso{
 Other formula_helpers:

@@ -1,3 +1,24 @@
+#' Scope-safe data.table row subset
+#'
+#' `data[expr]` evaluates `expr` inside the data.table's column scope, so any
+#' bare symbol in the expression — a function argument like `t`, `test_start`,
+#' or a helper local — is silently shadowed by a user column of the same name
+#' (e.g. a time column literally named `t` turns `data[[idx]] == t` into the
+#' all-`TRUE` `t == t`). This helper takes a row mask computed OUTSIDE any
+#' data.table scope (with plain `[[`/`==`) and applies it through the `env`
+#' substitution mechanism, which splices the resolved value into the query at
+#' the language level, immune to column-name collisions. `NA` mask entries are
+#' dropped (`which()`).
+#'
+#' @param data A data.table.
+#' @param mask Logical vector (length `nrow(data)`) or integer row indices.
+#' @return The subsetted data.table.
+#' @keywords internal
+.dt_rows <- function(data, mask) {
+  sel <- if (is.logical(mask)) which(mask) else as.integer(mask)
+  data[sel, env = list(sel = I(sel))]
+}
+
 #' Draw a random training window
 #'
 #' Used by [fit_system()] to draw a random training window for `linear`,
@@ -43,26 +64,22 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
               "end"   = min(test_start - 1L, test_start - stop_decrement)))
 }
 
-#' Inject a positional lag function into a formula's environment
+#' Inject positional time-series functions into a formula's environment
 #'
-#' Replaces `lag()` in the formula's evaluation environment with a positional
-#' shift that prepends `n` NAs and drops the last `n` elements, preserving the
-#' input type (factor levels, Date, etc.). This ensures `lag()` in model
-#' formulas performs a within-group positional shift rather than `stats::lag()`.
+#' Replaces `lag()`, `lead()`, `shift()`, and `diff()` in the formula's
+#' evaluation environment with length-stable positional versions (see
+#' `.pt_bind_ts_fns()`), so time-series calls in model formulas perform a
+#' within-group positional shift — preserving input type (factor levels,
+#' Date, etc.) — rather than dispatching to `stats::lag()` / `base::diff()`
+#' or requiring data.table/dplyr to be attached. The same bindings back the
+#' `.pt#` materialisation path, keeping both evaluation contexts identical.
 #'
 #' @param formula An R formula.
 #' @return The formula with modified environment.
 #' @family formula_helpers
 #' @export
 inject_positional_lag <- function(formula) {
-  .positional_lag <- function(x, n = 1L) {
-    n   <- as.integer(n)
-    len <- length(x)
-    if (n >= len) return(x[rep(NA_integer_, len)])
-    x[c(rep(NA_integer_, n), seq_len(len - n))]
-  }
-  formula_env <- new.env(parent = environment(formula))
-  formula_env$lag <- .positional_lag
+  formula_env <- .pt_bind_ts_fns(new.env(parent = environment(formula)))
   environment(formula) <- formula_env
   formula
 }

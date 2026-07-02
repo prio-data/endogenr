@@ -1041,3 +1041,91 @@ test_that("bounds stabilize a divergent autoregressive gamlss system", {
     tryCatch(simulate_system(fit_system(mk(NULL), nsim = 4)), error = function(e) e))
   expect_true(inherits(unbounded, "error") || any(!is.finite(unbounded$gdppc_grwt)))
 })
+
+# ── column-name collision hardening ────────────────────────────────────────
+
+test_that("full pipeline works when the time column is literally named 't'", {
+  # `data[data[[idx]] == t]` inside data.table i-scope resolves the COLUMN t,
+  # not the function argument, degenerating the filter to all-rows: the
+  # update-join then overwrites observed training rows with NA and the NAs
+  # cascade through the forecast. All predict/setup filters must therefore be
+  # scope-safe (.dt_rows).
+  set.seed(7)
+  dt <- data.table::data.table(
+    u = rep(c("a", "b"), each = 15), t = rep(1:15, 2),
+    y = stats::rnorm(30), pop = rep(100, 30)
+  )
+  models <- list(
+    build_model("linear", formula = y ~ lag(y) + lag(pop)),
+    build_model("exogen", formula = ~pop)
+  )
+  sys <- setup_system(models, dt, train_start = 1, test_start = 11,
+                      horizon = 5, groupvar = "u", timevar = "t",
+                      inner_sims = 2)
+  fit <- fit_system(sys, nsim = 2)
+  res <- simulate_system(fit)
+  expect_false(anyNA(res$y))
+  expect_equal(sort(unique(res$t)), 11:15)
+
+  # The training rows in the (shared) grid must be untouched observed values.
+  grid <- sys$simulation_data
+  obs  <- grid[grid$t <= 10 & grid$sim == 1]
+  data.table::setkeyv(obs, c("u", "t"))
+  expect_equal(obs$y, dt[dt$t <= 10]$y)
+})
+
+test_that("deterministic + parametric pipeline works with time column 't'", {
+  set.seed(8)
+  dt <- data.table::data.table(
+    u = rep(c("a", "b"), each = 15), t = rep(1:15, 2),
+    lvl = rep(10, 30), grw = stats::rnorm(30, 0, 0.01)
+  )
+  dt[, lvl := 10 * cumprod(1 + grw), by = "u"]
+  models <- list(
+    build_model("deterministic", formula = lvl ~ I(lag(lvl) * (1 + grw))),
+    build_model("parametric_distribution", formula = ~grw,
+                distribution = "norm")
+  )
+  sys <- setup_system(models, dt, train_start = 1, test_start = 11,
+                      horizon = 5, groupvar = "u", timevar = "t",
+                      inner_sims = 3)
+  fit <- fit_system(sys, nsim = 1)
+  res <- simulate_system(fit)
+  expect_false(anyNA(res$lvl))
+  expect_true(all(res$t >= 11))
+})
+
+# ── fitted models carry no constructor-frame closures ──────────────────────
+
+test_that("fitted models are closure-free and serialize lean", {
+  dt <- sim_panel_ar1(units = 20L, n_time = 30L, seed = 11)
+  # Pin the formula environments to the global env (serialized as a token,
+  # not by value) so the size check below measures the MODEL's own payload,
+  # not the test frame the formulas would otherwise capture.
+  f_lin <- y ~ lag(y) + lag(x)
+  f_glm <- x ~ lag(x)
+  environment(f_lin) <- globalenv()
+  environment(f_glm) <- globalenv()
+  models <- list(
+    build_model("linear", formula = f_lin, boot = "resid"),
+    build_model("glm", formula = f_glm, family = stats::gaussian())
+  )
+  sys <- setup_system(models, dt, train_start = 1, test_start = 26,
+                      horizon = 5, groupvar = "unit", timevar = "time",
+                      inner_sims = 2)
+  fit <- fit_system(sys, nsim = 2)
+
+  for (m in fit$fitted_models) {
+    # No stored fit closure: a closure environment drags the constructor
+    # frame (input data + materialized copy + the model itself) into every
+    # serialized draw shipped to parallel workers.
+    expect_null(m$fit)
+    expect_null(m$data)  # stripped by .strip_fit_data
+  }
+
+  # Serialized stripped model = fitted lm + formulas + ts maps: tens of KB.
+  # With the old stored-closure design it was several MB (the constructor
+  # frame: input data + materialized copy + circular model reference).
+  model_bytes <- length(serialize(fit$fitted_models[[1L]], NULL))
+  expect_lt(model_bytes, 100e3)
+})

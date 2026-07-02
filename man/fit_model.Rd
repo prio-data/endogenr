@@ -17,7 +17,6 @@ A fitted endogenmodel object.
 }
 \description{
 Generic function that dispatches to type-specific fitting methods based on
-Generic function that dispatches to type-specific fitting methods based on
 the spec's class. Called internally by \code{\link[=fit_system]{fit_system()}}.
 }
 \seealso{

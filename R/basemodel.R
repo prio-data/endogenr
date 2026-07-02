@@ -146,7 +146,6 @@ build_model <- function(type, formula, ..., bounds = NULL) {
 #' Fit a model from a specification
 #'
 #' Generic function that dispatches to type-specific fitting methods based on
-#' Generic function that dispatches to type-specific fitting methods based on
 #' the spec's class. Called internally by [fit_system()].
 #'
 #' @param spec An `endogenr_spec` object from [build_model()].

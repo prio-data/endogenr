@@ -43,18 +43,21 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
          call. = FALSE)
   }
 
-  # 3. Contiguous time series per unit
-  units <- unique(data[[unit_col]])
-  for (u in units) {
-    unit_times <- sort(data[[time_col]][data[[unit_col]] == u])
-    diffs <- diff(unit_times)
-    if (any(diffs != 1L)) {
-      gaps <- which(diffs != 1L)
-      gap_at <- unit_times[gaps[1]]
-      stop("Non-contiguous time series for unit '", u,
-           "': gap after time step ", gap_at,
-           call. = FALSE)
-    }
+  # 3. Contiguous time series per unit. One grouped pass instead of a
+  # per-unit scan of the whole table (which is O(units x rows) and dominates
+  # setup time on large panels).
+  gaps <- data.table::as.data.table(
+    list(u = data[[unit_col]], tt = data[[time_col]])
+  )[, {
+    st <- sort(tt)
+    d  <- diff(st)
+    bad <- which(d != 1L)
+    .(gap_at = if (length(bad) > 0L) as.numeric(st[bad[1L]]) else NA_real_)
+  }, by = "u"][!is.na(gap_at)]
+  if (nrow(gaps) > 0L) {
+    stop("Non-contiguous time series for unit '", gaps$u[1L],
+         "': gap after time step ", gaps$gap_at[1L],
+         call. = FALSE)
   }
 
   # 4. At least one unit must have data at the forecast origin
@@ -68,7 +71,7 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
   if (!is.null(model_outcomes)) {
     existing_outcomes <- intersect(model_outcomes, names(data))
     if (length(existing_outcomes) > 0) {
-      initial <- data[data[[time_col]] == (test_start - 1L)]
+      initial <- .dt_rows(data, data[[time_col]] == (test_start - 1L))
       if (nrow(initial) > 0) {
         for (col in existing_outcomes) {
           na_units <- initial[[unit_col]][is.na(initial[[col]])]

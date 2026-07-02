@@ -25,6 +25,38 @@ bootstraplm <- function(formula, data, type){
   stats::lm(stats::update(formula, .boot_y ~ .), data)
 }
 
+#' Stage-2 pooled OLS fit on materialized data
+#'
+#' A file-level function (NOT a closure stored on the model): a closure's
+#' environment would drag the whole constructor frame — input data, the
+#' materialized copy, and the model itself — into every serialized model
+#' object, multiplying the payload shipped to parallel workers by an order
+#' of magnitude.
+#'
+#' @param formula The rewritten, aliased pooled formula.
+#' @param data The materialized data.table.
+#' @param boot Bootstrap type or `NULL`.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A fitted `lm` object.
+#' @keywords internal
+.lm_stage2_fit <- function(formula, data, boot, subset, timevar) {
+  # Restrict the fit data to the model's own columns (plus timevar for the
+  # window filter below), so na.omit in the bootstrap helpers drops only
+  # rows missing a model term — matching plain lm()'s estimation sample.
+  fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
+  data <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    data <- .dt_rows(data, data[[timevar]] >= subset$start &
+                             data[[timevar]] <= subset$end)
+  }
+  if (!is.null(boot)) {
+    bootstraplm(formula, data, type = boot)
+  } else {
+    stats::lm(formula, data)
+  }
+}
+
 
 
 #' @exportS3Method
@@ -70,8 +102,7 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # coefficient names identical to what base `lm()` would show with a
   # janitor-cleaned column name.
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   # Rewrite the pooled formula to use the alias names.
   fit_formula <- .pt_alias_formula(pm$formula, alias_map)
@@ -89,24 +120,7 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # Stage 2: pooled fit. factor contrasts / poly / spline / interaction bases
   # are resolved across all units here; predict.lm stores predvars/xlevels for
   # coherent basis reconstruction at predict time.
-  model$fit <- function(formula, data, boot, subset, timevar) {
-    # Restrict the fit data to the model's own columns (plus timevar for the
-    # window filter below), so na.omit in the bootstrap helpers drops only
-    # rows missing a model term — matching plain lm()'s estimation sample.
-    fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
-    data <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
-    }
-    if (!is.null(boot)) {
-      bootstraplm(formula, data, type = boot)
-    } else {
-      stats::lm(formula, data)
-    }
-  }
-
-  model$fitted  <- model$fit(model$fit_formula, model$data, model$boot,
-                             model$subset, model$timevar)
+  model$fitted  <- .lm_stage2_fit(fit_formula, pm$data, boot, subset, timevar)
   model$coefs   <- broom::tidy(model$fitted)
   model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
@@ -125,18 +139,6 @@ get_sepi <- function(lmpred){
   se <- lmpred$se.fit
   scale <- lmpred$residual.scale
   sqrt(se^2 + scale^2)
-}
-
-#' Selects a column per row in a matrix
-#'
-#' @param mat A numeric matrix.
-#' @param column_ids Integer vector. One column index per row of `mat`.
-#'
-#' @return A numeric vector with one value per row.
-#' @keywords internal
-select_col_per_row <- function(mat, column_ids){
-  cidx <- cbind(1:nrow(mat), column_ids)
-  mat[cidx]
 }
 
 #' Get the predictive distribution from a linear model
@@ -185,11 +187,10 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   # names match those in the fitted model.
   env <- rlang::f_env(model$formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step.
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   # Stage 2: predict.lm reproduces the pooled design (factor contrasts,
   # poly/spline bases, interactions) via its stored predvars/xlevels.

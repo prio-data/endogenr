@@ -59,9 +59,50 @@
 # (index-based) so factor/Date/character columns keep their class and levels.
 .pt_positional_lag <- function(x, n = 1L) {
   n   <- as.integer(n)
+  if (is.na(n) || n < 0L) {
+    stop("lag(x, n): `n` must be a non-negative integer (got ", n,
+         "). Use lead() for a forward shift.", call. = FALSE)
+  }
   len <- length(x)
   if (n >= len) return(x[rep(NA_integer_, len)])
   x[c(rep(NA_integer_, n), seq_len(len - n))]
+}
+
+# Positional within-group lead: `lead(x, n)` pulls values `n` rows ahead,
+# padding the tail with NA. Type-preserving (index-based).
+.pt_positional_lead <- function(x, n = 1L) {
+  n   <- as.integer(n)
+  if (is.na(n) || n < 0L) {
+    stop("lead(x, n): `n` must be a non-negative integer (got ", n, ").",
+         call. = FALSE)
+  }
+  len <- length(x)
+  if (n >= len) return(x[rep(NA_integer_, len)])
+  x[c(seq_len(len - n) + n, rep(NA_integer_, n))]
+}
+
+# Length-stable positional diff: pads `lag * differences` leading NAs so the
+# result aligns row-for-row with the input series (base diff() drops them,
+# which cannot be assigned back into a fixed-length group column).
+.pt_positional_diff <- function(x, lag = 1L, differences = 1L) {
+  pad <- as.integer(lag) * as.integer(differences)
+  if (pad >= length(x)) return(rep(NA_real_, length(x)))
+  c(rep(NA_real_, pad), base::diff(x, lag = lag, differences = differences))
+}
+
+# Bind the positional time-series overrides into an evaluation environment.
+# Shared by .apply_ts_map() (the .pt# materialisation path) and
+# inject_positional_lag() (the model.frame path used by deterministic models
+# and materialize_formula()), so every formula evaluation context resolves
+# lag/lead/shift/diff to the same length-stable, within-group semantics
+# regardless of which packages the user has attached. `shift` delegates to
+# data.table::shift (length-stable, type-preserving, supports n/fill/type).
+.pt_bind_ts_fns <- function(env) {
+  env$lag   <- .pt_positional_lag
+  env$lead  <- .pt_positional_lead
+  env$shift <- data.table::shift
+  env$diff  <- .pt_positional_diff
+  env
 }
 
 # Name of the function a call invokes, stripping a `pkg::`/`pkg:::` qualifier.
@@ -127,8 +168,7 @@
   data.table::setkeyv(data, c(groupvar, timevar))
   if (length(map) == 0L) return(data)
 
-  ts_env <- new.env(parent = env)
-  ts_env$lag <- .pt_positional_lag
+  ts_env <- .pt_bind_ts_fns(new.env(parent = env))
 
   for (sym in names(map)) {
     expr <- map[[sym]]
@@ -232,4 +272,14 @@ panel_materialize <- function(formula, data, groupvar, timevar,
   new_lhs <- if (is.null(lhs)) NULL else .rewrite_panel_formula(lhs, state)
   new_rhs <- .rewrite_panel_formula(rhs, state)
   rlang::new_formula(new_lhs, new_rhs, env = rlang::f_env(formula))
+}
+
+# Rename the `.pt#` columns present in `dt` to their readable aliases, in
+# place (data.table::setnames). The single shared implementation of the
+# rename step every model constructor and predict method performs after
+# .apply_ts_map(); returns `dt` invisibly for chaining.
+.pt_apply_aliases <- function(dt, alias_map) {
+  old <- intersect(names(alias_map), names(dt))
+  if (length(old) > 0L) data.table::setnames(dt, old, alias_map[old])
+  invisible(dt)
 }

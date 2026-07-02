@@ -576,7 +576,7 @@ get_experiment_accuracy <- function(experiment_results, outcome, truth,
     if (is.null(ts) || is.na(ts)) {
       stop("No test_start recorded for experiment '", lab, "'.", call. = FALSE)
     }
-    sub <- sub[sub[[time_col]] >= ts]  # forecast window only
+    sub <- .dt_rows(sub, sub[[time_col]] >= ts)  # forecast window only
     acc <- get_accuracy(sub, outcome = outcome, truth = truth, ctx = ctx,
                         level = level, test_start = ts, by = by,
                         transform = transform)

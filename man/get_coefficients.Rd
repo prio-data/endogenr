@@ -19,9 +19,11 @@ range. Zero rows if no model carries coefficients.
 \description{
 Walks the stored coefficient fits of a \code{\link[=fit_system]{fit_system()}} output and returns a
 tidy table of the regression coefficients that were actually used (or are
-available) for the simulation, tagged by draw, window, and outcome. Only
-\code{linear} and \code{glm} models carry coefficients (via \code{\link[broom:tidy]{broom::tidy()}}); other
-model types (including \code{heterolm}) are skipped.
+available) for the simulation, tagged by draw, window, and outcome. Any
+model that stores a tidy \verb{$coefs} table contributes rows — \code{linear}/\code{glm}
+(via \code{\link[broom:tidy]{broom::tidy()}}) plus \code{glmmTMB} (conditional fixed effects) and
+\code{gamlss} (mu coefficients); model types without tidy coefficients
+(including \code{heterolm}) are skipped.
 }
 \details{
 For sliding-window fits (\code{window = "rolling"}/\code{"expanding"}) the table covers

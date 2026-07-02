@@ -15,9 +15,8 @@ A non-negative numeric scalar, possibly \code{Inf}.
 \description{
 Walks the right-hand-side AST and composes nested time-series depths so that
 materialising the RHS over the \code{need} rows ending at \code{t} reproduces the value
-it would take over the full per-unit series. Unlike \code{\link[=.max_lag_depth]{.max_lag_depth()}} (which
-takes the maximum of individual depths), nested transforms are summed, so
-\code{lag(lag(x))} needs 2 and \code{lag(rollmeanr(x, 5), 2)} needs 6.
+it would take over the full per-unit series. Nested transforms are summed
+(not maxed), so \code{lag(lag(x))} needs 2 and \code{lag(rollmeanr(x, 5), 2)} needs 6.
 }
 \details{
 Composition rules:

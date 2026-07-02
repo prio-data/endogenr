@@ -35,6 +35,36 @@ bootstrapglm <- function(formula, data, family, type){
   )
 }
 
+#' Stage-2 pooled GLM fit on materialized data
+#'
+#' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
+#' fit step must not be a closure stored on the model object.
+#'
+#' @param formula The rewritten, aliased pooled formula.
+#' @param data The materialized data.table.
+#' @param family A `stats::family` object.
+#' @param boot Bootstrap type or `NULL`.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A fitted `glm` object.
+#' @keywords internal
+.glm_stage2_fit <- function(formula, data, family, boot, subset, timevar) {
+  # Restrict the fit data to the model's own columns (plus timevar for the
+  # window filter below), so na.omit in the bootstrap helpers drops only
+  # rows missing a model term — matching plain glm()'s estimation sample.
+  fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
+  data <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    data <- .dt_rows(data, data[[timevar]] >= subset$start &
+                             data[[timevar]] <= subset$end)
+  }
+  if (!is.null(boot)) {
+    bootstrapglm(formula, data, family = family, type = boot)
+  } else {
+    stats::glm(formula, data, family = family)
+  }
+}
+
 
 #' @exportS3Method
 fit_model.glm_spec <- function(spec, data = NULL, ctx = NULL, subset = NULL, ...) {
@@ -74,8 +104,7 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
   pm        <- panel_materialize(model$formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
   fit_formula <- .pt_alias_formula(pm$formula, alias_map)
 
   model$ts_map       <- pm$map
@@ -88,25 +117,10 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
 
   class(model) <- c("glm_endogenr", class(model))
 
-  # Stage 2: pooled GLM fit.
-  model$fit <- function(formula, data, family, boot, subset, timevar) {
-    # Restrict the fit data to the model's own columns (plus timevar for the
-    # window filter below), so na.omit in the bootstrap helpers drops only
-    # rows missing a model term — matching plain glm()'s estimation sample.
-    fit_cols <- unique(c(intersect(all.vars(formula), names(data)), timevar))
-    data <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
-    }
-    if (!is.null(boot)) {
-      bootstrapglm(formula, data, family = family, type = boot)
-    } else {
-      stats::glm(formula, data, family = family)
-    }
-  }
-
-  model$fitted <- model$fit(model$fit_formula, model$data, model$family,
-                            model$boot, model$subset, model$timevar)
+  # Stage 2: pooled GLM fit (file-level helper — see .lm_stage2_fit for why
+  # this must not be a closure stored on the model).
+  model$fitted <- .glm_stage2_fit(fit_formula, pm$data, family, boot,
+                                  subset, timevar)
 
   model$coefs   <- broom::tidy(model$fitted)
   model$gof     <- broom::glance(model$fitted)
@@ -216,8 +230,18 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
 #' @keywords internal
 getpi_glm <- function(glmpred, family, df, dispersion = 1, nsamples = 1){
   # Parameter uncertainty: draw the linear predictor on the link scale, then
-  # map to the conditional mean.
-  eta <- glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
+  # map to the conditional mean. In the row-expansion path (nsamples = 1) each
+  # row is one sim instance, so draw an INDEPENDENT t per row — matching
+  # getpi() for `lm` and the per-row normal draw in predict.glmmTMB_endogenr.
+  # (A single shared draw would freeze the parameter-uncertainty component
+  # across every unit and inner sim at a time step, under-dispersing the
+  # ensemble.) The multi-sample path keeps one draw per sample column, shared
+  # across rows: there each column is one coefficient realisation.
+  eta <- if (nsamples == 1) {
+    glmpred$fit + glmpred$se.fit * stats::rt(length(glmpred$fit), df)
+  } else {
+    glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
+  }
   mu  <- family$linkinv(eta)
   # Response-scale draw at each mean (adds the family's predictive dispersion).
   draw <- .glm_response_draw(as.vector(mu), family$family, dispersion)
@@ -246,11 +270,10 @@ predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group, then apply aliases.
   env <- rlang::f_env(model$formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step.
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   # Predict on link scale with standard errors.
   pred <- predict(model$fitted, newdata = mat, type = "link", se.fit = TRUE)
