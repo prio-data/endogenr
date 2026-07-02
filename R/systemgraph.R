@@ -153,6 +153,17 @@ parse_formula <- function(model){
   formula <- model$formula
 
   if (!any(independent_models %in% class(model))) {
+    # Models that carry a prebuilt smoother/bar-free graph_formula (glmmTMB,
+    # gamlss) use it directly so that stats::terms() / .edges_from_formula
+    # never sees RE bars, random() calls, or other non-standard syntax.
+    if (!is.null(model$graph_formula)) {
+      gformula <- model$graph_formula
+      outcome  <- base::all.vars(rlang::f_lhs(gformula))
+      edges    <- .edges_from_formula(gformula, outcome)
+      vertices <- unique(unlist(edges))
+      return(list(edges = edges, vertices = vertices, outcome = outcome))
+    }
+
     outcome <- base::all.vars(rlang::f_lhs(formula))
     edges <- .edges_from_formula(formula, outcome)
 

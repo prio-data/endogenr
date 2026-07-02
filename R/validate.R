@@ -105,11 +105,15 @@ validate_panel <- function(data, ctx, test_start, model_outcomes = NULL) {
 #' @param models A list of models (unfitted specs or fitted model objects with
 #'   a `$formula` field).
 #' @param data_columns Character vector. Column names available in the data.
+#' @param keys Character vector of panel key columns (unit/time). These are
+#'   always present in every simulation-grid row (the grid is a CJ over keys),
+#'   so a predictor that is a panel key — e.g. a `(1 | unit)` random intercept —
+#'   is exempt from the "must be produced by a model" closure check.
 #'
 #' @return Invisible TRUE if valid. Throws informative errors otherwise.
 #' @family validate
 #' @export
-validate_system_closure <- function(models, data_columns) {
+validate_system_closure <- function(models, data_columns, keys = NULL) {
   # Collect all model outcomes
   independent_types <- get_independent_models()
   outcomes <- character(0)
@@ -136,18 +140,44 @@ validate_system_closure <- function(models, data_columns) {
       all_formula_vars <- c(all_formula_vars, outcome)
     } else {
       outcome <- all.vars(rlang::f_lhs(formula))
-      rhs_vars <- all.vars(rlang::f_rhs(formula))
-      all_rhs_vars <- c(all_rhs_vars, rhs_vars)
-      all_formula_vars <- c(all_formula_vars, outcome, rhs_vars)
 
-      # Also check variance formula for heterolm
-      var_formula <- if (!is.null(model$args)) model$args$variance else model$variance_formula
-      is_heterolm <- (!is.null(model$type) && model$type == "heterolm") ||
-                     ("heterolm" %in% class(model))
-      if (is_heterolm && !is.null(var_formula)) {
-        var_rhs <- all.vars(rlang::f_rhs(var_formula))
-        all_rhs_vars <- c(all_rhs_vars, var_rhs)
-        all_formula_vars <- c(all_formula_vars, var_rhs)
+      # glmmTMB and gamlss: build the bar/smoother-free graph formula so that
+      # grouping factors, cov-struct coordinates, and smoothed covariates appear
+      # as ordinary predictors. They are read at every forecast step, so — like
+      # any predictor — they must be produced by some model (e.g. an `exogen`
+      # carrying the grouping column forward); the closure check below enforces it.
+      dec <- NULL
+      if ((!is.null(model$type) && model$type == "glmmTMB") ||
+          any(c("glmmTMB", "glmmTMB_endogenr") %in% class(model))) {
+        dispf <- if (!is.null(model$args)) model$args$dispformula else model$dispformula
+        zif   <- if (!is.null(model$args)) model$args$ziformula   else model$ziformula
+        dec   <- .glmmTMB_decompose(formula, dispf, zif)
+      } else if ((!is.null(model$type) && model$type == "gamlss") ||
+                 any(c("gamlss", "endogenr_gamlss") %in% class(model))) {
+        sf <- if (!is.null(model$args)) model$args[["sigma.formula"]] else model$sigma_formula
+        nf <- if (!is.null(model$args)) model$args[["nu.formula"]]    else model$nu_formula
+        tf <- if (!is.null(model$args)) model$args[["tau.formula"]]   else model$tau_formula
+        dec <- .gamlss_decompose(formula, sf, nf, tf)
+      }
+
+      if (!is.null(dec)) {
+        rhs_vars <- all.vars(rlang::f_rhs(dec$graph_formula))
+        all_rhs_vars     <- c(all_rhs_vars, rhs_vars)
+        all_formula_vars <- c(all_formula_vars, outcome, rhs_vars)
+      } else {
+        rhs_vars <- all.vars(rlang::f_rhs(formula))
+        all_rhs_vars <- c(all_rhs_vars, rhs_vars)
+        all_formula_vars <- c(all_formula_vars, outcome, rhs_vars)
+
+        # Also check variance formula for heterolm
+        var_formula <- if (!is.null(model$args)) model$args$variance else model$variance_formula
+        is_heterolm <- (!is.null(model$type) && model$type == "heterolm") ||
+                       ("heterolm" %in% class(model))
+        if (is_heterolm && !is.null(var_formula)) {
+          var_rhs <- all.vars(rlang::f_rhs(var_formula))
+          all_rhs_vars <- c(all_rhs_vars, var_rhs)
+          all_formula_vars <- c(all_formula_vars, var_rhs)
+        }
       }
     }
 
@@ -182,7 +212,7 @@ validate_system_closure <- function(models, data_columns) {
   # lag `n`. (Lagged self-references such as lag(y) in y's own model are fine: y
   # is its own outcome.)
   all_rhs_vars <- unique(all_rhs_vars)
-  unmodeled <- setdiff(all_rhs_vars, outcomes)
+  unmodeled <- setdiff(all_rhs_vars, c(outcomes, keys))
   if (length(unmodeled) > 0) {
     stop("The following variables are referenced as predictors but are not ",
          "produced by any model: ", paste(unmodeled, collapse = ", "),

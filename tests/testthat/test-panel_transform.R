@@ -104,6 +104,52 @@ test_that(".apply_ts_map evaluates decay_since_event per unit", {
   expect_equal(out[g == 2 & t == 3, .pt1], exp(-0.5))
 })
 
+# ── lag() type preservation ─────────────────────────────────────────────────
+
+test_that(".pt_positional_lag preserves type (factor, Date) and shifts numeric", {
+  f  <- factor(c("a", "b", "c"), levels = c("a", "b", "c"))
+  lf <- endogenr:::.pt_positional_lag(f)
+  expect_s3_class(lf, "factor")
+  expect_equal(levels(lf), c("a", "b", "c"))
+  expect_equal(as.character(lf), c(NA, "a", "b"))
+  expect_equal(endogenr:::.pt_positional_lag(c(10, 20, 30)), c(NA, 10, 20))  # numeric unchanged
+  expect_s3_class(endogenr:::.pt_positional_lag(as.Date(c("2020-01-01", "2020-01-02"))), "Date")
+})
+
+test_that(".apply_ts_map keeps lag(factor) as a factor across groups (no coercion)", {
+  dt <- data.table::data.table(
+    g  = c(1, 1, 1, 2, 2, 2),
+    t  = c(1, 2, 3, 1, 2, 3),
+    cf = factor(c("none", "minor", "major", "none", "minor", "major"),
+                levels = c("none", "minor", "major"))
+  )
+  out <- endogenr:::.apply_ts_map(list(.pt1 = quote(lag(cf))), dt, "g", "t", environment())
+  expect_s3_class(out$.pt1, "factor")
+  expect_equal(levels(out$.pt1), c("none", "minor", "major"))
+  expect_true(is.na(out[g == 1 & t == 1, .pt1]))                 # head of each unit is NA
+  expect_equal(as.character(out[g == 2 & t == 3, .pt1]), "minor") # within-unit shift
+})
+
+test_that("inject_positional_lag preserves factor type", {
+  f   <- factor(c("x", "y", "z"), levels = c("x", "y", "z"))
+  lag <- environment(inject_positional_lag(~ lag(v)))$lag
+  expect_s3_class(lag(f), "factor")
+  expect_equal(as.character(lag(f)), c(NA, "x", "y"))
+})
+
+test_that("lag(factor) expands into dummy coefficients in a fitted linear model", {
+  set.seed(1)
+  dt <- data.table::CJ(unit = 1:8, year = 1:15)
+  dt[, cf := factor(sample(c("none", "minor", "major"), .N, TRUE),
+                    levels = c("none", "minor", "major"))]
+  dt[, y := stats::rnorm(.N)]
+  data.table::setkey(dt, unit, year)
+  ctx <- panel_context(unit = "unit", time = "year")
+  m   <- linearmodel(y ~ lag(cf), data = dt, ctx = ctx)
+  cf_terms <- grep("^lag_cf", m$coefs$term, value = TRUE)
+  expect_setequal(cf_terms, c("lag_cfminor", "lag_cfmajor"))  # baseline "none" dropped
+})
+
 # ── panel_materialize ──────────────────────────────────────────────────────
 
 test_that("panel_materialize rewrites both sides and materialises ts columns", {

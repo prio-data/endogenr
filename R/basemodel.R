@@ -51,15 +51,55 @@ new_endogenmodel <- function(formula){
 #'     to avoid a circular dependency on a same-period outcome). Pass `nb`,
 #'     `wt`, and `unit_ids` from [st_weights_from_sf()] or `sfdep`
 #'     directly. Optional `island_default` for units with no neighbours.}
+#'   \item{`"glmmTMB"`}{Two-sided formula, including lme4-style random-effects
+#'     bars `(1 + lag(x) | group)` and glmmTMB covariance-structure wrappers
+#'     (e.g. `ar1(times + 0 | group)`, `us(…|g)`). Pass `family =` (default
+#'     `stats::gaussian()`), `dispformula = ~…` (default `~1`), `ziformula =
+#'     ~…` (default `~0`), and optionally `control =
+#'     glmmTMB::glmmTMBControl()`. Grouping factors and cov-struct coordinate
+#'     columns (e.g. `region`, `times`) are read at every forecast step, so —
+#'     like any predictor — they must be produced by some model: add an
+#'     `exogen` (e.g. `build_model("exogen", formula = ~region)`) to carry the
+#'     column forward, or group by a panel key (`unit`/`time`), which is always
+#'     present. Temporal covariance structures (`ar1`/`ou`/…) are forecast
+#'     multi-step by predicting the whole forecast-so-far block at each step so
+#'     glmmTMB applies the correct `phi^k` decay; the coordinate must be carried
+#'     into the horizon and be contiguous and unit-spaced. Response-scale
+#'     predictive draws are implemented for `gaussian`, `poisson`, `binomial`,
+#'     `Gamma`, `nbinom1`, `nbinom2`, `beta`, `betabinomial`, `t`, `lognormal`,
+#'     `skewnormal`, and
+#'     `truncated_poisson`/`truncated_nbinom1`/`truncated_nbinom2`; `tweedie`
+#'     needs the `tweedie` package; other families fall back to the conditional
+#'     mean. Requires the `glmmTMB` package.}
+#'   \item{`"gamlss"`}{Two-sided `formula` for the location parameter `mu`
+#'     (may include `pb()`/`cs()`/`lo()` smoothers and `random()`/`ra()`/`re()`
+#'     grouping terms). Optional `sigma.formula`, `nu.formula`, `tau.formula`
+#'     (one-sided, default `~1`). `family =` a `gamlss.family` object (default
+#'     `gamlss.dist::NO()`). Optional `control = gamlss::gamlss.control(...)`.
+#'     Grouping factors inside `random()`/`ra()`/`re()` are read at every
+#'     forecast step, so they must be produced by some model — add an `exogen`
+#'     (e.g. `build_model("exogen", formula = ~region)`) to carry the grouping
+#'     column forward, or group by a panel key. Requires the `gamlss` package.}
 #' }
 #'
-#' @param type One of "deterministic", "parametric_distribution", "linear",
-#'   "glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".
+#' @param type One of `"deterministic"`, `"parametric_distribution"`,
+#'   `"linear"`, `"glm"`, `"exogen"`, `"univariate_fable"`, `"heterolm"`,
+#'   `"spatial_lag"`, `"glmmTMB"`, or `"gamlss"`.
 #' @param formula An R formula. See the model-type section for the expected
 #'   shape per type.
 #' @param ... Model-specific arguments. See the model-type section.
+#' @param bounds Optional length-2 numeric `c(lower, upper)`. When set, this
+#'   model's simulated outcome is clamped to `[lower, upper]` at every forecast
+#'   step of [simulate_system()], before the value feeds later steps. Use it to
+#'   stabilize autoregressive feedback (e.g. `bounds = c(-1, 1)` for a growth
+#'   rate). Infinities are allowed for a one-sided limit (`c(0, Inf)`). A draw
+#'   that returns non-finite after clamping is reset to a finite in-range value
+#'   (the midpoint of two finite bounds, or the finite bound of a one-sided
+#'   limit), so a bounded outcome never propagates `NaN`/`Inf`. Default `NULL`
+#'   applies no clamping.
 #'
-#' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`).
+#' @return An `endogenr_spec` object (a list with `$type`, `$formula`, `$args`,
+#'   and `$bounds`).
 #' @seealso [setup_system()], [fit_system()], [simulate_system()], [fit_model()]
 #' @family build
 #' @export
@@ -77,17 +117,26 @@ new_endogenmodel <- function(formula){
 #'   build_model("exogen", formula = ~psecprop),
 #'   build_model("exogen", formula = ~population)
 #' )
-build_model <- function(type, formula, ...) {
+build_model <- function(type, formula, ..., bounds = NULL) {
   valid_types <- c("deterministic", "parametric_distribution", "linear", "glm",
-                   "exogen", "univariate_fable", "heterolm", "spatial_lag")
+                   "exogen", "univariate_fable", "heterolm", "spatial_lag",
+                   "glmmTMB", "gamlss")
   if (!type %in% valid_types) {
     stop("Unknown model type: ", type)
+  }
+
+  if (!is.null(bounds)) {
+    if (!is.numeric(bounds) || length(bounds) != 2L ||
+        anyNA(bounds) || bounds[1L] > bounds[2L]) {
+      stop("`bounds` must be a length-2 numeric c(lower, upper) with lower <= upper.",
+           call. = FALSE)
+    }
   }
 
   dots <- list(...)
 
   spec <- structure(
-    list(type = type, formula = formula, args = dots),
+    list(type = type, formula = formula, args = dots, bounds = bounds),
     class = c(paste0(type, "_spec"), "endogenr_spec")
   )
   spec

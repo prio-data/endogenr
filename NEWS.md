@@ -1,5 +1,107 @@
 # endogenr 0.1.0.9000
 
+## New features
+
+- **`build_model("glmmTMB", …)` — glmmTMB mixed-effects models.** Adds
+  first-class support for `glmmTMB::glmmTMB()` models inside the endogenr
+  dynamic simulation loop. Supports lme4-style random-effects bars
+  (`(1 + lag(x) | group)`), glmmTMB covariance-structure wrappers
+  (`ar1(times + 0 | group)`, `us`, `exp`, `mat`, …), a separate
+  `dispformula` (per-row heteroscedasticity / overdispersion), and a
+  `ziformula` for zero-inflation. Families with a response-scale draw:
+  `gaussian`, `poisson`, `binomial`, `Gamma`, `nbinom1`, `nbinom2`,
+  `beta`, `betabinomial`, `t`, `lognormal`, `skewnormal`,
+  `truncated_poisson`, `truncated_nbinom1`, `truncated_nbinom2`, and
+  `tweedie` (the last requires the `tweedie` package, else it falls back
+  to the mean); other unsupported families fall back to the
+  conditional mean with a one-time warning. Grouping factors and cov-struct
+  coordinates are ordinary predictors: like any predictor they must be
+  produced by some model — add an `exogen` (e.g.
+  `build_model("exogen", formula = ~region)`) to carry the grouping column
+  into the forecast horizon, or group by a panel key. Setup errors if a
+  grouping column has no producer. Temporal covariance structures
+  (`ar1`/`ou`/…) are forecast correctly multi-step: at each forecast step the
+  whole forecast-so-far block is predicted in one call so glmmTMB applies the
+  proper `phi^k` correlation decay, and the dispersion prediction passes
+  `allow.new.levels` so the predictive-interval scale is correct for
+  covariance-structure models. The covariance coordinate must be carried into
+  the horizon (e.g. via an `exogen`) and be contiguous and unit-spaced.
+  Requires the `glmmTMB` CRAN package (`install.packages("glmmTMB")`).
+
+  ```r
+  build_model("glmmTMB",
+              formula     = gdppc_grwt ~ lag(dem) + lag(log(gdppc)) +
+                              (1 + lag(dem) | region),
+              dispformula = ~ lag(dem),
+              family      = stats::gaussian())
+  ```
+
+
+- **`build_model("gamlss", …)` — GAMLSS distributional-regression models.**
+  Adds support for `gamlss::gamlss()` models (Generalized Additive Models for
+  Location, Scale and Shape). Each of the four distribution parameters (`mu`,
+  `sigma`, `nu`, `tau`) gets its own formula, enabling modelling of
+  heteroscedasticity, skewness, and kurtosis as functions of covariates.
+  Supports all `gamlss.dist` families (Normal, BCT, BCCG, Gamma, …) with
+  automatic draw via `r<FAMILY>()`. Smoother terms (`pb()`, `cs()`, `lo()`)
+  and grouping terms (`random()`, `ra()`, `re()`) are handled correctly: the
+  dependency graph is built from a smoother/bar-free representation. Grouping
+  factors are ordinary predictors that must be produced by some model — add an
+  `exogen` (e.g. `build_model("exogen", formula = ~region)`) to carry the
+  grouping column into the forecast horizon, or group by a panel key. Setup
+  errors if a grouping column has no producer. Requires the `gamlss` CRAN
+  package (`install.packages("gamlss")`).
+
+  ```r
+  build_model("gamlss",
+              formula       = gdppc_grwt ~ pb(lag(dem)) + random(region),
+              sigma.formula = ~ lag(dem),
+              family        = gamlss.dist::NO())
+  ```
+
+- **`build_model(…, bounds = c(lower, upper))` — per-model output bounds.**
+  Any model's simulated outcome can be constrained to `[lower, upper]`: the
+  dynamic simulator clamps the predicted value at every forecast step before it
+  feeds later steps, stabilizing autoregressive feedback (e.g.
+  `bounds = c(-1, 1)` on a growth rate). A draw that is still non-finite after
+  clamping is reset to a finite in-range value (the midpoint of two finite
+  bounds, or the finite bound of a one-sided `c(0, Inf)` limit), so a bounded
+  outcome never propagates `NaN`/`Inf`. This prevents the
+  `(subscript) logical subscript too long` crash seen when a divergent
+  autoregressive term (e.g. a gamlss `sigma.formula` containing
+  `abs(lag(outcome))`) drove a predictor to `Inf`/`NaN`. Default `NULL` leaves
+  all behavior unchanged.
+
+## Bug fixes
+
+- **Intercept-only `gamlss`/`glmmTMB` formulas no longer fail closure
+  validation.** A parameter formula with no predictors (e.g.
+  `gdppc_grwt ~ 1`) built its dependency-graph RHS as the symbol `` `1` ``
+  instead of the numeric intercept, so `all.vars()` reported a phantom
+  predictor named `1`. `validate_system_closure()` then aborted with
+  *"variables ... missing from the input data: 1"*. The empty-predictor
+  graph RHS is now the numeric intercept `1`, so intercept-only mu/sigma/nu/tau
+  (gamlss) and main/disp/zi (glmmTMB) formulas validate and simulate.
+
+- **glmmTMB simulation is faster.** `predict.glmmTMB_endogenr()` no longer
+  issues a redundant `predict(type = "disp")` rebuild at every forecast step
+  when `dispformula` is trivial (`~1`, the default): the constant dispersion
+  `sigma(fitted)` is cached at fit time (alongside the family name and
+  link-inverse). This drops one of the two `predict.glmmTMB` rebuilds per step
+  — about 40% of raw per-step prediction cost, ~20% less `simulate_system()`
+  wall time in a typical gaussian configuration, and proportionally more for
+  `ar1`/cov-struct models whose disp call re-predicts a growing block. Output
+  is numerically identical; models with a non-trivial `dispformula` are
+  unaffected.
+
+- **`lag()` now preserves factor predictors.** A factor wrapped in `lag()`
+  (e.g. `lag(conflict)`) was coerced to its integer codes during panel
+  materialization, so it entered models as a single numeric term instead of
+  expanding into dummy columns. The positional-lag shift is now type-preserving,
+  so lagged factors (and `Date`/character columns) keep their class and levels
+  across all model types (`linear`, `glm`, `heterolm`, `glmmTMB`, `gamlss`,
+  `deterministic`).
+
 ## Migration guide
 
 The three-stage pipeline replaces the old two-stage API. The minimum

@@ -977,3 +977,67 @@ test_that("boot = 'resid' without min_window produces distinct coefficient draws
   expect_true(length(unique(round(intercepts, 10))) > 1L,
               info = "boot=resid with min_window=NULL must produce distinct draws")
 })
+
+# ── Per-model output bounds (build_model bounds = c(lower, upper)) ──────────
+
+test_that("bounds clamp a model's simulated outcome to [lower, upper]", {
+  dt <- data.table::as.data.table(expand.grid(gwcode = 1:4, year = 2000:2015))
+  data.table::setkeyv(dt, c("gwcode", "year"))
+  set.seed(1); dt[, y := runif(.N, 1, 2)]
+
+  mk <- function(b) setup_system(
+    models = list(build_model("deterministic", formula = y ~ I(abs(lag(y)) * 2),
+                              bounds = b)),
+    data = dt, train_start = 2000, test_start = 2010, horizon = 5,
+    groupvar = "gwcode", timevar = "year", inner_sims = 2)
+
+  set.seed(1); res_bounded <- simulate_system(fit_system(mk(c(0, 10)), nsim = 2))
+  set.seed(1); res_free    <- simulate_system(fit_system(mk(NULL),    nsim = 2))
+
+  # The clamp holds the explosive (doubling) trajectory at the cap ...
+  expect_true(all(res_bounded$y <= 10 + 1e-9, na.rm = TRUE))
+  # ... while the unbounded run escapes it: proves the clamp, not the DGP, caps it.
+  expect_gt(max(res_free$y, na.rm = TRUE), 10)
+})
+
+test_that("bounds stabilize a divergent autoregressive gamlss system", {
+  skip_if_no_gamlss()
+  suppressMessages(library(gamlss.dist))
+
+  set.seed(123)
+  units <- 1:20; years <- 1970:2024
+  panel <- data.table::CJ(gwcode = units, year = years)
+  data.table::setkey(panel, gwcode, year)
+  panel[, gdppc_grwt := rnorm(.N, 0.02, 0.03), by = gwcode]
+  init <- runif(length(units), 1000, 20000)
+  panel[, gdppc := { g <- numeric(.N); g[1] <- init[.GRP]
+    if (.N > 1) for (i in 2:.N) g[i] <- abs(g[i - 1] * (1 + gdppc_grwt[i])); g },
+    by = gwcode]
+  panel[, dem := plogis(rnorm(.N))]
+
+  mk <- function(b) setup_system(
+    models = list(
+      g = build_model("gamlss",
+            formula       = gdppc_grwt ~ lag(dem) + lag(log(gdppc)),
+            sigma.formula = ~ lag(dem) + abs(lag(gdppc_grwt)),
+            nu.formula    = ~ abs(lag(gdppc_grwt)),
+            family = gamlss.dist::TF(), bounds = b),
+      e = build_model("deterministic",
+                      formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt)))),
+      d = build_model("exogen", formula = ~dem)),
+    data = panel[], train_start = 1970, test_start = 2007, horizon = 17,
+    groupvar = "gwcode", timevar = "year", inner_sims = 5)
+
+  # With bounds the run completes and every draw stays finite and in range.
+  set.seed(42)
+  res <- simulate_system(fit_system(mk(c(-1, 1)), nsim = 4))
+  expect_true(all(is.finite(res$gdppc_grwt)))
+  expect_true(all(res$gdppc_grwt >= -1 - 1e-9 & res$gdppc_grwt <= 1 + 1e-9))
+
+  # Without bounds the same system diverges: it aborts ("logical subscript too
+  # long") or emits non-finite values. Either proves bounds made the difference.
+  set.seed(42)
+  unbounded <- suppressWarnings(
+    tryCatch(simulate_system(fit_system(mk(NULL), nsim = 4)), error = function(e) e))
+  expect_true(inherits(unbounded, "error") || any(!is.finite(unbounded$gdppc_grwt)))
+})

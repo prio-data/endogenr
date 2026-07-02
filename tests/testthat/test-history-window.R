@@ -124,9 +124,15 @@ test_that("predict-subset value equals the full-series value at t", {
 
     vsub  <- sub[sub$t == t0][[pc]]
     vfull <- full[full$t == t0][[pc]]
-    # equal (both real, or both NA for the center case that needs t+1)
-    expect_equal(vsub, vfull,
-                 info = paste("formula:", deparse(rhs)))
+    # The subset must reproduce the full-series VALUE at t0. For the centered
+    # window the value is NA at the boundary (needs t+1): zoo returns a logical
+    # all-NA vector on the short subset but a numeric NA on the full series, so
+    # compare NA-aware rather than by storage mode.
+    if (is.na(vfull)) {
+      expect_true(is.na(vsub), info = paste("formula:", deparse(rhs)))
+    } else {
+      expect_equal(vsub, vfull, info = paste("formula:", deparse(rhs)))
+    }
   }
 })
 

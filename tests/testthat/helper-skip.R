@@ -25,3 +25,14 @@ skip_if_no_fable <- function() {
   testthat::skip_if_not_installed("tsibble")
   testthat::skip_if_not_installed("distributional")
 }
+
+# glmmTMB needs only the glmmTMB package itself.
+skip_if_no_glmmTMB <- function() {
+  testthat::skip_if_not_installed("glmmTMB")
+}
+
+# gamlss needs both gamlss and gamlss.dist.
+skip_if_no_gamlss <- function() {
+  testthat::skip_if_not_installed("gamlss")
+  testthat::skip_if_not_installed("gamlss.dist")
+}

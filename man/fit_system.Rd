@@ -20,7 +20,7 @@ fit_system(
 \item{window}{One of \code{"random"} (default; random training windows gated by
 \code{min_window}), \code{"rolling"} (deterministic fixed-width windows), or
 \code{"expanding"} (deterministic windows growing from \code{train_start}). The two
-sliding modes refit \code{linear}/\code{glm}/\code{heterolm} specs on a window-end grid.}
+sliding modes refit \code{linear}/\code{glm}/\code{heterolm}/\code{glmmTMB} specs on a window-end grid.}
 
 \item{width}{Integer or \code{NULL}. Rolling-window length (ignored for
 \code{"random"}/\code{"expanding"}). Defaults to \code{min_window} (or \code{10}).}
@@ -49,14 +49,14 @@ Two fitting modes are available via \code{window}:
 
 \strong{Random windows} (\code{window = "random"}, the default) reproduce the
 historical behaviour. A spec is a \emph{refit} spec when its type is one of
-\code{"linear"}, \code{"glm"}, or \code{"heterolm"} \strong{and} \code{min_window} was set on the
-setup. Refit specs are fit \code{nsim} times, each on a fresh random training
+\code{"linear"}, \code{"glm"}, \code{"heterolm"}, or \code{"glmmTMB"} \strong{and} \code{min_window} was set
+on the setup. Refit specs are fit \code{nsim} times, each on a fresh random training
 window from \code{\link[=get_train_window]{get_train_window()}} combined with the spec's \code{boot} resampling,
 so the draws differ. Non-refit specs (and all specs when \code{min_window} is
 \code{NULL}) are fit once and shared across draws.
 
 \strong{Sliding windows} (\code{window = "rolling"} or \code{"expanding"}) refit each
-\code{linear}/\code{glm}/\code{heterolm} spec on a deterministic grid of training windows
+\code{linear}/\code{glm}/\code{heterolm}/\code{glmmTMB} spec on a deterministic grid of training windows
 anchored at the window \emph{end} (the same grid used by
 \code{\link[=forecast_coefficients]{forecast_coefficients()}}), giving one fit per window-end so the coefficient
 series is a clean function of time rather than of a random window. The grid
@@ -66,9 +66,9 @@ steps of \code{step}; \code{"rolling"} uses a fixed \code{width}-length window
 is fit \code{nsim} times when the spec has a \code{boot} resampler (distinct draws) or
 once and shared otherwise. The per-window fits are stored in \code{window_fits};
 \code{\link[=simulate_system]{simulate_system()}} then mixes them per its \code{window_policy}. Unlike
-\code{\link[=forecast_coefficients]{forecast_coefficients()}}, \code{heterolm} is included (no tidy coefficients are
-required to simulate). The grid uses \code{min_window} as the minimum training
-length / default rolling \code{width} (falling back to \code{10} when unset).
+\code{\link[=forecast_coefficients]{forecast_coefficients()}}, \code{heterolm} and \code{glmmTMB} are included (no tidy
+coefficients are required to simulate). The grid uses \code{min_window} as the
+minimum training length / default rolling \code{width} (falling back to \code{10} when unset).
 
 The fitted regression objects have their cached training frame dropped via
 an internal helper — \code{predict()}/\code{model.matrix()} keep working because they
@@ -88,12 +88,16 @@ simulator, by construction.
 
 Other simulation:
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
+\code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
+\code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
+\code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},
 \code{\link[=predict.glm_endogenr]{predict.glm_endogenr()}},
+\code{\link[=predict.glmmTMB_endogenr]{predict.glmmTMB_endogenr()}},
 \code{\link[=predict.heterolm]{predict.heterolm()}},
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},

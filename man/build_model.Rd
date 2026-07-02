@@ -4,19 +4,31 @@
 \alias{build_model}
 \title{Build a model specification}
 \usage{
-build_model(type, formula, ...)
+build_model(type, formula, ..., bounds = NULL)
 }
 \arguments{
-\item{type}{One of "deterministic", "parametric_distribution", "linear",
-"glm", "exogen", "univariate_fable", "heterolm", or "spatial_lag".}
+\item{type}{One of \code{"deterministic"}, \code{"parametric_distribution"},
+\code{"linear"}, \code{"glm"}, \code{"exogen"}, \code{"univariate_fable"}, \code{"heterolm"},
+\code{"spatial_lag"}, \code{"glmmTMB"}, or \code{"gamlss"}.}
 
 \item{formula}{An R formula. See the model-type section for the expected
 shape per type.}
 
 \item{...}{Model-specific arguments. See the model-type section.}
+
+\item{bounds}{Optional length-2 numeric \code{c(lower, upper)}. When set, this
+model's simulated outcome is clamped to \verb{[lower, upper]} at every forecast
+step of \code{\link[=simulate_system]{simulate_system()}}, before the value feeds later steps. Use it to
+stabilize autoregressive feedback (e.g. \code{bounds = c(-1, 1)} for a growth
+rate). Infinities are allowed for a one-sided limit (\code{c(0, Inf)}). A draw
+that returns non-finite after clamping is reset to a finite in-range value
+(the midpoint of two finite bounds, or the finite bound of a one-sided
+limit), so a bounded outcome never propagates \code{NaN}/\code{Inf}. Default \code{NULL}
+applies no clamping.}
 }
 \value{
-An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb{$args}).
+An \code{endogenr_spec} object (a list with \verb{$type}, \verb{$formula}, \verb{$args},
+and \verb{$bounds}).
 }
 \description{
 Creates a model specification that will become part of a simulation system.
@@ -54,6 +66,33 @@ packages.}
 to avoid a circular dependency on a same-period outcome). Pass \code{nb},
 \code{wt}, and \code{unit_ids} from \code{\link[=st_weights_from_sf]{st_weights_from_sf()}} or \code{sfdep}
 directly. Optional \code{island_default} for units with no neighbours.}
+\item{\code{"glmmTMB"}}{Two-sided formula, including lme4-style random-effects
+bars \code{(1 + lag(x) | group)} and glmmTMB covariance-structure wrappers
+(e.g. \code{ar1(times + 0 | group)}, \verb{us(…|g)}). Pass \verb{family =} (default
+\code{stats::gaussian()}), \verb{dispformula = ~…} (default \code{~1}), \verb{ziformula = ~…} (default \code{~0}), and optionally \code{control = glmmTMB::glmmTMBControl()}. Grouping factors and cov-struct coordinate
+columns (e.g. \code{region}, \code{times}) are read at every forecast step, so —
+like any predictor — they must be produced by some model: add an
+\code{exogen} (e.g. \code{build_model("exogen", formula = ~region)}) to carry the
+column forward, or group by a panel key (\code{unit}/\code{time}), which is always
+present. Temporal covariance structures (\code{ar1}/\code{ou}/…) are forecast
+multi-step by predicting the whole forecast-so-far block at each step so
+glmmTMB applies the correct \code{phi^k} decay; the coordinate must be carried
+into the horizon and be contiguous and unit-spaced. Response-scale
+predictive draws are implemented for \code{gaussian}, \code{poisson}, \code{binomial},
+\code{Gamma}, \code{nbinom1}, \code{nbinom2}, \code{beta}, \code{betabinomial}, \code{t}, \code{lognormal},
+\code{skewnormal}, and
+\code{truncated_poisson}/\code{truncated_nbinom1}/\code{truncated_nbinom2}; \code{tweedie}
+needs the \code{tweedie} package; other families fall back to the conditional
+mean. Requires the \code{glmmTMB} package.}
+\item{\code{"gamlss"}}{Two-sided \code{formula} for the location parameter \code{mu}
+(may include \code{pb()}/\code{cs()}/\code{lo()} smoothers and \code{random()}/\code{ra()}/\code{re()}
+grouping terms). Optional \code{sigma.formula}, \code{nu.formula}, \code{tau.formula}
+(one-sided, default \code{~1}). \verb{family =} a \code{gamlss.family} object (default
+\code{gamlss.dist::NO()}). Optional \code{control = gamlss::gamlss.control(...)}.
+Grouping factors inside \code{random()}/\code{ra()}/\code{re()} are read at every
+forecast step, so they must be produced by some model — add an \code{exogen}
+(e.g. \code{build_model("exogen", formula = ~region)}) to carry the grouping
+column forward, or group by a panel key. Requires the \code{gamlss} package.}
 }
 }
 

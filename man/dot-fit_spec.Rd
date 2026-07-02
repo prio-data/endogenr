@@ -13,7 +13,7 @@
 \code{fit_ctx}, \code{train_data}, \code{full_data}, \code{test_start}, and \code{inner_sims}.}
 
 \item{subset}{Optional list with \code{start}/\code{end} for a training window,
-applied to the \code{linear}/\code{glm}/\code{heterolm} families.}
+applied to the \code{linear}/\code{glm}/\code{heterolm}/\code{glmmTMB}/\code{gamlss} families.}
 }
 \value{
 A fitted endogenmodel object.

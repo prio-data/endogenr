@@ -46,7 +46,8 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
 #' Inject a positional lag function into a formula's environment
 #'
 #' Replaces `lag()` in the formula's evaluation environment with a positional
-#' shift function: `c(rep(NA, n), head(x, -n))`. This ensures `lag()` in model
+#' shift that prepends `n` NAs and drops the last `n` elements, preserving the
+#' input type (factor levels, Date, etc.). This ensures `lag()` in model
 #' formulas performs a within-group positional shift rather than `stats::lag()`.
 #'
 #' @param formula An R formula.
@@ -55,7 +56,10 @@ get_train_window <- function(earliest_train_start, test_start, min_window = NULL
 #' @export
 inject_positional_lag <- function(formula) {
   .positional_lag <- function(x, n = 1L) {
-    c(rep(NA_real_, n), utils::head(x, -n))
+    n   <- as.integer(n)
+    len <- length(x)
+    if (n >= len) return(x[rep(NA_integer_, len)])
+    x[c(rep(NA_integer_, n), seq_len(len - n))]
   }
   formula_env <- new.env(parent = environment(formula))
   formula_env$lag <- .positional_lag

@@ -28,12 +28,16 @@ Suggests:
     fable,
     fabletools,
     fitdistrplus,
+    gamlss,
+    gamlss.dist,
+    glmmTMB,
     heterolm,
     progressr,
     sfdep,
     tidyr,
     actuar,
     tsibble,
+    tweedie,
     zoo
 Remotes:
     kvelleby/poldat,
