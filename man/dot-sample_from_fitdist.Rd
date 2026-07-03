@@ -4,17 +4,21 @@
 \alias{.sample_from_fitdist}
 \title{Sample from a fitted distribution}
 \usage{
-.sample_from_fitdist(fitobj, n)
+.sample_from_fitdist(fitobj, n, est = as.list(fitobj$estimate))
 }
 \arguments{
 \item{fitobj}{A fitdist object.}
 
 \item{n}{Integer. Number of samples to draw.}
+
+\item{est}{Named list of parameter values; defaults to the point estimates.}
 }
 \value{
 Numeric vector of random samples.
 }
 \description{
-Generates random samples from the distribution fitted by fitdistrplus::fitdist().
+Generates random samples from the distribution fitted by
+fitdistrplus::fitdist(), optionally at parameter values other than the
+MLE point estimates (used for parameter-uncertainty draws).
 }
 \keyword{internal}

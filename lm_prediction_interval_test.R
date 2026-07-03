@@ -32,13 +32,13 @@ summary(model)
 
 lmpred <- predict(model, newdata = test, se.fit = T)
 
-test$pred <- getpi(lmpred)
+test$pred <- as.vector(endogenr:::.lm_predictive_draws(lmpred, 1, 1, "row"))
 test$ae <- test$y - test$pred
 
 
 predict(model, newdata = test, interval = "prediction") |> head()
 # These should approximate the values above
-pi <- getpi(lmpred, 1000)
+pi <- endogenr:::.lm_predictive_draws(lmpred, 1000, 1, "draw")
 pi[1,] |> quantile(probs = c(0.05, 0.975))
 pi[2,] |> quantile(probs = c(0.05, 0.975))
 pi[3,] |> quantile(probs = c(0.05, 0.975))

@@ -153,6 +153,24 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
 }
 
 
+#' @rdname draw_predictive
+#' @export
+draw_predictive.heterolm <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
+  .check_draw_counts(n_param, n_innov)
+  if (n_param > 0L) .warn_no_param_draw("heterolm")
+
+  # heterolm predict exposes point mu/sigma only — innovation uncertainty only.
+  pred <- predict(model$fitted, newdata = as.data.frame(newdata), type = "response")
+  n <- nrow(newdata)
+  K <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, K)
+  for (k in seq_len(K)) {
+    out[, k] <- if (n_innov == 0L) as.numeric(pred$mu)
+                else stats::rnorm(n, pred$mu, pred$sigma)
+  }
+  out
+}
+
 #' Predict function for a heteroscedastic linear model
 #'
 #' Samples from N(mu_i, sigma_i) per observation, where sigma_i comes from the
@@ -188,19 +206,19 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   .hetero_expand_from_terms(model$hetero_mean_terms, model$hetero_mean_xlevels, mat)
   .hetero_expand_from_terms(model$hetero_var_terms,  model$hetero_var_xlevels,  mat)
 
-  # Make predictions using heterolm (returns list with mu and sigma)
-  pred <- predict(model$fitted, newdata = as.data.frame(mat), type = "response")
-
   # Build result data.table with only necessary columns
   result_cols <- c(all_keys, idx, model$outcome)
   result <- mat[, ..result_cols]
 
-  # Update outcome column based on prediction type
+  # heterolm prediction (per-row mu/sigma) and draws happen inside
+  # draw_predictive.heterolm; the family carries no parameter-uncertainty
+  # draw, so the engine path uses n_param = 0.
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome, value = pred$mu)
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
   } else if (what == "pi") {
     data.table::set(result, j = model$outcome,
-                    value = stats::rnorm(nrow(result), pred$mu, pred$sigma))
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 1L)))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

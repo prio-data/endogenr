@@ -2,6 +2,65 @@
 
 ## New features
 
+- **`draw_predictive()` — unified predictive-draw interface.** One exported
+  S3 generic, `draw_predictive(model, newdata, n_param, n_innov, ...)`,
+  replaces the per-family draw logic (`getpi`, `getpi_glm`,
+  `predict.heterolm`'s inline `rnorm`, point-estimate `.sample_from_fitdist`
+  draws) and explicitly separates **parameter** uncertainty (`n_param`;
+  `0` = condition on point estimates) from **innovation** uncertainty
+  (`n_innov`; `0` = conditional mean, subsuming `what = "expectation"`).
+  Returns a `nrow(newdata) x max(n_param,1)*max(n_innov,1)` matrix; column
+  `(j-1)*K + k` is parameter draw `j`, innovation draw `k`. Methods for
+  `linear`, `glm`, `heterolm`, `gamlss`, `glmmTMB`, `parametric_distribution`,
+  and `univariate_fable` (whole coherent `generate()` paths per column;
+  takes `ctx` and `horizon`); `deterministic`/`exogen`/`spatial_lag` error
+  (no stochastic predictive distribution). The linear/glm/glmmTMB methods
+  take `param_scope = c("draw", "row")`: `"draw"` shares one parameter
+  deviate per column (coherent replicates for analysis), `"row"` draws an
+  independent deviate per row — the engine's row-expansion convention, which
+  `predict.*` now uses internally so **ensemble statistics are unchanged**
+  (glm/heterolm/gamlss/glmmTMB engine draws are RNG-stream-identical;
+  `linear` draws come from the identical predictive t distribution via a
+  chi-square/normal mixture, but consume a different RNG stream under a
+  fixed seed). `heterolm`/`gamlss`/`univariate_fable` carry no
+  parameter-uncertainty path and warn once per session when `n_param > 0`.
+  Internally, `getpi`/`get_sepi` are replaced by `.lm_predictive_draws()`
+  and `getpi_glm` by `.glm_predictive_draws()` (both keep the documented
+  per-row vs per-column deviate rationale).
+
+- **`build_model("parametric_distribution", …, param_uncertainty = TRUE)` —
+  opt-in MLE parameter uncertainty.** Draws one parameter vector per
+  simulation from the fitted distribution's asymptotic MVN(estimate, vcov)
+  (shared across that simulation's rows and times), so `fitdist()` models no
+  longer have to carry zero parameter uncertainty. Invalid draws (e.g.
+  negative `df` leaving the parameter space) fall back to the point
+  estimates with a one-time warning. Default `FALSE` preserves the previous
+  point-estimate behavior exactly.
+
+- **Custom distributions work without attaching endogenr.** The
+  location-scale Student-t functions `dt_ls`/`pt_ls`/`qt_ls`/`rt_ls` are
+  exported again (reversing the 0.1.0.9000 internalization):
+  `fitdistrplus::fitdist()` resolves `d<distname>`/`p<distname>` **by name
+  from its own namespace chain** (`… -> globalenv -> search path`), so the
+  functions must be reachable from the search path — the same visibility
+  contract `actuar` uses. In addition, fitting wraps the `fitdist()` call in
+  an internal shim that temporarily injects the package's d/p/q/r functions
+  into the global environment (and always cleans up, restoring any shadowed
+  binding), so `endogenr::build_model("parametric_distribution",
+  distribution = "t_ls", …)` now works even when the package is loaded but
+  **not attached** — previously this failed with "The dt_ls function must be
+  defined".
+
+- **Automatic, window-aware starting values for `fitdist()`.**
+  `distribution = "t_ls"` no longer requires `start`: starting values are
+  derived from the actual training-window data (median/MAD location-scale, a
+  kurtosis-matched `df` clamped to `[2.5, 100]`). `start` may also be a
+  `function(x)` returning a named list, evaluated by `fitdist()` on the
+  training data at fit time — the correct tool under `run_experiments()` and
+  sliding-window refits, where a precomputed list would refer to the wrong
+  window. When `fitdist()` still cannot derive starting values, the error now
+  says exactly what to pass to `build_model()`.
+
 - **`build_model("glmmTMB", …)` — glmmTMB mixed-effects models.** Adds
   first-class support for `glmmTMB::glmmTMB()` models inside the endogenr
   dynamic simulation loop. Supports lme4-style random-effects bars

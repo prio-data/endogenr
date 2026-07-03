@@ -127,8 +127,8 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
   model$outcome <- parse_formula(model)$outcome
   model$required_history <- .required_history(model$formula)
   # Response-scale dispersion (estimated for gaussian/Gamma/quasi-* families;
-  # fixed at 1 for poisson/binomial). Cached so getpi_glm() need not call the
-  # expensive summary() on every predict step.
+  # fixed at 1 for poisson/binomial). Cached so .glm_predictive_draws() need
+  # not call the expensive summary() on every predict step.
   model$dispersion <- summary(model$fitted)$dispersion
 
   return(model)
@@ -210,42 +210,70 @@ glmmodel <- function(formula = NULL, family = stats::gaussian(), boot = NULL,
   invisible(NULL)
 }
 
-#' Get the predictive distribution from a GLM
+#' Predictive draws from a fitted glm prediction object
 #'
-#' Samples `nsamples` points from the predictive distribution on the response
-#' scale. Parameter uncertainty enters on the link scale (a t-distributed draw
-#' around the linear predictor using `se.fit`); the response is then sampled
-#' from the family's distribution at the resulting mean, using the estimated
-#' `dispersion`. This restores `lm` parity for gaussian GLMs (link draw +
-#' residual scale) and yields realistic counts/positive/proportion draws for
-#' the other supported families.
+#' The draw kernel behind [draw_predictive()] for `glm` models. Parameter
+#' uncertainty enters on the link scale (a t-distributed draw around the
+#' linear predictor using `se.fit` — lm parity, deliberately `rt` not
+#' `rnorm`); the response is then sampled from the family's distribution at
+#' the resulting mean, using the estimated `dispersion`. This restores `lm`
+#' parity for gaussian GLMs (link draw + residual scale) and yields realistic
+#' counts/positive/proportion draws for the other supported families.
+#'
+#' `param_scope` controls the parameter-deviate granularity. In the
+#' row-expansion path (`"row"`) each row is one sim instance, so draw an
+#' INDEPENDENT t per row — matching the `linear` kernel and the per-row
+#' normal draw in `predict.glmmTMB_endogenr`. (A single shared draw would
+#' freeze the parameter-uncertainty component across every unit and inner sim
+#' at a time step, under-dispersing the ensemble.) Under `"draw"` each column
+#' block keeps one t draw shared across rows: each column is one coefficient
+#' realisation.
 #'
 #' @param glmpred prediction object from predict.glm with se.fit = TRUE and type = "link"
 #' @param family a family object
 #' @param df residual degrees of freedom
 #' @param dispersion Estimated response-scale dispersion (1 for poisson/binomial).
-#' @param nsamples Integer. Number of draws from the predictive distribution.
+#' @param n_param Integer >= 0. Number of parameter draws (0 = point estimates).
+#' @param n_innov Integer >= 0. Innovation draws per parameter draw (0 = mean).
+#' @param param_scope `"draw"` (shared per column block) or `"row"`.
 #'
-#' @return A numeric vector (or matrix if `nsamples > 1`) of samples on the response scale.
+#' @return A numeric matrix of samples on the response scale,
+#'   `length(glmpred$fit)` x `max(n_param,1) * max(n_innov,1)`.
 #' @keywords internal
-getpi_glm <- function(glmpred, family, df, dispersion = 1, nsamples = 1){
-  # Parameter uncertainty: draw the linear predictor on the link scale, then
-  # map to the conditional mean. In the row-expansion path (nsamples = 1) each
-  # row is one sim instance, so draw an INDEPENDENT t per row — matching
-  # getpi() for `lm` and the per-row normal draw in predict.glmmTMB_endogenr.
-  # (A single shared draw would freeze the parameter-uncertainty component
-  # across every unit and inner sim at a time step, under-dispersing the
-  # ensemble.) The multi-sample path keeps one draw per sample column, shared
-  # across rows: there each column is one coefficient realisation.
-  eta <- if (nsamples == 1) {
-    glmpred$fit + glmpred$se.fit * stats::rt(length(glmpred$fit), df)
+.glm_predictive_draws <- function(glmpred, family, df, dispersion = 1,
+                                  n_param = 1L, n_innov = 1L, param_scope = "draw") {
+  n <- length(glmpred$fit)
+  P <- max(n_param, 1L)
+  K <- max(n_innov, 1L)
+  eta <- if (n_param == 0L) {
+    matrix(glmpred$fit, n, P)
+  } else if (param_scope == "row") {
+    glmpred$fit + matrix(stats::rt(n * P, df), n, P) * glmpred$se.fit
   } else {
-    glmpred$fit + outer(glmpred$se.fit, stats::rt(nsamples, df))
+    glmpred$fit + outer(glmpred$se.fit, stats::rt(P, df))
   }
-  mu  <- family$linkinv(eta)
-  # Response-scale draw at each mean (adds the family's predictive dispersion).
-  draw <- .glm_response_draw(as.vector(mu), family$family, dispersion)
-  if (nsamples == 1) draw else matrix(draw, nrow = nrow(mu))
+  mu <- family$linkinv(eta)
+  out <- matrix(NA_real_, n, P * K)
+  for (j in seq_len(P)) {
+    for (k in seq_len(K)) {
+      out[, (j - 1L) * K + k] <-
+        if (n_innov == 0L) mu[, j]
+        else .glm_response_draw(as.vector(mu[, j]), family$family, dispersion)
+    }
+  }
+  out
+}
+
+#' @rdname draw_predictive
+#' @export
+draw_predictive.glm_endogenr <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                         param_scope = c("draw", "row"), ...) {
+  param_scope <- match.arg(param_scope)
+  .check_draw_counts(n_param, n_innov)
+  pred <- predict(model$fitted, newdata = newdata, type = "link", se.fit = TRUE)
+  .glm_predictive_draws(pred, model$family, model$fitted$df.residual,
+                        dispersion = model$dispersion,
+                        n_param = n_param, n_innov = n_innov, param_scope = param_scope)
 }
 
 #' Predict function for a GLM model
@@ -275,19 +303,17 @@ predict.glm_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # Filter to the prediction time step.
   mat <- .dt_rows(mat, mat[[idx]] == t)
 
-  # Predict on link scale with standard errors.
-  pred <- predict(model$fitted, newdata = mat, type = "link", se.fit = TRUE)
-
+  # Link-scale prediction and draws happen inside draw_predictive.glm_endogenr.
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]
 
   if (what == "expectation") {
     data.table::set(result, j = model$outcome,
-                    value = model$family$linkinv(pred$fit))
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
   } else if (what == "pi") {
     data.table::set(result, j = model$outcome,
-                    value = getpi_glm(pred, model$family, model$fitted$df.residual,
-                                      dispersion = model$dispersion))
+                    value = as.vector(draw_predictive(model, mat, n_param = 1L, n_innov = 1L,
+                                                      param_scope = "row")))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

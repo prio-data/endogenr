@@ -37,8 +37,11 @@ Treat it as a nested-MC predictive distribution with per-family draws.
 \code{heterolm} with \code{min_window}, parameter uncertainty enters across draws.
 For \code{parametric_distribution}, \code{univariate_fable}, and \code{exogen} the model
 is fit \strong{once and shared across all \code{nsim} draws}, so those components
-carry \strong{zero parameter uncertainty} regardless of \code{nsim}. This asymmetry
-is real and currently undocumented at the call site.
+carry \strong{zero parameter uncertainty} regardless of \code{nsim} — except
+\code{parametric_distribution} with \code{param_uncertainty = TRUE}, which draws
+one parameter vector per simulation from the MLE's asymptotic
+MVN(estimate, vcov). This asymmetry is real and otherwise undocumented
+at the call site.
 }
 }
 
@@ -64,11 +67,15 @@ requires at least 3 window anchors.
 \section{Known issues - available generalisations}{
 
 \itemize{
-\item \strong{Unified predictive-draw interface.} The per-family draw logic
-(\code{getpi}, \code{getpi_glm}, \code{predict.heterolm}'s \code{rnorm},
-\code{.sample_from_fitdist}, fable's \code{generate}) could be a single
-\code{draw_predictive(model, newdata, n_param, n_innov)} contract that
-explicitly separates parameter from innovation uncertainty.
+\item \strong{Unified predictive-draw interface (implemented).} The per-family
+draw logic is consolidated behind the exported
+\code{\link[=draw_predictive]{draw_predictive()}} generic
+(\code{draw_predictive(model, newdata, n_param, n_innov)}), which explicitly
+separates parameter from innovation uncertainty. Remaining gaps: the
+engine draws per-row parameter deviates at each step
+(\code{param_scope = "row"}), so there is no cross-time or cross-unit
+parameter coherence within a sim; innovations stay independent per row
+(the SUR / common-shock gap below).
 \item \strong{Pooled vs panel-heterogeneous estimation.} \code{linear}/\code{glm} are
 pooled OLS/MLE with no unit effects unless the user writes \code{factor(unit)}.
 First-class fixed/random effects could be offered.
@@ -90,10 +97,13 @@ correlation. The statistical object is a SUR / seemingly-unrelated
 residual covariance (optionally spatially structured); joint innovation
 draws from an estimated covariance would capture it. The gap is
 demonstrated in \code{tests/testthat/test-uncertainty.R}.
-\item \strong{Distribution-parameter uncertainty ignored.} \code{parametric_distribution}
-draws from the point-estimate MLE, and the shared independent fits carry
-no parameter uncertainty; both could propagate it via the MLE asymptotic
-vcov or a parametric bootstrap.
+\item \strong{Distribution-parameter uncertainty (opt-in).} \code{parametric_distribution}
+draws from the point-estimate MLE by default; passing
+\code{param_uncertainty = TRUE} to \code{\link[=build_model]{build_model()}} draws one parameter vector
+per simulation from the asymptotic MVN(estimate, vcov), and
+\code{\link[=draw_predictive]{draw_predictive()}} exposes the same via \code{n_param}. The other shared
+independent fits (\code{univariate_fable}, \code{exogen}) still carry no parameter
+uncertainty.
 \item \strong{Double/triple-counted parameter uncertainty} for \code{linear} + \code{boot}
 + \code{min_window}: the random window perturbs coefficients, the residual
 bootstrap perturbs them again, and \code{predict.lm(se.fit)} adds parameter
@@ -101,12 +111,12 @@ variance a third time on top of the residual scale. This is very likely
 over-dispersed; \code{tests/testthat/test-uncertainty.R} measures (rather than
 silently re-architects) the effect.
 \item \strong{GLM proportion draws.} For \code{binomial}/\code{quasibinomial} outcomes with
-no trial count in the grid, \code{getpi_glm()} samples a Beta with mean \code{mu}
-and a precision derived from the dispersion. The Beta variance is capped
-at the Bernoulli value \code{mu(1 - mu)}, so quasibinomial overdispersion
-beyond that cannot be represented without a trial count and collapses to
-~Bernoulli draws. Unsupported families fall back to a link-scale
-(parameter-only) draw with a one-time warning.
+no trial count in the grid, \code{.glm_predictive_draws()} samples a Beta with
+mean \code{mu} and a precision derived from the dispersion. The Beta variance
+is capped at the Bernoulli value \code{mu(1 - mu)}, so quasibinomial
+overdispersion beyond that cannot be represented without a trial count
+and collapses to ~Bernoulli draws. Unsupported families fall back to a
+link-scale (parameter-only) draw with a one-time warning.
 }
 }
 

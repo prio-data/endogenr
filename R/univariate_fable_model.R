@@ -101,7 +101,9 @@ predict.univariate_fable <- function(model, data, ctx, test_start, horizon, inne
 
   # Coherent sample paths: simulate `inner_sims` forward trajectories from the
   # fitted mable. `.rep` (the path id, "1".."inner_sims") becomes `sim`; `.sim`
-  # (the simulated value) becomes the outcome column.
+  # (the simulated value) becomes the outcome column. This long-format
+  # (unit, time, sim) return is the engine's natural shape; see
+  # draw_predictive.univariate_fable for the matrix-contract equivalent.
   sims <- fabletools::generate(model$fitted, h = horizon, times = inner_sims)
 
   forecast <- sims |>
@@ -114,4 +116,40 @@ predict.univariate_fable <- function(model, data, ctx, test_start, horizon, inne
     )
 
   data.table::as.data.table(forecast)
+}
+
+#' @rdname draw_predictive
+#' @export
+draw_predictive.univariate_fable <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                             ctx = NULL, horizon = NULL, ...) {
+  .check_draw_counts(n_param, n_innov)
+  if (is.null(ctx)) {
+    stop("ctx is required for univariate_fable draws", call. = FALSE)
+  }
+  if (n_innov == 0L) {
+    stop("n_innov = 0 is not available for univariate_fable; use fabletools::forecast() for means",
+         call. = FALSE)
+  }
+  if (n_param > 0L) .warn_no_param_draw("univariate_fable")
+
+  grp <- ctx_unit(ctx)
+  idx <- ctx_time(ctx)
+  newdata <- data.table::as.data.table(newdata)
+  if (is.null(horizon)) horizon <- length(unique(newdata[[idx]]))
+
+  K <- max(n_innov, 1L)
+  # Coherent sample paths over the h-step window following the training data;
+  # each column is one whole generated trajectory per unit. newdata rows
+  # outside the generated window are left NA.
+  sims <- fabletools::generate(model$fitted, h = horizon, times = K)
+  sims <- data.table::as.data.table(dplyr::as_tibble(sims))
+
+  out <- matrix(NA_real_, nrow(newdata), K)
+  key <- c(grp, idx)
+  for (k in seq_len(K)) {
+    path <- sims[sims$.rep == as.character(k), c(key, ".sim"), with = FALSE]
+    merged <- path[newdata[, ..key], on = key]
+    out[, k] <- merged$.sim
+  }
+  out
 }

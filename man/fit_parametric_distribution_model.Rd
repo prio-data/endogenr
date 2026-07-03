@@ -15,6 +15,10 @@ fit_parametric_distribution_model(model, data)
 A fitdist object.
 }
 \description{
-Fits a parametric distribution using fitdistrplus::fitdist
+Builds the \code{fitdist()} argument list from the model spec, derives automatic
+starting values when none are given (see \code{\link[=.dist_start]{.dist_start()}}), and evaluates the
+fit with the package's d/p/q/r functions visible (see \code{\link[=.with_dist_visible]{.with_dist_visible()}}).
+\code{start} may be a named list or a \verb{function(x)} evaluated by fitdist on the
+training data.
 }
 \keyword{internal}

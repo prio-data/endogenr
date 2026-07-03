@@ -470,10 +470,33 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
 
   if (nrow(mat) == 0L) return(result)
 
+  # Distribution-parameter prediction (predictAll) and draws happen inside
+  # draw_predictive.endogenr_gamlss; the family carries no
+  # parameter-uncertainty draw, so the engine path uses n_param = 0.
+  if (what == "expectation") {
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
+  } else if (what == "pi") {
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 1L)))
+  } else {
+    stop("`what` must be either `pi` or `expectation`", call. = FALSE)
+  }
+
+  return(result)
+}
+
+#' @rdname draw_predictive
+#' @export
+draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
+  .check_draw_counts(n_param, n_innov)
+  if (n_param > 0L) .warn_no_param_draw("gamlss")
+
   # newdata for predictAll: predictor/grouping columns of the fit frame, WITHOUT
   # the outcome (predictAll only needs the predictors; outcome at t is NA anyway).
-  keep <- intersect(setdiff(names(model$gamlss_data), model$outcome), names(mat))
-  df   <- as.data.frame(mat[, ..keep])
+  newdata <- data.table::as.data.table(newdata)
+  keep <- intersect(setdiff(names(model$gamlss_data), model$outcome), names(newdata))
+  df   <- as.data.frame(newdata[, ..keep])
 
   # predictAll requires data = the EXACT training frame used during the fit.
   # suppressMessages() silences chatty random()-related output.
@@ -482,17 +505,12 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
                        data = model$gamlss_data, type = "response")
   )
 
-  if (what == "expectation") {
-    # mu is the location parameter (= mean for symmetric families)
-    data.table::set(result, j = model$outcome, value = as.numeric(pa$mu))
-
-  } else if (what == "pi") {
-    draw <- .gamlss_response_draw(model$fitted, pa, nrow(df))
-    data.table::set(result, j = model$outcome, value = as.numeric(draw))
-
-  } else {
-    stop("`what` must be either `pi` or `expectation`", call. = FALSE)
+  n <- nrow(df)
+  K <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, K)
+  for (k in seq_len(K)) {
+    out[, k] <- if (n_innov == 0L) as.numeric(pa$mu)
+                else as.numeric(.gamlss_response_draw(model$fitted, pa, n))
   }
-
-  return(result)
+  out
 }

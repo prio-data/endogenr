@@ -560,12 +560,86 @@ glmmTMBmodel <- function(formula = NULL,
 # Part 4: predict.glmmTMB_endogenr
 # --------------------------------------------------------------------------
 
+#' @rdname draw_predictive
+#' @export
+draw_predictive.glmmTMB_endogenr <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                             param_scope = c("draw", "row"), ...) {
+  param_scope <- match.arg(param_scope)
+  .check_draw_counts(n_param, n_innov)
+
+  df <- as.data.frame(newdata)
+  n  <- nrow(df)
+  P  <- max(n_param, 1L)
+  K  <- max(n_innov, 1L)
+
+  # Link-scale prediction with SE for parameter uncertainty
+  pl <- stats::predict(model$fitted, newdata = df, type = "link", se.fit = TRUE,
+                       re.form = NULL, allow.new.levels = TRUE)
+
+  # Per-row dispersion. Trivial dispformula -> constant sigma cached at fit time
+  # (skips a full predict.glmmTMB rebuild each step). Non-trivial dispformula ->
+  # per-row predict as before.
+  disp <- if (!is.null(model$disp_const)) {
+    rep(model$disp_const, n)
+  } else {
+    tryCatch(
+      as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
+                                allow.new.levels = TRUE)),
+      error = function(e) rep(1, n)
+    )
+  }
+
+  # Structural-zero probability for zero-inflated models (0 when trivial).
+  p_zero <- rep(0, n)
+  if (!.is_trivial_rhs(model$ziformula)) {
+    p_zero <- tryCatch(
+      as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob",
+                                allow.new.levels = TRUE)),
+      error = function(e) rep(0, n)
+    )
+    p_zero <- pmin(pmax(p_zero, 0), 1)
+  }
+
+  out <- matrix(NA_real_, n, P * K)
+  for (j in seq_len(P)) {
+    # Asymptotic normal draw on link scale (standard for ML mixed models);
+    # per-row deviate under "row" (each grid row is its own sim world), one
+    # shared deviate per column block under "draw".
+    eta <- if (n_param == 0L) {
+      pl$fit
+    } else if (param_scope == "row") {
+      pl$fit + pl$se.fit * stats::rnorm(n)
+    } else {
+      pl$fit + pl$se.fit * stats::rnorm(1L)
+    }
+    mu <- model$linkinv(eta)
+
+    for (k in seq_len(K)) {
+      col <- (j - 1L) * K + k
+      if (n_innov == 0L) {
+        # Conditional mean including the structural-zero adjustment — equals
+        # predict(type = "response").
+        out[, col] <- as.numeric(mu * (1 - p_zero))
+      } else {
+        draw <- .glmmTMB_response_draw(mu, model$fam_name, disp, model$family_params)
+        if (any(p_zero > 0)) {
+          not_zero <- stats::rbinom(length(draw), size = 1L, prob = 1 - p_zero)
+          draw     <- draw * not_zero
+        }
+        out[, col] <- as.numeric(draw)
+      }
+    }
+  }
+  out
+}
+
 #' Predict method for glmmTMB models
 #'
 #' Called by the endogenr dynamic simulation loop at each forecast time step.
-#' Re-materialises time-series columns, predicts on the link scale with
-#' parameter uncertainty, adds family-specific response noise, and optionally
-#' applies a structural-zero Bernoulli mask for zero-inflated models.
+#' Re-materialises time-series columns, then delegates to
+#' [draw_predictive()]: link-scale prediction with parameter uncertainty,
+#' family-specific response noise, and optionally a structural-zero Bernoulli
+#' mask for zero-inflated models.
 #'
 #' @param model A `glmmTMB_endogenr` endogenmodel.
 #' @param data A data.table (the full simulation grid with history rows).
@@ -613,47 +687,12 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   if (nrow(mat) == 0L) return(result)
 
   if (what == "expectation") {
-    val <- stats::predict(model$fitted, newdata = df, type = "response",
-                          re.form = NULL, allow.new.levels = TRUE)
-    data.table::set(result, j = model$outcome, value = as.numeric(val[at_t]))
+    val <- draw_predictive(model, df, n_param = 0L, n_innov = 0L)
+    data.table::set(result, j = model$outcome, value = as.numeric(val[at_t, 1]))
 
   } else if (what == "pi") {
-    # Link-scale prediction with SE for parameter uncertainty
-    pl  <- stats::predict(model$fitted, newdata = df, type = "link", se.fit = TRUE,
-                          re.form = NULL, allow.new.levels = TRUE)
-    # Asymptotic normal draw on link scale (standard for ML mixed models)
-    eta <- pl$fit + pl$se.fit * stats::rnorm(length(pl$fit))
-    mu  <- model$linkinv(eta)
-
-    # Per-row dispersion. Trivial dispformula -> constant sigma cached at fit time
-    # (skips a full predict.glmmTMB rebuild each step). Non-trivial dispformula ->
-    # per-row predict as before.
-    disp <- if (!is.null(model$disp_const)) {
-      rep(model$disp_const, length(mu))
-    } else {
-      tryCatch(
-        as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
-                                  allow.new.levels = TRUE)),
-        error = function(e) rep(1, length(mu))
-      )
-    }
-
-    fam_name <- model$fam_name
-    draw <- .glmmTMB_response_draw(mu, fam_name, disp, model$family_params)
-
-    # Structural-zero mask for zero-inflated models
-    if (!.is_trivial_rhs(model$ziformula)) {
-      p_zero <- tryCatch(
-        as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob",
-                                  allow.new.levels = TRUE)),
-        error = function(e) rep(0, length(draw))
-      )
-      p_zero   <- pmin(pmax(p_zero, 0), 1)
-      not_zero <- stats::rbinom(length(draw), size = 1L, prob = 1 - p_zero)
-      draw     <- draw * not_zero
-    }
-
-    data.table::set(result, j = model$outcome, value = as.numeric(draw[at_t]))
+    draw <- draw_predictive(model, df, n_param = 1L, n_innov = 1L, param_scope = "row")
+    data.table::set(result, j = model$outcome, value = as.numeric(draw[at_t, 1]))
 
   } else {
     stop("`what` must be either `pi` or `expectation`", call. = FALSE)

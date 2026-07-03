@@ -46,7 +46,19 @@ No fitting; no extra arguments.}
 \item{\code{"parametric_distribution"}}{One-sided formula \code{~ var}. Pass
 \code{distribution = "norm"} (or any distribution name accepted by
 \code{\link[fitdistrplus:fitdist]{fitdistrplus::fitdist()}}). Extra arguments (\code{start}, \code{method},
-\code{lower}, \code{upper}, …) are forwarded to \code{fitdist()}.}
+\code{lower}, \code{upper}, …) are forwarded to \code{fitdist()}. \code{start} may be a
+named list \strong{or a \verb{function(x)}} returning one — the function is
+evaluated on the training-window data at fit time, so it stays correct
+under \code{\link[=run_experiments]{run_experiments()}} / sliding-window refits. For the bundled
+location-scale Student-t (\code{distribution = "t_ls"}, see \link{t_ls}) starting
+values are derived automatically (median/MAD location-scale,
+kurtosis-matched \code{df}) when none are given, and the \code{t_ls} d/p/q/r
+functions are exported and made visible to \code{fitdist()} automatically
+even when endogenr is not attached. Optional
+\code{param_uncertainty = TRUE} propagates MLE parameter uncertainty by
+drawing one parameter vector per simulation from the asymptotic
+MVN(estimate, vcov); default \code{FALSE} conditions on the point
+estimates.}
 \item{\code{"linear"}}{Two-sided formula. Optional \verb{boot ∈ \{"resid","wild"\}}
 selects residual or wild bootstrap; omit \code{boot} for plain OLS.}
 \item{\code{"glm"}}{Two-sided formula. \code{family = stats::gaussian()} by

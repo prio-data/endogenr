@@ -31,7 +31,19 @@ new_endogenmodel <- function(formula){
 #'   \item{`"parametric_distribution"`}{One-sided formula `~ var`. Pass
 #'     `distribution = "norm"` (or any distribution name accepted by
 #'     [fitdistrplus::fitdist()]). Extra arguments (`start`, `method`,
-#'     `lower`, `upper`, …) are forwarded to `fitdist()`.}
+#'     `lower`, `upper`, …) are forwarded to `fitdist()`. `start` may be a
+#'     named list **or a `function(x)`** returning one — the function is
+#'     evaluated on the training-window data at fit time, so it stays correct
+#'     under [run_experiments()] / sliding-window refits. For the bundled
+#'     location-scale Student-t (`distribution = "t_ls"`, see [t_ls]) starting
+#'     values are derived automatically (median/MAD location-scale,
+#'     kurtosis-matched `df`) when none are given, and the `t_ls` d/p/q/r
+#'     functions are exported and made visible to `fitdist()` automatically
+#'     even when endogenr is not attached. Optional
+#'     `param_uncertainty = TRUE` propagates MLE parameter uncertainty by
+#'     drawing one parameter vector per simulation from the asymptotic
+#'     MVN(estimate, vcov); default `FALSE` conditions on the point
+#'     estimates.}
 #'   \item{`"linear"`}{Two-sided formula. Optional `boot ∈ {"resid","wild"}`
 #'     selects residual or wild bootstrap; omit `boot` for plain OLS.}
 #'   \item{`"glm"`}{Two-sided formula. `family = stats::gaussian()` by

@@ -108,6 +108,7 @@ res <- simulate_system(fit)
 \code{\link[=validate_panel]{validate_panel()}}, \code{\link[=validate_system_closure]{validate_system_closure()}}
 
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

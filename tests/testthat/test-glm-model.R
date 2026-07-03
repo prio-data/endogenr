@@ -1,8 +1,9 @@
 # Tests for the GLM response-scale dispersion fix (defect 3) ----------------
 #
-# getpi_glm() must add the family's RESPONSE-scale dispersion, not just the
-# link-scale parameter uncertainty. A gaussian GLM then matches the equivalent
-# lm PI width; count/positive/proportion families produce realistic draws.
+# .glm_predictive_draws() must add the family's RESPONSE-scale dispersion, not
+# just the link-scale parameter uncertainty. A gaussian GLM then matches the
+# equivalent lm PI width; count/positive/proportion families produce realistic
+# draws.
 
 glm_data <- function(seed = 1, n = 400) {
   set.seed(seed)
@@ -30,13 +31,16 @@ test_that("gaussian GLM PI width matches the lm PI width", {
   lm_fit  <- stats::lm(y ~ x, dt)
   lm_pred <- stats::predict(lm_fit, newdata = nd, se.fit = TRUE)
   set.seed(2)
-  lm_w <- q_width(getpi(lm_pred, nsamples = m))
+  lm_w <- q_width(.lm_predictive_draws(lm_pred, n_param = m, n_innov = 1,
+                                       param_scope = "draw"))
 
   glm_g <- stats::glm(y ~ x, dt, family = stats::gaussian())
   disp  <- summary(glm_g)$dispersion
   gp    <- stats::predict(glm_g, newdata = nd, type = "link", se.fit = TRUE)
   set.seed(2)
-  glm_w <- q_width(getpi_glm(gp, glm_g$family, glm_g$df.residual, disp, nsamples = m))
+  glm_w <- q_width(.glm_predictive_draws(gp, glm_g$family, glm_g$df.residual, disp,
+                                         n_param = m, n_innov = 1,
+                                         param_scope = "draw"))
 
   # Pre-fix behaviour: link-scale parameter draw only (no residual dispersion).
   set.seed(2)
@@ -58,7 +62,8 @@ test_that("poisson PI draws are non-negative integers", {
   glm_p <- stats::glm(ycount ~ x, dt, family = stats::poisson())
   pp <- stats::predict(glm_p, newdata = nd, type = "link", se.fit = TRUE)
   set.seed(3)
-  draws <- getpi_glm(pp, glm_p$family, glm_p$df.residual, 1, nsamples = 500)
+  draws <- .glm_predictive_draws(pp, glm_p$family, glm_p$df.residual, 1,
+                                 n_param = 500, n_innov = 1, param_scope = "draw")
   expect_true(all(draws == round(draws)))
   expect_true(all(draws >= 0))
 })
@@ -70,7 +75,8 @@ test_that("Gamma PI draws are strictly positive", {
   disp <- summary(glm_gam)$dispersion
   gmp <- stats::predict(glm_gam, newdata = nd, type = "link", se.fit = TRUE)
   set.seed(4)
-  draws <- getpi_glm(gmp, glm_gam$family, glm_gam$df.residual, disp, nsamples = 500)
+  draws <- .glm_predictive_draws(gmp, glm_gam$family, glm_gam$df.residual, disp,
+                                 n_param = 500, n_innov = 1, param_scope = "draw")
   expect_true(all(draws > 0))
 })
 
@@ -80,7 +86,8 @@ test_that("binomial (proportion) PI draws stay in [0, 1]", {
   glm_b <- stats::glm(yprop ~ x, dt, family = stats::binomial())
   bp <- stats::predict(glm_b, newdata = nd, type = "link", se.fit = TRUE)
   set.seed(5)
-  draws <- getpi_glm(bp, glm_b$family, glm_b$df.residual, 1, nsamples = 500)
+  draws <- .glm_predictive_draws(bp, glm_b$family, glm_b$df.residual, 1,
+                                 n_param = 500, n_innov = 1, param_scope = "draw")
   expect_true(all(draws >= 0 & draws <= 1))
 })
 
@@ -95,10 +102,13 @@ test_that("unsupported families warn once and fall back to a link-only draw", {
   options(.endogenr_glm_warned_inverse.gaussian = NULL)
   set.seed(6)
   expect_warning(
-    d1 <- getpi_glm(ig, glm_ig$family, glm_ig$df.residual, disp, nsamples = 50),
+    d1 <- .glm_predictive_draws(ig, glm_ig$family, glm_ig$df.residual, disp,
+                                n_param = 50, n_innov = 1, param_scope = "draw"),
     "no response-scale predictive draw")
   # one-time-per-session: a second call is silent
-  expect_silent(getpi_glm(ig, glm_ig$family, glm_ig$df.residual, disp, nsamples = 50))
+  expect_silent(.glm_predictive_draws(ig, glm_ig$family, glm_ig$df.residual, disp,
+                                      n_param = 50, n_innov = 1,
+                                      param_scope = "draw"))
   # fallback equals the link-scale mean (parameter uncertainty only)
   expect_true(all(d1 > 0))
 })
@@ -150,8 +160,9 @@ test_that("poisson draws have mean and variance ~ mu", {
   pp <- stats::predict(glm_p, newdata = nd, type = "link", se.fit = TRUE)
   mu <- as.numeric(stats::predict(glm_p, nd, type = "response"))
   set.seed(3)
-  draws <- as.vector(getpi_glm(pp, glm_p$family, glm_p$df.residual, 1,
-                               nsamples = 40000))
+  draws <- as.vector(.glm_predictive_draws(pp, glm_p$family, glm_p$df.residual, 1,
+                                           n_param = 40000, n_innov = 1,
+                                           param_scope = "draw"))
   expect_equal(mean(draws), mu, tolerance = 0.1)
   expect_equal(stats::var(draws), mu, tolerance = 0.25)   # Poisson var = mean
 })
@@ -166,20 +177,24 @@ test_that("Gamma draws have mean ~ mu and variance ~ dispersion * mu^2", {
   gmp <- stats::predict(glm_gam, newdata = nd, type = "link", se.fit = TRUE)
   mu <- as.numeric(stats::predict(glm_gam, nd, type = "response"))
   set.seed(4)
-  draws <- as.vector(getpi_glm(gmp, glm_gam$family, glm_gam$df.residual, disp,
-                               nsamples = 40000))
+  draws <- as.vector(.glm_predictive_draws(gmp, glm_gam$family,
+                                           glm_gam$df.residual, disp,
+                                           n_param = 40000, n_innov = 1,
+                                           param_scope = "draw"))
   expect_equal(mean(draws), mu, tolerance = 0.1 * mu)
   expect_equal(stats::var(draws), disp * mu^2, tolerance = 0.3 * disp * mu^2)
 })
 
-test_that("row-expansion draw (nsamples = 1) uses an independent t per row", {
+test_that("row-expansion draw (param_scope = 'row') uses an independent t per row", {
   # With dispersion = 0 the gaussian response draw adds no noise, so the
   # standardised draws recover the raw t values: one per row, all distinct.
-  # (The old behaviour shared ONE t draw across every row, freezing the
-  # parameter-uncertainty component across units and inner sims.)
+  # (A shared draw would freeze the parameter-uncertainty component across
+  # units and inner sims.)
   pp <- list(fit = rep(0, 50), se.fit = stats::runif(50, 0.5, 2))
   set.seed(99)
-  d <- getpi_glm(pp, stats::gaussian(), df = 30, dispersion = 0)
+  d <- as.vector(.glm_predictive_draws(pp, stats::gaussian(), df = 30,
+                                       dispersion = 0, n_param = 1, n_innov = 1,
+                                       param_scope = "row"))
   expect_length(d, 50)
   tvals <- (d - pp$fit) / pp$se.fit
   expect_equal(length(unique(round(tvals, 8))), 50)

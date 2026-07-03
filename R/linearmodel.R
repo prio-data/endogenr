@@ -129,38 +129,69 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   return(model)
 }
 
-#' Get the standard error for prediction
+#' Predictive draws from a fitted lm prediction object
+#'
+#' The draw kernel behind [draw_predictive()] for `linear` models. Separates
+#' parameter uncertainty from innovation uncertainty: per parameter draw, the
+#' residual scale is drawn as `s^2 ~ scale^2 * df / chisq(df)` and the mean is
+#' shifted by `se.fit * z * (s / scale)`; innovations are `N(0, s)` per row.
+#' The per-row marginal is `fit + sqrt(se.fit^2 + scale^2) * t_df` — identical
+#' in distribution to the historical fused single-t draw (a normal /
+#' sqrt(chisq/df) mixture).
+#'
+#' `param_scope` controls the parameter-deviate granularity. In the
+#' row-expansion path (`"row"`) each row is one sim instance, so draw an
+#' INDEPENDENT deviate per row — a single shared draw would freeze the
+#' parameter-uncertainty component across every unit and inner sim at a time
+#' step, under-dispersing the ensemble. Under `"draw"` each column block is
+#' one coefficient realisation: one deviate shared across rows — a rank-1
+#' approximation of the design-based MVN coefficient draw (exact per-row
+#' marginals, approximate cross-row dependence).
 #'
 #' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
+#' @param n_param Integer >= 0. Number of parameter draws (0 = point estimates).
+#' @param n_innov Integer >= 0. Innovation draws per parameter draw (0 = mean).
+#' @param param_scope `"draw"` (shared per column block) or `"row"`.
 #'
-#' @return Numeric vector. Per-row standard error including residual scale.
+#' @return Numeric matrix, `length(lmpred$fit)` x `max(n_param,1) * max(n_innov,1)`.
 #' @keywords internal
-get_sepi <- function(lmpred){
-  se <- lmpred$se.fit
+.lm_predictive_draws <- function(lmpred, n_param = 1L, n_innov = 1L, param_scope = "draw") {
+  fit   <- lmpred$fit
+  se    <- lmpred$se.fit
   scale <- lmpred$residual.scale
-  sqrt(se^2 + scale^2)
+  df    <- lmpred$df
+  n <- length(fit)
+  P <- max(n_param, 1L)
+  K <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, P * K)
+  for (j in seq_len(P)) {
+    if (n_param == 0L) {
+      mu <- fit
+      s  <- rep(scale, n)
+    } else if (param_scope == "row") {
+      s  <- scale * sqrt(df / stats::rchisq(n, df))
+      z  <- stats::rnorm(n)
+      mu <- fit + se * z * (s / scale)
+    } else {
+      s  <- rep(scale * sqrt(df / stats::rchisq(1L, df)), n)
+      z  <- rep(stats::rnorm(1L), n)
+      mu <- fit + se * z * (s / scale)
+    }
+    for (k in seq_len(K)) {
+      out[, (j - 1L) * K + k] <- if (n_innov == 0L) mu else mu + stats::rnorm(n, 0, s)
+    }
+  }
+  out
 }
 
-#' Get the predictive distribution from a linear model
-#'
-#' Samples nsamples points from the predictive distribution.
-#'
-#' @param lmpred A prediction object from `predict.lm()` with `se.fit = TRUE`.
-#' @param nsamples Integer. Number of draws (1 for row-expansion path).
-#'
-#' @return Numeric vector (or matrix if `nsamples > 1`) of predictive draws.
-#' @keywords internal
-getpi <- function(lmpred, nsamples = 1){
-  sepi <- get_sepi(lmpred)
-  if (nsamples == 1) {
-    # Row-expansion architecture: each row is already one sim instance, so draw
-    # one independent t-value per row (length(sepi) draws).
-    as.vector(lmpred$fit + sepi * stats::rt(length(sepi), lmpred$df))
-  } else {
-    # Multi-sample path (e.g. longhorizon): one row per unit, nsamples draws
-    # each — outer() produces an n x nsamples matrix.
-    lmpred$fit + outer(sepi, stats::rt(nsamples, lmpred$df))
-  }
+#' @rdname draw_predictive
+#' @export
+draw_predictive.linear <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                   param_scope = c("draw", "row"), ...) {
+  param_scope <- match.arg(param_scope)
+  .check_draw_counts(n_param, n_innov)
+  pred <- predict(model$fitted, newdata = newdata, se.fit = TRUE)
+  .lm_predictive_draws(pred, n_param, n_innov, param_scope)
 }
 
 #' Predict function for a linear model
@@ -192,17 +223,19 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   # Filter to the prediction time step.
   mat <- .dt_rows(mat, mat[[idx]] == t)
 
-  # Stage 2: predict.lm reproduces the pooled design (factor contrasts,
-  # poly/spline bases, interactions) via its stored predvars/xlevels.
-  pred <- predict(model$fitted, newdata = mat, se.fit = TRUE)
-
+  # Stage 2: predict.lm (inside draw_predictive.linear) reproduces the pooled
+  # design (factor contrasts, poly/spline bases, interactions) via its stored
+  # predvars/xlevels.
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]
 
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome, value = pred$fit)
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
   } else if (what == "pi") {
-    data.table::set(result, j = model$outcome, value = getpi(pred))
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 1L, n_innov = 1L,
+                                                      param_scope = "row")))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }
