@@ -446,6 +446,14 @@ gamlssmodel <- function(formula       = NULL,
 #'   (returns the location parameter mu).
 #' @param ... Ignored; accepted for S3 generic consistency.
 #'
+#' @details
+#'   Prediction rows whose predictors are `NA` at step `t` (e.g. a lagged
+#'   exogenous predictor reaching a period the exogenous series does not cover)
+#'   yield `NA` for that row rather than erroring, matching
+#'   `predict.lm`/`predict.glm`. Supply every predictor across the full
+#'   forecast window `[test_start, test_start + horizon - 1]` to avoid `NA`
+#'   (and, under `bounds`, midpoint-filled) forecasts.
+#'
 #' @return A data.table with columns `c(ctx_keys, ctx_time, outcome)`,
 #'   one row per `(unit, sim)` at time `t`.
 #' @family simulation
@@ -498,19 +506,33 @@ draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_inno
   keep <- intersect(setdiff(names(model$gamlss_data), model$outcome), names(newdata))
   df   <- as.data.frame(newdata[, ..keep])
 
+  n   <- nrow(df)
+  K   <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, K)
+
+  # gamlss::predictAll() row-binds the training frame with `newdata`, then indexes
+  # the pooled design matrix with a logical vector built BEFORE model.frame() drops
+  # NA rows — so any NA predictor row makes that logical longer than the matrix and
+  # crashes with "(subscript) logical subscript too long". Predict only the
+  # complete-case rows (mirroring predict.lm's na.pass) and leave NA for the rest.
+  pred_cols <- setdiff(names(df), model$timevar)
+  ok <- if (length(pred_cols) == 0L) rep(TRUE, n)
+        else stats::complete.cases(df[, pred_cols, drop = FALSE])
+  if (!any(ok)) return(out)
+
+  df_ok <- df[ok, , drop = FALSE]
+  n_ok  <- sum(ok)
+
   # predictAll requires data = the EXACT training frame used during the fit.
   # suppressMessages() silences chatty random()-related output.
   pa <- suppressMessages(
-    gamlss::predictAll(model$fitted, newdata = df,
+    gamlss::predictAll(model$fitted, newdata = df_ok,
                        data = model$gamlss_data, type = "response")
   )
 
-  n <- nrow(df)
-  K <- max(n_innov, 1L)
-  out <- matrix(NA_real_, n, K)
   for (k in seq_len(K)) {
-    out[, k] <- if (n_innov == 0L) as.numeric(pa$mu)
-                else as.numeric(.gamlss_response_draw(model$fitted, pa, n))
+    out[ok, k] <- if (n_innov == 0L) as.numeric(pa$mu)
+                  else as.numeric(.gamlss_response_draw(model$fitted, pa, n_ok))
   }
   out
 }

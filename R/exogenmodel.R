@@ -7,6 +7,11 @@
 #' Use [build_model()] with `type = "exogen"` and a one-sided formula such as
 #' `~population`. Required arguments are forwarded by [fit_system()].
 #'
+#' The exogenous variable must be present (non-`NA`) for every simulated unit
+#' across `[test_start, test_start + horizon - 1]`; gaps propagate as `NA`
+#' into any model that reads the variable (immediately if used at the current
+#' period, after `n` steps if used at `lag(n)`).
+#'
 #' @param spec An `exogen_spec` object from [build_model()]. The formula
 #'   (e.g. `~population`) names the exogenous variable.
 #' @param newdata A data.frame or data.table containing the exogenous variable
