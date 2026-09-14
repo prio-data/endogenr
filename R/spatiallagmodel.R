@@ -102,7 +102,7 @@ predict.spatial_lag <- function(model, t, data, ctx, ...) {
     data <- data.table::as.data.table(as.data.frame(data))
   }
 
-  source_data <- data[data[[idx]] == t_source]
+  source_data <- .dt_rows(data, data[[idx]] == t_source)
 
   # Compute the spatial lag for one data.frame (single sim, all geo units at t_source)
   compute_sl <- function(df) {
@@ -145,9 +145,10 @@ predict.spatial_lag <- function(model, t, data, ctx, ...) {
   }
 
   if (!is.null(sim_var)) {
-    sims <- unique(source_data[[sim_var]])
-    result_list <- lapply(sims, function(s) {
-      df <- source_data[source_data[[sim_var]] == s]
+    # One pass: split by sim instead of rescanning source_data per sim id
+    # (the filter-per-sim pattern is O(sims^2 * units)).
+    per_sim <- split(source_data, by = sim_var, sorted = TRUE)
+    result_list <- lapply(per_sim, function(df) {
       sl_values <- compute_sl(df)
       # Build result for this sim at time t
       result_cols <- c(all_keys, idx)

@@ -37,6 +37,7 @@ Requires packages \code{fable}, \code{fabletools}, and \code{tsibble} (in Sugges
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

@@ -33,6 +33,7 @@ main \code{formula}, and the (one-sided) log-variance equation through \code{var
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

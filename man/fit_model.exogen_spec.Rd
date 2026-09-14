@@ -43,6 +43,7 @@ Use \code{\link[=build_model]{build_model()}} with \code{type = "exogen"} and a 
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},

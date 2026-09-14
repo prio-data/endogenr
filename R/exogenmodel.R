@@ -7,6 +7,11 @@
 #' Use [build_model()] with `type = "exogen"` and a one-sided formula such as
 #' `~population`. Required arguments are forwarded by [fit_system()].
 #'
+#' The exogenous variable must be present (non-`NA`) for every simulated unit
+#' across `[test_start, test_start + horizon - 1]`; gaps propagate as `NA`
+#' into any model that reads the variable (immediately if used at the current
+#' period, after `n` steps if used at `lag(n)`).
+#'
 #' @param spec An `exogen_spec` object from [build_model()]. The formula
 #'   (e.g. `~population`) names the exogenous variable.
 #' @param newdata A data.frame or data.table containing the exogenous variable
@@ -49,7 +54,8 @@ exogenmodel <- function(formula = NULL, impute_from = NULL, newdata = NULL,
   # Keep only the columns we need: unit, time, outcome variable(s)
   outcome_vars <- all.vars(formula)
   keep_cols <- c(grp, idx, outcome_vars)
-  model$source_data <- newdata[newdata[[idx]] >= impute_from, ..keep_cols]
+  model$source_data <-
+    .dt_rows(newdata, newdata[[idx]] >= impute_from)[, ..keep_cols]
 
   return(model)
 }
@@ -78,7 +84,8 @@ predict.exogen <- function(model, data, ctx, test_start, horizon, inner_sims, ..
   source <- model$source_data
 
   # Filter source to the relevant forecast window
-  source <- source[source[[idx]] >= test_start & source[[idx]] <= (test_start + horizon - 1)]
+  source <- .dt_rows(source, source[[idx]] >= test_start &
+                               source[[idx]] <= (test_start + horizon - 1))
 
   # Expand across sim dimension via CJ
   all_units <- unique(source[[grp]])

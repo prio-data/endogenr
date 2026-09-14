@@ -33,9 +33,9 @@ test_that(".score_draws Winkler penalty triggers only outside the interval", {
   expect_gt(outside, width)                        # outside => width + penalty
 })
 
-# ── getpi adds residual scale (PI strictly wider than the CI) ──────────────
+# ── .lm_predictive_draws adds residual scale (PI wider than the CI) ─────────
 
-test_that("getpi widens the parameter-only interval by the residual scale", {
+test_that(".lm_predictive_draws widens the parameter-only interval by the residual scale", {
   set.seed(1)
   dt <- data.frame(x = stats::rnorm(300))
   dt$y <- 1 + 2 * dt$x + stats::rnorm(300, sd = 2)
@@ -43,7 +43,8 @@ test_that("getpi widens the parameter-only interval by the residual scale", {
   p <- stats::predict(fit, dt[1, , drop = FALSE], se.fit = TRUE)
 
   set.seed(2)
-  pi <- getpi(p, nsamples = 5000)                          # parameter + residual
+  pi <- .lm_predictive_draws(p, n_param = 5000, n_innov = 1,
+                             param_scope = "draw")  # parameter + residual
   set.seed(2)
   ci <- p$fit + p$se.fit * stats::rt(5000, p$df)           # parameter only
   pi_w <- diff(stats::quantile(pi, c(0.05, 0.95)))

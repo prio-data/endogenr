@@ -25,10 +25,15 @@
 A data.table with columns: unit, sim, time, outcome.
 }
 \description{
-Generates random samples from the fitted distribution for all forecast rows.
+Generates random samples from the fitted distribution for all forecast rows
+via \code{\link[=draw_predictive]{draw_predictive()}}. With \code{param_uncertainty = TRUE} on the spec, one
+parameter vector is drawn per simulation from the MLE's asymptotic
+MVN(estimate, vcov) and shared across that simulation's rows and times;
+the default conditions on the point estimates.
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

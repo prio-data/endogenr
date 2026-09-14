@@ -375,6 +375,30 @@ test_that("gamlssmodel with random() term runs end-to-end", {
   expect_false(anyNA(forecast_rows$y))
 })
 
+test_that("gamlss predict tolerates NA predictor rows (no 'logical subscript too long')", {
+  skip_if_no_gamlss()
+
+  dt <- .make_panel_gamlss(units = 6L, n_time = 25L)
+  dt[year >= 22L, x := NA_real_]  # exogen series ends at the forecast origin
+
+  system <- list(
+    build_model("gamlss", formula = y ~ lag(x), family = gamlss.dist::NO()),
+    build_model("exogen", formula = ~x)
+  )
+  sys <- setup_system(system, dt, train_start = 1L, test_start = 22L, horizon = 3L,
+                      groupvar = "unit", timevar = "year", inner_sims = 2L)
+  fit <- fit_system(sys, nsim = 2L)
+
+  # Pre-fix: simulate_system() aborts with
+  #   "Prediction failed ... (subscript) logical subscript too long".
+  expect_no_error(sim <- simulate_system(fit))
+
+  # t=22 (lag reaches the last observed x[21]) is finite; t>22, whose lag(x)
+  # hits the NA cells, is NA rather than crashing.
+  expect_false(anyNA(sim[sim$year == 22L, "y"]))
+  expect_true(anyNA(sim[sim$year > 22L, "y"]))
+})
+
 # ============================================================================
 # TIER 3 — Calibration (slow)
 # ============================================================================

@@ -25,6 +25,7 @@ S3 dispatch for \code{gamlss_spec} objects. Delegates to \code{\link[=gamlssmode
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
 \code{\link[=fit_model.heterolm_spec]{fit_model.heterolm_spec()}},

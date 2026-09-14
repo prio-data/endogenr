@@ -87,20 +87,27 @@ indicative only.
 
 ---
 
-## 4. Latent time-column / argument name collision in the predict subset (found, fixed defensively)
+## ~~4. Latent time-column / argument name collision in the predict subset~~ — **FIXED (comprehensively)**
 
-**Where:** `R/systemgraph.R` `.history_subset()` (the new helper that replaces the
-inline `data[data[[idx]] <= t & ...]` in the three `predict.*` methods).
+**Where:** originally `R/systemgraph.R` `.history_subset()`; in fact every
+`data[data[[idx]] == t]`-style subset across the predict methods, the engine,
+validation, and scoring.
 
-**What:** The original inline subset evaluated `data[[idx]] <= t` inside the
-data.table `i` scope. If the time column is literally named `t` (or shares a name
-with the `t`/`need` locals), data.table column scoping shadows the argument and
-the filter silently degenerates (e.g. `t <= t` → all rows).
+**What:** subsets evaluated `data[[idx]] == t` inside the data.table `i`
+scope. If the time column is literally named `t` (or shares a name with any
+local/argument used in the expression), data.table column scoping shadows the
+argument and the filter silently degenerates (e.g. `t == t` → all rows). The
+degenerate per-step filter then made the update-join overwrite observed
+training rows with `NA`, cascading `NA` through the whole forecast.
 
-**Status:** Fixed as part of defect 1 — `.history_subset()` now builds the row
-index outside the data.table scope, so the collision cannot occur. Recorded here
-because the *original* predict code carried the latent risk; no separate action
-needed.
+**Status:** the earlier claim that fixing `.history_subset()` closed this was
+wrong — the per-step time filter in every `predict.*` method (and a dozen
+other engine/validation subsets) carried the same collision. All row subsets
+now route through `.dt_rows()` (`R/utilities.R`), which applies a mask
+computed outside any data.table scope via the `env=` substitution mechanism.
+Regression tests: `test-systemsim.R` ("full pipeline works when the time
+column is literally named 't'") and the `flag_war` end-to-end test in
+`test-systemgraph.R`.
 
 ---
 
@@ -149,3 +156,107 @@ runs end-to-end without error.
 **Suggested fix:** Either gate the vdemdata sections with
 `if (requireNamespace("vdemdata", quietly = TRUE))` or add a note at the top of
 the file explaining the data requirements. Not a merge blocker.
+
+---
+
+# Issues from the 2026-07 code audit — noted, not changed
+
+Found during the full-codebase audit that fixed the execution-order `lag_`
+substring match, the data.table scope collisions (item 4 above), the GLM
+shared-parameter-draw, the `diff()`/`shift()`/`lead()` materialization gaps,
+and the fit-closure serialization bloat. The items below were deliberately
+left alone; each says why. The audit also re-confirmed the
+**parameter-uncertainty asymmetry** across families (`linear`/`glm` add a
+per-row se.fit draw; `heterolm`/`gamlss` sample at point-estimate
+parameters) — that stays tracked in `?endogenr` ("Known issues"), not here.
+
+---
+
+## 7. `simulate_system()` copies the full training history once per draw
+
+**Where:** `R/systemsim.R`, both `future_lapply` branches of
+`simulate_system()` (`sim <- data.table::copy(simulation_data)` per outer
+draw).
+
+**What:** every outer draw deep-copies the entire simulation grid, including
+all training rows back to `train_start`, but the dynamic loop only ever reads
+the composed history depth (`.required_history()`) behind each forecast step.
+With a 40-year training window and lag-1 models, ~85% of the copied rows are
+never read; copy time and per-worker memory scale with `nsim x grid`.
+
+**Suggested fix:** at setup, compute the max **finite** history need across
+specs (the `.check_entry_depth()` walk already does this). When every spec's
+need is finite, trim the per-draw copy to
+`[test_start - max_need, test_start + horizon - 1]`; any spec with a
+cumulative/since-event term (`Inf` need) keeps the full history — the same
+fallback `.history_subset()` uses.
+
+**Why not changed:** it alters the simulation-grid contract (models see a
+shorter frame), so it needs its own regression test proving trimmed vs full
+output is bit-identical for finite-need systems before landing. Pure perf,
+no correctness impact today.
+
+---
+
+## 8. `intensity_decay()` is O(n²) per group — and re-evaluated per step
+
+**Where:** `R/formula_helpers.R` (`intensity_decay()`).
+
+**What:** the nested loop re-accumulates every past event for each row i,
+O(n²) per (unit, sim) series. Because it is registered as a cumulative ts
+function (`Inf` history), the predict path re-evaluates it over the FULL
+per-unit history at **every** forecast step: total cost
+O(horizon x sims x units x n²) for formulas that use it.
+
+**Why not changed:** the per-event floor
+`max(exp(-lambda*dt), exp(-lambda*max_years))` breaks the plain geometric
+recurrence `total_i = total_{i-1} * exp(-lambda) + I_i`. A correct O(n)
+version needs a two-part decomposition — a decaying sum over events younger
+than `max_years` plus `floor x cumsum(intensity)` over older ones. That is
+correctness-sensitive in a statistical helper and deserves its own targeted
+tests (equality against the brute-force version over random event/intensity
+series, boundary at `dt == max_years`).
+
+---
+
+## 9. User columns named `lag_*` share the synthetic dependency-graph namespace
+
+**Where:** `R/systemgraph.R` (`.edges_from_formula()` / `parse_formula()`:
+`paste0("lag_", var)` vertices).
+
+**What:** the substring bug (a variable named `flag_war` being stripped as a
+lag vertex) is fixed — the strip is now anchored to the `lag_` **prefix**.
+But a data column literally named `lag_x`, used as an outcome or predictor,
+still lands on the same vertex the graph synthesises for `lag(x)`: the two
+are conflated silently (e.g. `y ~ lag(x)` plus an `exogen ~lag_x` share one
+vertex, distorting ordering/closure checks).
+
+**Suggested fix:** either move the synthetic namespace out of the legal
+column-name space (e.g. a `.lag:` prefix — column names can contain it, but
+never by accident), or make `validate_system_closure()` error when a data
+column starts with `lag_` **and** its suffix also appears inside a `lag()`
+call in some formula.
+
+**Why not changed:** low collision probability, and renaming the vertex
+namespace touches ordering, closure validation, and their tests; not worth
+coupling to the audit fixes. Silent when hit, though — hence recorded.
+
+---
+
+## 10. Slow statistical tests never run in a default suite
+
+**Where:** `tests/testthat/helper-skip.R` (`skip_if_not_slow()`); 20 tests
+across `test-estimation.R`, `test-uncertainty.R`, `test-stepwise.R`,
+`test-univariate-fable.R`, `test-glm-model.R`, `test-glmmTMB.R`,
+`test-gamlss.R`.
+
+**What:** the calibration-coverage, PI-widening, coefficient-recovery,
+ar1-decay, and moment-matching claims are exercised only with
+`ENDOGENR_SLOW_TESTS=1`. A default `devtools::test()` (and any CI that does
+not set the variable) never checks them, so a statistical regression can land
+silently while the fast suite stays green.
+
+**Suggested fix:** add a scheduled (cron) CI job running the suite with
+`ENDOGENR_SLOW_TESTS=1`; keep PR runs fast. The full slow suite was verified
+green during this audit (0 failed / 2285 passed), so enabling it costs only
+~30s of runtime today.

@@ -25,12 +25,14 @@ one row per \verb{(unit, sim)} at time \code{t}.
 }
 \description{
 Called by the endogenr dynamic simulation loop at each forecast time step.
-Re-materialises time-series columns, predicts on the link scale with
-parameter uncertainty, adds family-specific response noise, and optionally
-applies a structural-zero Bernoulli mask for zero-inflated models.
+Re-materialises time-series columns, then delegates to
+\code{\link[=draw_predictive]{draw_predictive()}}: link-scale prediction with parameter uncertainty,
+family-specific response noise, and optionally a structural-zero Bernoulli
+mask for zero-inflated models.
 }
 \seealso{
 Other simulation:
+\code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

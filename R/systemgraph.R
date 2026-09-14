@@ -23,7 +23,10 @@
 get_execution_order = function(dependency_graph) {
   outputs <- igraph::V(dependency_graph)$name
 
-  lagged_vars <- grepl("lag_", igraph::V(dependency_graph) |> names())
+  # Anchored: only the synthetic `lag_` PREFIX marks a lagged input. An
+  # unanchored match would silently strip user variables whose names merely
+  # contain "lag_" (e.g. `flag_war`) and drop their models from the order.
+  lagged_vars <- startsWith(igraph::V(dependency_graph) |> names(), "lag_")
 
   second <- dependency_graph |> igraph::delete_vertices(lagged_vars)
 
@@ -106,8 +109,17 @@ func_in_term <- function(formula, func = "lag") {
       return(invisible())
     }
     if (!is.call(e)) return(invisible())
-    # A `lag()` call (bare or namespaced) sets the lag context for its args.
-    under_lag <- under_lag || identical(.pt_call_name(e), "lag")
+    # A `lag()` call — or a backward `shift()` (no `type=` or `type = "lag"`)
+    # — sets the lag context for its args, matching the positional-shift
+    # semantics both calls get at materialisation time. `shift(type = "lead")`
+    # reads the future and stays same-period (which forces a cycle error for
+    # endogenous inputs — correct, since it cannot be simulated).
+    fname <- .pt_call_name(e)
+    is_backward_shift <- identical(fname, "shift") && {
+      type <- .rh_get(e, "type", NULL)
+      is.null(type) || identical(as.character(type), "lag")
+    }
+    under_lag <- under_lag || identical(fname, "lag") || is_backward_shift
     for (j in seq_along(e)[-1L]) walk(e[[j]], under_lag)
   }
   walk(expr, FALSE)
@@ -223,64 +235,6 @@ update_dependency_graph <- function(model, dependency_graph) {
   return(dependency_graph)
 }
 
-
-#' Compute the maximum lag depth from a formula's AST
-#'
-#' Walks the formula AST to extract the `n` argument from `lag(expr, n)` calls
-#' (defaulting to 1 if omitted) and `k` from rolling functions like
-#' `zoo::rollsumr(..., k = k)`. Returns the maximum value found, or 0 if no
-#' lag or rolling calls exist.
-#'
-#' @param formula An R formula.
-#' @return Integer. The maximum history depth required.
-#' @keywords internal
-.max_lag_depth <- function(formula) {
-  depths <- integer(0)
-
-  walk <- function(expr) {
-    if (!is.call(expr)) return()
-    fn <- expr[[1]]
-    # Handle namespaced calls like zoo::rollsumr
-    if (is.call(fn) && identical(fn[[1]], as.symbol("::"))) {
-      fname <- as.character(fn[[3]])
-    } else {
-      fname <- as.character(fn)
-    }
-
-    if (fname == "lag") {
-      # lag(expr) or lag(expr, n) or lag(expr, n = 2)
-      if (length(expr) >= 3) {
-        n_arg <- expr[[3]]
-        if (is.numeric(n_arg)) {
-          depths[length(depths) + 1L] <<- as.integer(n_arg)
-        }
-      } else {
-        depths[length(depths) + 1L] <<- 1L
-      }
-    }
-
-    if (fname %in% c("rollsumr", "rollmeanr", "rollapplyr", "rollmaxr",
-                      "rollsum", "rollmean", "rollapply", "rollmax")) {
-      # zoo rolling functions: rollsumr(x, k, ...) — k is second arg
-      if (length(expr) >= 3) {
-        k_arg <- expr[[3]]
-        if (is.numeric(k_arg)) {
-          depths[length(depths) + 1L] <<- as.integer(k_arg)
-        }
-      }
-    }
-
-    # Recurse into sub-expressions
-    for (j in seq_along(expr)[-1]) {
-      if (is.call(expr[[j]])) walk(expr[[j]])
-    }
-  }
-
-  rhs <- rlang::f_rhs(formula)
-  walk(rhs)
-  if (length(depths) == 0L) 0L else max(depths)
-}
-
 # Time-series function name sets used by .required_history(). These are the
 # canonical registries defined in R/panel_transform.R and imported here —
 # a single source of truth shared by both the materialisation walk
@@ -387,9 +341,8 @@ update_dependency_graph <- function(model, dependency_graph) {
 #'
 #' Walks the right-hand-side AST and composes nested time-series depths so that
 #' materialising the RHS over the `need` rows ending at `t` reproduces the value
-#' it would take over the full per-unit series. Unlike [.max_lag_depth()] (which
-#' takes the maximum of individual depths), nested transforms are summed, so
-#' `lag(lag(x))` needs 2 and `lag(rollmeanr(x, 5), 2)` needs 6.
+#' it would take over the full per-unit series. Nested transforms are summed
+#' (not maxed), so `lag(lag(x))` needs 2 and `lag(rollmeanr(x, 5), 2)` needs 6.
 #'
 #' Composition rules:
 #' \itemize{
@@ -433,7 +386,9 @@ update_dependency_graph <- function(model, dependency_graph) {
   } else {
     tcol <= t
   }
-  data[keep]
+  # .dt_rows: `data[keep]` would resolve a user column named `keep` instead
+  # of the local — the same collision class as the time-column-named-`t` bug.
+  .dt_rows(data, keep)
 }
 
 #' Gives you the independent model types

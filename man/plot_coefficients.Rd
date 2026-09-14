@@ -23,7 +23,8 @@ Visualises the spread of each regression coefficient across the \code{nsim}
 draws stored by \code{\link[=fit_system]{fit_system()}}. With refit specs (\code{min_window} set), the
 draws differ and the boxplots show genuine sampling spread; without refits
 every draw is identical and each box collapses to a point. The intercept is
-dropped. Built on \code{\link[=get_coefficients]{get_coefficients()}}, so it covers \code{linear}/\code{glm} models.
+dropped. Built on \code{\link[=get_coefficients]{get_coefficients()}}, so it covers every model type that
+stores tidy coefficients (\code{linear}, \code{glm}, \code{glmmTMB}, \code{gamlss}).
 }
 \seealso{
 \code{\link[=fit_system]{fit_system()}}, \code{\link[=get_coefficients]{get_coefficients()}}, \code{\link[=plot_estimates]{plot_estimates()}}

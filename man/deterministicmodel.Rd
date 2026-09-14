@@ -9,12 +9,19 @@ deterministicmodel(formula = NULL, ctx = NULL)
 \arguments{
 \item{formula}{A two-sided formula of the form \code{outcome ~ I(expr)}.}
 
-\item{ctx}{A panel_context object (unused but accepted for consistency).}
+\item{ctx}{A panel_context object supplying the time column name.}
 }
 \value{
 An endogenmodel of class \code{deterministic}.
 }
 \description{
 This calculates a deterministic outcome based on an R formula.
+}
+\details{
+The formula's first RHS term must be wrapped in \code{I()}. Everything the
+predict method needs repeatedly — the \code{I()} term label, the prepared
+evaluation formula (index appended, positional time-series functions
+injected), and the composed history depth of the RHS — is computed once
+here so the hot simulation loop does no formula surgery.
 }
 \keyword{internal}

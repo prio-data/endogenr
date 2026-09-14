@@ -313,6 +313,49 @@
 # Part 3: fit_model dispatch + glmmTMBmodel constructor
 # --------------------------------------------------------------------------
 
+#' Stage-2 pooled glmmTMB fit on materialized data
+#'
+#' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
+#' fit step must not be a closure stored on the model object.
+#'
+#' @param fit_formula Rewritten, aliased main formula (RE bars intact).
+#' @param disp_fit Rewritten dispersion formula.
+#' @param zi_fit Rewritten zero-inflation formula.
+#' @param data The materialized data.table.
+#' @param family A family object.
+#' @param control Optional `glmmTMB::glmmTMBControl()`.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A fitted `glmmTMB` object.
+#' @keywords internal
+.glmmTMB_stage2_fit <- function(fit_formula, disp_fit, zi_fit, data,
+                                family, control, subset, timevar) {
+  # Restrict to columns the model actually reads (keeps grouping vars and
+  # cov-struct coordinates because all.vars() walks through bars).
+  fit_cols <- unique(c(
+    intersect(all.vars(fit_formula), names(data)),
+    intersect(all.vars(disp_fit),   names(data)),
+    intersect(all.vars(zi_fit),     names(data)),
+    timevar
+  ))
+  data <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    data <- .dt_rows(data, data[[timevar]] >= subset$start &
+                             data[[timevar]] <= subset$end)
+  }
+  data <- stats::na.omit(as.data.frame(data))
+
+  args <- list(
+    formula     = fit_formula,
+    data        = data,
+    family      = family,
+    dispformula = disp_fit,
+    ziformula   = zi_fit
+  )
+  if (!is.null(control)) args$control <- control
+  do.call(glmmTMB::glmmTMB, args)
+}
+
 #' Fit a glmmTMB model
 #'
 #' S3 dispatch for `glmmTMB_spec` objects. Delegates to [glmmTMBmodel()].
@@ -418,8 +461,7 @@ glmmTMBmodel <- function(formula = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -441,36 +483,10 @@ glmmTMBmodel <- function(formula = NULL,
   class(model) <- c("glmmTMB_endogenr", class(model))
 
   # ── Stage 2: fit ─────────────────────────────────────────────────────────
-  # Closure captures pm$data; called once here and optionally again per-draw
-  # in refit scenarios (min_window mode).
-  model$fit <- function(fit_formula, disp_fit, zi_fit, data, family, control, subset, timevar) {
-    # Restrict to columns the model actually reads (keeps grouping vars and
-    # cov-struct coordinates because all.vars() walks through bars).
-    fit_cols <- unique(c(
-      intersect(all.vars(fit_formula), names(data)),
-      intersect(all.vars(disp_fit),   names(data)),
-      intersect(all.vars(zi_fit),     names(data)),
-      timevar
-    ))
-    data <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      data <- data[data[[timevar]] >= subset$start & data[[timevar]] <= subset$end]
-    }
-    data <- stats::na.omit(as.data.frame(data))
-
-    args <- list(
-      formula     = fit_formula,
-      data        = data,
-      family      = family,
-      dispformula = disp_fit,
-      ziformula   = zi_fit
-    )
-    if (!is.null(control)) args$control <- control
-    do.call(glmmTMB::glmmTMB, args)
-  }
-
-  model$fitted <- model$fit(fit_formula, disp_fit, zi_fit, pm$data,
-                            family, control, subset, timevar)
+  # File-level helper — see .lm_stage2_fit for why this must not be a closure
+  # stored on the model object (serialization payload).
+  model$fitted <- .glmmTMB_stage2_fit(fit_formula, disp_fit, zi_fit, pm$data,
+                                      family, control, subset, timevar)
 
   # Extra family parameters (t df, skewnormal shape, tweedie power, …) for the
   # response draw; numeric(0) for families without any. Survives .strip_fit_data
@@ -544,12 +560,86 @@ glmmTMBmodel <- function(formula = NULL,
 # Part 4: predict.glmmTMB_endogenr
 # --------------------------------------------------------------------------
 
+#' @rdname draw_predictive
+#' @export
+draw_predictive.glmmTMB_endogenr <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                             param_scope = c("draw", "row"), ...) {
+  param_scope <- match.arg(param_scope)
+  .check_draw_counts(n_param, n_innov)
+
+  df <- as.data.frame(newdata)
+  n  <- nrow(df)
+  P  <- max(n_param, 1L)
+  K  <- max(n_innov, 1L)
+
+  # Link-scale prediction with SE for parameter uncertainty
+  pl <- stats::predict(model$fitted, newdata = df, type = "link", se.fit = TRUE,
+                       re.form = NULL, allow.new.levels = TRUE)
+
+  # Per-row dispersion. Trivial dispformula -> constant sigma cached at fit time
+  # (skips a full predict.glmmTMB rebuild each step). Non-trivial dispformula ->
+  # per-row predict as before.
+  disp <- if (!is.null(model$disp_const)) {
+    rep(model$disp_const, n)
+  } else {
+    tryCatch(
+      as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
+                                allow.new.levels = TRUE)),
+      error = function(e) rep(1, n)
+    )
+  }
+
+  # Structural-zero probability for zero-inflated models (0 when trivial).
+  p_zero <- rep(0, n)
+  if (!.is_trivial_rhs(model$ziformula)) {
+    p_zero <- tryCatch(
+      as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob",
+                                allow.new.levels = TRUE)),
+      error = function(e) rep(0, n)
+    )
+    p_zero <- pmin(pmax(p_zero, 0), 1)
+  }
+
+  out <- matrix(NA_real_, n, P * K)
+  for (j in seq_len(P)) {
+    # Asymptotic normal draw on link scale (standard for ML mixed models);
+    # per-row deviate under "row" (each grid row is its own sim world), one
+    # shared deviate per column block under "draw".
+    eta <- if (n_param == 0L) {
+      pl$fit
+    } else if (param_scope == "row") {
+      pl$fit + pl$se.fit * stats::rnorm(n)
+    } else {
+      pl$fit + pl$se.fit * stats::rnorm(1L)
+    }
+    mu <- model$linkinv(eta)
+
+    for (k in seq_len(K)) {
+      col <- (j - 1L) * K + k
+      if (n_innov == 0L) {
+        # Conditional mean including the structural-zero adjustment — equals
+        # predict(type = "response").
+        out[, col] <- as.numeric(mu * (1 - p_zero))
+      } else {
+        draw <- .glmmTMB_response_draw(mu, model$fam_name, disp, model$family_params)
+        if (any(p_zero > 0)) {
+          not_zero <- stats::rbinom(length(draw), size = 1L, prob = 1 - p_zero)
+          draw     <- draw * not_zero
+        }
+        out[, col] <- as.numeric(draw)
+      }
+    }
+  }
+  out
+}
+
 #' Predict method for glmmTMB models
 #'
 #' Called by the endogenr dynamic simulation loop at each forecast time step.
-#' Re-materialises time-series columns, predicts on the link scale with
-#' parameter uncertainty, adds family-specific response noise, and optionally
-#' applies a structural-zero Bernoulli mask for zero-inflated models.
+#' Re-materialises time-series columns, then delegates to
+#' [draw_predictive()]: link-scale prediction with parameter uncertainty,
+#' family-specific response noise, and optionally a structural-zero Bernoulli
+#' mask for zero-inflated models.
 #'
 #' @param model A `glmmTMB_endogenr` endogenmodel.
 #' @param data A data.table (the full simulation grid with history rows).
@@ -573,7 +663,7 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # at t. Plain-RE / fixed-effect models predict only the rows at t.
   if (isTRUE(model$has_covstruct)) {
     lo   <- model$last_train_time + 1L - model$required_history
-    data <- data[data[[idx]] >= lo & data[[idx]] <= t]
+    data <- .dt_rows(data, data[[idx]] >= lo & data[[idx]] <= t)
   } else {
     data <- .history_subset(data, idx, t, model$required_history)
   }
@@ -581,64 +671,28 @@ predict.glmmTMB_endogenr <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group
   env <- rlang::f_env(model$mat_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Block of rows to predict over; only the rows at t are written back.
   if (isTRUE(model$has_covstruct)) {
-    mat <- mat[mat[[idx]] >= model$last_train_time + 1L & mat[[idx]] <= t]
+    mat <- .dt_rows(mat, mat[[idx]] >= model$last_train_time + 1L & mat[[idx]] <= t)
   } else {
-    mat <- mat[mat[[idx]] == t]
+    mat <- .dt_rows(mat, mat[[idx]] == t)
   }
   at_t <- mat[[idx]] == t
   df   <- as.data.frame(mat)
 
   result_cols <- c(all_keys, idx, model$outcome)
-  result      <- mat[at_t, ..result_cols]
+  result      <- .dt_rows(mat, at_t)[, ..result_cols]
   if (nrow(mat) == 0L) return(result)
 
   if (what == "expectation") {
-    val <- stats::predict(model$fitted, newdata = df, type = "response",
-                          re.form = NULL, allow.new.levels = TRUE)
-    data.table::set(result, j = model$outcome, value = as.numeric(val[at_t]))
+    val <- draw_predictive(model, df, n_param = 0L, n_innov = 0L)
+    data.table::set(result, j = model$outcome, value = as.numeric(val[at_t, 1]))
 
   } else if (what == "pi") {
-    # Link-scale prediction with SE for parameter uncertainty
-    pl  <- stats::predict(model$fitted, newdata = df, type = "link", se.fit = TRUE,
-                          re.form = NULL, allow.new.levels = TRUE)
-    # Asymptotic normal draw on link scale (standard for ML mixed models)
-    eta <- pl$fit + pl$se.fit * stats::rnorm(length(pl$fit))
-    mu  <- model$linkinv(eta)
-
-    # Per-row dispersion. Trivial dispformula -> constant sigma cached at fit time
-    # (skips a full predict.glmmTMB rebuild each step). Non-trivial dispformula ->
-    # per-row predict as before.
-    disp <- if (!is.null(model$disp_const)) {
-      rep(model$disp_const, length(mu))
-    } else {
-      tryCatch(
-        as.numeric(stats::predict(model$fitted, newdata = df, type = "disp",
-                                  allow.new.levels = TRUE)),
-        error = function(e) rep(1, length(mu))
-      )
-    }
-
-    fam_name <- model$fam_name
-    draw <- .glmmTMB_response_draw(mu, fam_name, disp, model$family_params)
-
-    # Structural-zero mask for zero-inflated models
-    if (!.is_trivial_rhs(model$ziformula)) {
-      p_zero <- tryCatch(
-        as.numeric(stats::predict(model$fitted, newdata = df, type = "zprob",
-                                  allow.new.levels = TRUE)),
-        error = function(e) rep(0, length(draw))
-      )
-      p_zero   <- pmin(pmax(p_zero, 0), 1)
-      not_zero <- stats::rbinom(length(draw), size = 1L, prob = 1 - p_zero)
-      draw     <- draw * not_zero
-    }
-
-    data.table::set(result, j = model$outcome, value = as.numeric(draw[at_t]))
+    draw <- draw_predictive(model, df, n_param = 1L, n_innov = 1L, param_scope = "row")
+    data.table::set(result, j = model$outcome, value = as.numeric(draw[at_t, 1]))
 
   } else {
     stop("`what` must be either `pi` or `expectation`", call. = FALSE)

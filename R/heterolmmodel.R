@@ -38,9 +38,9 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
   model <- new_endogenmodel(formula)
   model$independent <- FALSE
   # Default to an intercept-only log-variance. Keep this a one-sided formula
-  # (not the literal `1`) so terms()/.max_lag_depth()/.edges_from_formula() all
-  # accept it; `labels(terms(~1))` is empty, which the naive-name logic below
-  # already maps to the intercept "1".
+  # (not the literal `1`) so terms()/.required_history()/.edges_from_formula()
+  # all accept it; `labels(terms(~1))` is empty, which the naive-name logic
+  # below already maps to the intercept "1".
   model$variance_formula <- if (is.null(variance)) ~1 else variance
   model$fit_args <- rlang::list2(...)
 
@@ -67,8 +67,7 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -133,8 +132,8 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
                        timevar))
   fit_data <- stats::na.omit(fit_data[, intersect(fit_cols, names(fit_data)), with = FALSE])
   if (!is.null(subset)) {
-    fit_data <- fit_data[fit_data[[timevar]] >= subset$start &
-                           fit_data[[timevar]] <= subset$end]
+    fit_data <- .dt_rows(fit_data, fit_data[[timevar]] >= subset$start &
+                                     fit_data[[timevar]] <= subset$end)
   }
 
   # Fit the model
@@ -153,6 +152,24 @@ heterolmmodel <- function(formula = NULL, variance = NULL, data = NULL,
   return(model)
 }
 
+
+#' @rdname draw_predictive
+#' @export
+draw_predictive.heterolm <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
+  .check_draw_counts(n_param, n_innov)
+  if (n_param > 0L) .warn_no_param_draw("heterolm")
+
+  # heterolm predict exposes point mu/sigma only — innovation uncertainty only.
+  pred <- predict(model$fitted, newdata = as.data.frame(newdata), type = "response")
+  n <- nrow(newdata)
+  K <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, K)
+  for (k in seq_len(K)) {
+    out[, k] <- if (n_innov == 0L) as.numeric(pred$mu)
+                else stats::rnorm(n, pred$mu, pred$sigma)
+  }
+  out
+}
 
 #' Predict function for a heteroscedastic linear model
 #'
@@ -179,30 +196,29 @@ predict.heterolm <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group.
   env <- rlang::f_env(model$combined_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step.
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   # Re-expand interaction/factor columns using the stored training-time terms
   # objects (coherent basis: same poly scaling, factor contrasts, etc. as fit).
   .hetero_expand_from_terms(model$hetero_mean_terms, model$hetero_mean_xlevels, mat)
   .hetero_expand_from_terms(model$hetero_var_terms,  model$hetero_var_xlevels,  mat)
 
-  # Make predictions using heterolm (returns list with mu and sigma)
-  pred <- predict(model$fitted, newdata = as.data.frame(mat), type = "response")
-
   # Build result data.table with only necessary columns
   result_cols <- c(all_keys, idx, model$outcome)
   result <- mat[, ..result_cols]
 
-  # Update outcome column based on prediction type
+  # heterolm prediction (per-row mu/sigma) and draws happen inside
+  # draw_predictive.heterolm; the family carries no parameter-uncertainty
+  # draw, so the engine path uses n_param = 0.
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome, value = pred$mu)
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
   } else if (what == "pi") {
     data.table::set(result, j = model$outcome,
-                    value = stats::rnorm(nrow(result), pred$mu, pred$sigma))
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 1L)))
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

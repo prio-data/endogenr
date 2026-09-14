@@ -1,7 +1,7 @@
 # Tests for the composed-history defect fix (defect 1) ----------------------
 #
 # .required_history() must COMPOSE nested time-series depths (not take their
-# max, as the legacy .max_lag_depth() does), so predict.*'s per-unit history
+# max, as a naive per-call walk would), so predict.*'s per-unit history
 # window is large enough that the materialised value at t equals the value the
 # same expression takes over the full series. cumulative/since-event transforms
 # need the whole series and report Inf.

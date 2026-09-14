@@ -28,8 +28,11 @@
 #'     `heterolm` with `min_window`, parameter uncertainty enters across draws.
 #'     For `parametric_distribution`, `univariate_fable`, and `exogen` the model
 #'     is fit **once and shared across all `nsim` draws**, so those components
-#'     carry **zero parameter uncertainty** regardless of `nsim`. This asymmetry
-#'     is real and currently undocumented at the call site.
+#'     carry **zero parameter uncertainty** regardless of `nsim` — except
+#'     `parametric_distribution` with `param_uncertainty = TRUE`, which draws
+#'     one parameter vector per simulation from the MLE's asymptotic
+#'     MVN(estimate, vcov). This asymmetry is real and otherwise undocumented
+#'     at the call site.
 #' }
 #'
 #' @section Known issues - arbitrary constants / heuristics:
@@ -51,11 +54,15 @@
 #'
 #' @section Known issues - available generalisations:
 #' \itemize{
-#'   \item **Unified predictive-draw interface.** The per-family draw logic
-#'     (`getpi`, `getpi_glm`, `predict.heterolm`'s `rnorm`,
-#'     `.sample_from_fitdist`, fable's `generate`) could be a single
-#'     `draw_predictive(model, newdata, n_param, n_innov)` contract that
-#'     explicitly separates parameter from innovation uncertainty.
+#'   \item **Unified predictive-draw interface (implemented).** The per-family
+#'     draw logic is consolidated behind the exported
+#'     [draw_predictive()] generic
+#'     (`draw_predictive(model, newdata, n_param, n_innov)`), which explicitly
+#'     separates parameter from innovation uncertainty. Remaining gaps: the
+#'     engine draws per-row parameter deviates at each step
+#'     (`param_scope = "row"`), so there is no cross-time or cross-unit
+#'     parameter coherence within a sim; innovations stay independent per row
+#'     (the SUR / common-shock gap below).
 #'   \item **Pooled vs panel-heterogeneous estimation.** `linear`/`glm` are
 #'     pooled OLS/MLE with no unit effects unless the user writes `factor(unit)`.
 #'     First-class fixed/random effects could be offered.
@@ -75,10 +82,13 @@
 #'     residual covariance (optionally spatially structured); joint innovation
 #'     draws from an estimated covariance would capture it. The gap is
 #'     demonstrated in `tests/testthat/test-uncertainty.R`.
-#'   \item **Distribution-parameter uncertainty ignored.** `parametric_distribution`
-#'     draws from the point-estimate MLE, and the shared independent fits carry
-#'     no parameter uncertainty; both could propagate it via the MLE asymptotic
-#'     vcov or a parametric bootstrap.
+#'   \item **Distribution-parameter uncertainty (opt-in).** `parametric_distribution`
+#'     draws from the point-estimate MLE by default; passing
+#'     `param_uncertainty = TRUE` to [build_model()] draws one parameter vector
+#'     per simulation from the asymptotic MVN(estimate, vcov), and
+#'     [draw_predictive()] exposes the same via `n_param`. The other shared
+#'     independent fits (`univariate_fable`, `exogen`) still carry no parameter
+#'     uncertainty.
 #'   \item **Double/triple-counted parameter uncertainty** for `linear` + `boot`
 #'     + `min_window`: the random window perturbs coefficients, the residual
 #'     bootstrap perturbs them again, and `predict.lm(se.fit)` adds parameter
@@ -86,12 +96,12 @@
 #'     over-dispersed; `tests/testthat/test-uncertainty.R` measures (rather than
 #'     silently re-architects) the effect.
 #'   \item **GLM proportion draws.** For `binomial`/`quasibinomial` outcomes with
-#'     no trial count in the grid, `getpi_glm()` samples a Beta with mean `mu`
-#'     and a precision derived from the dispersion. The Beta variance is capped
-#'     at the Bernoulli value `mu(1 - mu)`, so quasibinomial overdispersion
-#'     beyond that cannot be represented without a trial count and collapses to
-#'     ~Bernoulli draws. Unsupported families fall back to a link-scale
-#'     (parameter-only) draw with a one-time warning.
+#'     no trial count in the grid, `.glm_predictive_draws()` samples a Beta with
+#'     mean `mu` and a precision derived from the dispersion. The Beta variance
+#'     is capped at the Bernoulli value `mu(1 - mu)`, so quasibinomial
+#'     overdispersion beyond that cannot be represented without a trial count
+#'     and collapses to ~Bernoulli draws. Unsupported families fall back to a
+#'     link-scale (parameter-only) draw with a one-time warning.
 #' }
 #'
 #' @keywords internal

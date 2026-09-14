@@ -198,6 +198,58 @@
 # Part 3: fit_model dispatch + gamlssmodel constructor
 # --------------------------------------------------------------------------
 
+#' Stage-2 pooled gamlss fit on materialized data
+#'
+#' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
+#' fit step must not be a closure stored on the model object.
+#'
+#' @param mu_fit,sigma_fit,nu_fit,tau_fit Rewritten, aliased parameter formulas.
+#' @param data The materialized data.table.
+#' @param family A `gamlss.family` object.
+#' @param ctrl A `gamlss::gamlss.control()` list.
+#' @param subset Optional list with `start`/`end` training window.
+#' @param timevar Character. Time column name.
+#' @return A list with `fitted` (the gamlss fit) and `frame` (the EXACT
+#'   data.frame the fit saw — required by `predictAll(data = ...)`).
+#' @keywords internal
+.gamlss_stage2_fit <- function(mu_fit, sigma_fit, nu_fit, tau_fit, data,
+                               family, ctrl, subset, timevar) {
+  fit_cols <- unique(c(
+    intersect(all.vars(mu_fit),    names(data)),
+    intersect(all.vars(sigma_fit), names(data)),
+    intersect(all.vars(nu_fit),    names(data)),
+    intersect(all.vars(tau_fit),   names(data)),
+    timevar
+  ))
+  d <- data[, ..fit_cols]
+  if (!is.null(subset)) {
+    d <- .dt_rows(d, d[[timevar]] >= subset$start & d[[timevar]] <= subset$end)
+  }
+  d <- stats::na.omit(as.data.frame(d))
+  # Ensure gamlss functions (pb, cs, lo, random, ra, re, etc.) are findable
+  # when gamlss evaluates formula terms in model.frame. Required because
+  # requireNamespace() loads but does not attach the package.
+  gamlss_ns <- asNamespace("gamlss")
+  .set_gamlss_env <- function(f) {
+    environment(f) <- new.env(parent = gamlss_ns)
+    f
+  }
+  mu_fit    <- .set_gamlss_env(mu_fit)
+  sigma_fit <- .set_gamlss_env(sigma_fit)
+  nu_fit    <- .set_gamlss_env(nu_fit)
+  tau_fit   <- .set_gamlss_env(tau_fit)
+  fitted <- gamlss::gamlss(
+    formula       = mu_fit,
+    sigma.formula = sigma_fit,
+    nu.formula    = nu_fit,
+    tau.formula   = tau_fit,
+    family        = family,
+    data          = d,
+    control       = ctrl
+  )
+  list(fitted = fitted, frame = d)
+}
+
 #' Fit a gamlss model
 #'
 #' S3 dispatch for `gamlss_spec` objects. Delegates to [gamlssmodel()].
@@ -299,8 +351,7 @@ gamlssmodel <- function(formula       = NULL,
   pm        <- panel_materialize(combined_formula, data,
                                  groupvar = grp_keys, timevar = timevar)
   alias_map <- .pt_make_aliases(pm$map)
-  old <- intersect(names(alias_map), names(pm$data))
-  if (length(old) > 0L) data.table::setnames(pm$data, old, alias_map[old])
+  .pt_apply_aliases(pm$data, alias_map)
 
   model$ts_map       <- pm$map
   model$pt_alias_map <- alias_map
@@ -319,52 +370,16 @@ gamlssmodel <- function(formula       = NULL,
   class(model) <- c("endogenr_gamlss", class(model))
 
   # ── Stage 2: fit ─────────────────────────────────────────────────────────
-  # The fit closure is called once here. In min_window mode it may also be
-  # called per-draw with a different data subset.
+  # File-level helper — see .lm_stage2_fit for why this must not be a closure
+  # stored on the model object (serialization payload).
   #
-  # CRITICAL: store the exact fit frame (d) so predictAll() can always receive
+  # CRITICAL: store the exact fit frame so predictAll() can always receive
   # data = model$gamlss_data. Without this, predictAll errors or gives wrong
   # predictions when called from inside a function scope (name lookup fails).
   ctrl <- if (!is.null(control)) control else gamlss::gamlss.control(trace = FALSE)
 
-  model$fit <- function(mu_fit, sigma_fit, nu_fit, tau_fit, data, family, ctrl, subset, timevar) {
-    fit_cols <- unique(c(
-      intersect(all.vars(mu_fit),    names(data)),
-      intersect(all.vars(sigma_fit), names(data)),
-      intersect(all.vars(nu_fit),    names(data)),
-      intersect(all.vars(tau_fit),   names(data)),
-      timevar
-    ))
-    d <- data[, ..fit_cols]
-    if (!is.null(subset)) {
-      d <- d[d[[timevar]] >= subset$start & d[[timevar]] <= subset$end]
-    }
-    d <- stats::na.omit(as.data.frame(d))
-    # Ensure gamlss functions (pb, cs, lo, random, ra, re, etc.) are findable
-    # when gamlss evaluates formula terms in model.frame. Required because
-    # requireNamespace() loads but does not attach the package.
-    gamlss_ns <- asNamespace("gamlss")
-    .set_gamlss_env <- function(f) {
-      environment(f) <- new.env(parent = gamlss_ns); f
-    }
-    mu_fit    <- .set_gamlss_env(mu_fit)
-    sigma_fit <- .set_gamlss_env(sigma_fit)
-    nu_fit    <- .set_gamlss_env(nu_fit)
-    tau_fit   <- .set_gamlss_env(tau_fit)
-    fitted <- gamlss::gamlss(
-      formula       = mu_fit,
-      sigma.formula = sigma_fit,
-      nu.formula    = nu_fit,
-      tau.formula   = tau_fit,
-      family        = family,
-      data          = d,
-      control       = ctrl
-    )
-    list(fitted = fitted, frame = d)
-  }
-
-  fitres            <- model$fit(mu_fit, sigma_fit, nu_fit, tau_fit,
-                                 pm$data, family, ctrl, subset, timevar)
+  fitres            <- .gamlss_stage2_fit(mu_fit, sigma_fit, nu_fit, tau_fit,
+                                          pm$data, family, ctrl, subset, timevar)
   model$fitted      <- fitres$fitted
   model$gamlss_data <- fitres$frame  # EXACT frame; never replaced; passed as data= to predictAll
 
@@ -431,6 +446,14 @@ gamlssmodel <- function(formula       = NULL,
 #'   (returns the location parameter mu).
 #' @param ... Ignored; accepted for S3 generic consistency.
 #'
+#' @details
+#'   Prediction rows whose predictors are `NA` at step `t` (e.g. a lagged
+#'   exogenous predictor reaching a period the exogenous series does not cover)
+#'   yield `NA` for that row rather than erroring, matching
+#'   `predict.lm`/`predict.glm`. Supply every predictor across the full
+#'   forecast window `[test_start, test_start + horizon - 1]` to avoid `NA`
+#'   (and, under `bounds`, midpoint-filled) forecasts.
+#'
 #' @return A data.table with columns `c(ctx_keys, ctx_time, outcome)`,
 #'   one row per `(unit, sim)` at time `t`.
 #' @family simulation
@@ -445,40 +468,71 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
   # Re-materialise ts columns per (unit, sim) group
   env <- rlang::f_env(model$mat_formula)
   mat <- .apply_ts_map(model$ts_map, data, all_keys, idx, env = env, copy = FALSE)
-  old <- intersect(names(model$pt_alias_map), names(mat))
-  if (length(old) > 0L) data.table::setnames(mat, old, model$pt_alias_map[old])
+  .pt_apply_aliases(mat, model$pt_alias_map)
 
   # Filter to the prediction time step
-  mat <- mat[mat[[idx]] == t]
+  mat <- .dt_rows(mat, mat[[idx]] == t)
 
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]
 
   if (nrow(mat) == 0L) return(result)
 
-  # newdata for predictAll: predictor/grouping columns of the fit frame, WITHOUT
-  # the outcome (predictAll only needs the predictors; outcome at t is NA anyway).
-  keep <- intersect(setdiff(names(model$gamlss_data), model$outcome), names(mat))
-  df   <- as.data.frame(mat[, ..keep])
-
-  # predictAll requires data = the EXACT training frame used during the fit.
-  # suppressMessages() silences chatty random()-related output.
-  pa <- suppressMessages(
-    gamlss::predictAll(model$fitted, newdata = df,
-                       data = model$gamlss_data, type = "response")
-  )
-
+  # Distribution-parameter prediction (predictAll) and draws happen inside
+  # draw_predictive.endogenr_gamlss; the family carries no
+  # parameter-uncertainty draw, so the engine path uses n_param = 0.
   if (what == "expectation") {
-    # mu is the location parameter (= mean for symmetric families)
-    data.table::set(result, j = model$outcome, value = as.numeric(pa$mu))
-
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
   } else if (what == "pi") {
-    draw <- .gamlss_response_draw(model$fitted, pa, nrow(df))
-    data.table::set(result, j = model$outcome, value = as.numeric(draw))
-
+    data.table::set(result, j = model$outcome,
+                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 1L)))
   } else {
     stop("`what` must be either `pi` or `expectation`", call. = FALSE)
   }
 
   return(result)
+}
+
+#' @rdname draw_predictive
+#' @export
+draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
+  .check_draw_counts(n_param, n_innov)
+  if (n_param > 0L) .warn_no_param_draw("gamlss")
+
+  # newdata for predictAll: predictor/grouping columns of the fit frame, WITHOUT
+  # the outcome (predictAll only needs the predictors; outcome at t is NA anyway).
+  newdata <- data.table::as.data.table(newdata)
+  keep <- intersect(setdiff(names(model$gamlss_data), model$outcome), names(newdata))
+  df   <- as.data.frame(newdata[, ..keep])
+
+  n   <- nrow(df)
+  K   <- max(n_innov, 1L)
+  out <- matrix(NA_real_, n, K)
+
+  # gamlss::predictAll() row-binds the training frame with `newdata`, then indexes
+  # the pooled design matrix with a logical vector built BEFORE model.frame() drops
+  # NA rows — so any NA predictor row makes that logical longer than the matrix and
+  # crashes with "(subscript) logical subscript too long". Predict only the
+  # complete-case rows (mirroring predict.lm's na.pass) and leave NA for the rest.
+  pred_cols <- setdiff(names(df), model$timevar)
+  ok <- if (length(pred_cols) == 0L) rep(TRUE, n)
+        else stats::complete.cases(df[, pred_cols, drop = FALSE])
+  if (!any(ok)) return(out)
+
+  df_ok <- df[ok, , drop = FALSE]
+  n_ok  <- sum(ok)
+
+  # predictAll requires data = the EXACT training frame used during the fit.
+  # suppressMessages() silences chatty random()-related output.
+  pa <- suppressMessages(
+    gamlss::predictAll(model$fitted, newdata = df_ok,
+                       data = model$gamlss_data, type = "response")
+  )
+
+  for (k in seq_len(K)) {
+    out[ok, k] <- if (n_innov == 0L) as.numeric(pa$mu)
+                  else as.numeric(.gamlss_response_draw(model$fitted, pa, n_ok))
+  }
+  out
 }
