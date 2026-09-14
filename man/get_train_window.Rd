@@ -36,6 +36,7 @@ get_train_window(1970, 2010, min_window = 10)
 Other build:
 \code{\link[=build_model]{build_model()}},
 \code{\link[=fit_model]{fit_model()}},
-\code{\link[=get_execution_order]{get_execution_order()}}
+\code{\link[=get_execution_order]{get_execution_order()}},
+\code{\link[=mundlak_means]{mundlak_means()}}
 }
 \concept{build}

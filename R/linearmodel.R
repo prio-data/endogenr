@@ -122,6 +122,7 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # coherent basis reconstruction at predict time.
   model$fitted  <- .lm_stage2_fit(fit_formula, pm$data, boot, subset, timevar)
   model$coefs   <- broom::tidy(model$fitted)
+  model$time_fe <- .detect_time_fe(fit_formula, model$fitted, timevar)
   model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
   model$required_history <- .required_history(model$formula)
@@ -206,7 +207,8 @@ draw_predictive.linear <- function(model, newdata, n_param = 1L, n_innov = 1L,
 #' @return A data.table with key + index + outcome columns.
 #' @family simulation
 #' @export
-predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
+predict.linear <- function(model, data, t, ctx, what = "pi", scenario = NULL,
+                           test_start = NULL, ...) {
   idx      <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
 
@@ -229,13 +231,62 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]
 
+  # --- Scenario: time-FE neutralisation -------------------------------------
+  # When a factor(timevar) term is present, forecast years are unseen levels.
+  # We neutralise the time column to the baseline training year so predict.lm
+  # contributes 0 for the factor contrast, then add the scenario-drawn offset.
+  if (!is.null(model$time_fe)) {
+    pred_frame <- data.table::copy(mat)
+    data.table::set(pred_frame, j = model$time_fe$timevar,
+                    value = model$time_fe$ref_value)
+  } else {
+    pred_frame <- mat
+  }
+
+  # --- Scenario: coefficient overrides --------------------------------------
+  # Swap targeted entries of a copied lm$coefficients; predict.lm reads them
+  # for the linear predictor while se.fit / residual.scale come from $qr /
+  # $residuals (retained by .strip_fit_data), so uncertainty is preserved.
+  model_pred <- model
+  ov <- if (!is.null(scenario)) scenario[[model$outcome]]$coefficients else NULL
+  if (length(ov) > 0L && !is.null(test_start)) {
+    h  <- t - test_start + 1L
+    cf <- stats::coef(model$fitted)
+    for (nm in names(ov)) {
+      cf[[nm]] <- .resolve_coef_override(ov[[nm]], h, cf[[nm]])
+    }
+    fit_over              <- model$fitted
+    fit_over$coefficients <- cf
+    model_pred            <- model
+    model_pred$fitted     <- fit_over
+  }
+
+  # --- Draw and add time-FE offset ------------------------------------------
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
+    vals <- as.vector(
+      draw_predictive(model_pred, pred_frame, n_param = 0L, n_innov = 0L)
+    )
+    if (!is.null(model$time_fe)) {
+      pol  <- .resolve_policy(scenario, model$outcome, model$time_fe)
+      vals <- vals + .policy_mean(pol, model$time_fe$effects)
+    }
+    data.table::set(result, j = model$outcome, value = vals)
+
   } else if (what == "pi") {
-    data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 1L, n_innov = 1L,
-                                                      param_scope = "row")))
+    sim_col <- ctx_sim(ctx)
+    sim_ids <- if (!is.null(sim_col) && sim_col %in% names(pred_frame))
+                 pred_frame[[sim_col]]
+               else rep(1L, nrow(pred_frame))
+    vals <- as.vector(
+      draw_predictive(model_pred, pred_frame, n_param = 1L, n_innov = 1L,
+                      param_scope = "row")
+    )
+    if (!is.null(model$time_fe)) {
+      pol  <- .resolve_policy(scenario, model$outcome, model$time_fe)
+      vals <- vals + .draw_time_fe_offset(model$time_fe$effects, sim_ids, pol)
+    }
+    data.table::set(result, j = model$outcome, value = vals)
+
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

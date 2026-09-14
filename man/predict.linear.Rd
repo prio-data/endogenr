@@ -4,7 +4,16 @@
 \alias{predict.linear}
 \title{Predict function for a linear model}
 \usage{
-\method{predict}{linear}(model, data, t, ctx, what = "pi", ...)
+\method{predict}{linear}(
+  model,
+  data,
+  t,
+  ctx,
+  what = "pi",
+  scenario = NULL,
+  test_start = NULL,
+  ...
+)
 }
 \arguments{
 \item{model}{A \code{linear} endogenmodel.}
@@ -43,6 +52,8 @@ Other simulation:
 \code{\link[=predict.heterolm]{predict.heterolm()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=scenario_terms]{scenario_terms()}},
+\code{\link[=setup_param]{setup_param()}},
 \code{\link[=setup_system]{setup_system()}},
 \code{\link[=simulate_system]{simulate_system()}}
 }

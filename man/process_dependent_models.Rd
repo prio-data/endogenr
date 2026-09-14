@@ -11,7 +11,8 @@ process_dependent_models(
   test_start,
   horizon,
   execution_order,
-  schedules = NULL
+  schedules = NULL,
+  scenario = NULL
 )
 }
 \arguments{

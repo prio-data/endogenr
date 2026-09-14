@@ -108,3 +108,161 @@ intensity_decay <- function(event, intensity, lambda = 0.5, max_years = 50) {
   }
   out
 }
+
+#' Trailing (expanding or windowed) mean within a time-ordered group
+#'
+#' Computes, position-by-position over an already time-ordered within-group
+#' vector `x`, the trailing mean of the last `window` observations.
+#' Intended for use inside model formulas in endogenr, particularly for
+#' Mundlak-style between-effects that must update dynamically during simulation.
+#'
+#' At position \eqn{i}, the value is the mean of
+#' \eqn{x[\max(1, i - \text{window} + 1) : i]}, NA-omitted.
+#' Returns `NA_real_` until at least `min_obs` non-NA values are available.
+#'
+#' @param x A numeric vector, time-ordered within one panel unit.
+#' @param window `Inf` (expanding/cumulative mean, the default) or a positive
+#'   integer specifying the trailing window width.
+#' @param min_obs Positive integer. Minimum number of non-NA observations
+#'   required before a non-NA value is returned. Default `1L`.
+#'
+#' @return A numeric vector the same length as `x`.
+#' @family formula_helpers
+#' @export
+#'
+#' @examples
+#' hist_mean(c(1, 2, 3, 4))                   # c(1, 1.5, 2, 2.5)
+#' hist_mean(c(1, 2, 3, 4), window = 2)       # c(1, 1.5, 2.5, 3.5)
+#' hist_mean(c(1, NA, 3))                     # c(1, 1, 2)
+hist_mean <- function(x, window = Inf, min_obs = 1L) {
+  # Validate arguments
+  if (!(is.infinite(window) && window > 0) &&
+      !(is.numeric(window) && length(window) == 1L && is.finite(window) &&
+        window == as.integer(window) && window >= 1L)) {
+    stop("`window` must be Inf or a positive integer.", call. = FALSE)
+  }
+  if (!is.numeric(min_obs) || length(min_obs) != 1L ||
+      !is.finite(min_obs) || min_obs != as.integer(min_obs) || min_obs < 1L) {
+    stop("`min_obs` must be a positive integer.", call. = FALSE)
+  }
+  min_obs <- as.integer(min_obs)
+  n <- length(x)
+  if (n == 0L) return(numeric(0L))
+
+  if (is.infinite(window)) {
+    # Expanding mean: fast cumulative path
+    cs  <- cumsum(ifelse(is.na(x), 0, x))
+    cn  <- cumsum(!is.na(x))
+    out <- cs / cn
+    out[cn < min_obs] <- NA_real_
+    return(out)
+  }
+
+  # Finite window: trailing loop (series are short per unit)
+  window <- as.integer(window)
+  out <- rep(NA_real_, n)
+  for (i in seq_len(n)) {
+    lo   <- max(1L, i - window + 1L)
+    vals <- x[lo:i]
+    vals <- vals[!is.na(vals)]
+    if (length(vals) >= min_obs) {
+      out[i] <- mean(vals)
+    }
+  }
+  out
+}
+
+#' Build Mundlak between-effect deterministic specs
+#'
+#' Constructs a list of `deterministic` model specs that update the
+#' Mundlak-style within-group running means (`m_*` columns) each simulation
+#' step via [hist_mean()]. Append the result with `c()` into a model system.
+#'
+#' Each source column and each `m_*` output column must be present in the
+#' input data before [setup_system()]. Purely-derived output columns may be
+#' NA-filled; source columns must be model-produced or panel keys
+#' (checked by [validate_system_closure()]).
+#'
+#' @param vars Either a character vector of source column names (output names
+#'   are `paste0(prefix, vars)`), or a **named** character vector where names
+#'   are output column names and values are source expression strings (e.g.
+#'   `c(m_grwt_l1 = "grwt_l1", m_c25 = "c25")`).
+#' @param window Scalar (`Inf` or a positive integer applied to all variables)
+#'   or a named numeric vector keyed by output column name (per-variable
+#'   windows). `Inf` yields an expanding (cumulative) mean.
+#' @param prefix Character prefix prepended to source names when `vars` is
+#'   unnamed. Default `"m_"`.
+#' @param min_obs Positive integer passed to [hist_mean()]. Default `1L`.
+#' @param bounds Optional two-element numeric vector `c(lower, upper)` applied
+#'   to all output columns, or `NULL` (no clamping).
+#'
+#' @return A list of `deterministic` model specs ready to `c()` into a system.
+#' @family build
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' sys <- setup_system(
+#'   c(
+#'     exogen(~x),
+#'     mundlak_means("x"),
+#'     build_model("linear", formula = y ~ lag(y) + m_x)
+#'   ),
+#'   data = dt, train_start = 1, test_start = 25, horizon = 5,
+#'   groupvar = "unit", timevar = "time"
+#' )
+#' }
+mundlak_means <- function(vars, window = Inf, prefix = "m_", min_obs = 1L,
+                           bounds = NULL) {
+  # Normalise vars to a named character vector (output -> source expression)
+  if (is.null(names(vars))) {
+    if (!is.character(vars) || length(vars) == 0L) {
+      stop("`vars` must be a non-empty character vector.", call. = FALSE)
+    }
+    src_exprs <- vars
+    out_names <- paste0(prefix, vars)
+    vars <- stats::setNames(src_exprs, out_names)
+  } else {
+    if (length(vars) == 0L) stop("`vars` must be non-empty.", call. = FALSE)
+    if (!is.character(vars)) stop("`vars` must be a character vector.", call. = FALSE)
+    out_names <- names(vars)
+  }
+
+  # Validate output uniqueness
+  if (anyDuplicated(out_names)) {
+    stop("output names in `vars` must be unique.", call. = FALSE)
+  }
+
+  # Normalise window to a named vector keyed by output name
+  if (length(window) == 1L) {
+    window <- stats::setNames(rep(window, length(out_names)), out_names)
+  } else {
+    if (!all(out_names %in% names(window))) {
+      stop("`window` vector must be named by every output column name.", call. = FALSE)
+    }
+    window <- window[out_names]
+  }
+
+  # Validate each window entry
+  for (nm in out_names) {
+    w <- window[[nm]]
+    ok <- (is.infinite(w) && w > 0) ||
+          (is.numeric(w) && length(w) == 1L && is.finite(w) &&
+           w == as.integer(w) && w >= 1L)
+    if (!ok) stop("`window` entries must be Inf or a positive integer.", call. = FALSE)
+  }
+
+  # Build one deterministic spec per output column
+  specs <- vector("list", length(out_names))
+  for (i in seq_along(out_names)) {
+    out  <- out_names[i]
+    src  <- vars[[i]]
+    w    <- window[[out]]
+    w_str <- if (is.infinite(w)) "Inf" else format(w)
+    rhs  <- sprintf("I(hist_mean(%s, window = %s, min_obs = %dL))", src, w_str, as.integer(min_obs))
+    f    <- stats::reformulate(rhs, response = out)
+    environment(f) <- parent.frame()
+    specs[[i]] <- build_model("deterministic", formula = f, bounds = bounds)
+  }
+  specs
+}

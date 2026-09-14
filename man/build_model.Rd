@@ -128,6 +128,7 @@ model_system <- list(
 Other build:
 \code{\link[=fit_model]{fit_model()}},
 \code{\link[=get_execution_order]{get_execution_order()}},
-\code{\link[=get_train_window]{get_train_window()}}
+\code{\link[=get_train_window]{get_train_window()}},
+\code{\link[=mundlak_means]{mundlak_means()}}
 }
 \concept{build}

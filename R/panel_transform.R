@@ -18,7 +18,8 @@
 # Exported as `.pt_cum_fns` so systemgraph.R can import a single canonical list.
 .pt_cum_fns <- c(
   "cumsum", "cumprod", "cummax", "cummin",
-  "decay_since_event", "time_since_event", "intensity_decay"
+  "decay_since_event", "time_since_event", "intensity_decay",
+  "hist_mean"
 )
 
 # Rolling/window time-series functions: require a finite window of history.

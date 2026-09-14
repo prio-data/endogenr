@@ -25,6 +25,7 @@ or requiring data.table/dplyr to be attached. The same bindings back the
 Other formula_helpers:
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=intensity_decay]{intensity_decay()}},
 \code{\link[=materialize_formula]{materialize_formula()}},
 \code{\link[=time_since_event]{time_since_event()}}

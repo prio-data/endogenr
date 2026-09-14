@@ -145,7 +145,7 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
 #' @return The simulation_data data.table, updated by reference.
 #' @keywords internal
 process_dependent_models <- function(simulation_data, models, ctx, test_start, horizon,
-                                     execution_order, schedules = NULL) {
+                                     execution_order, schedules = NULL, scenario = NULL) {
   dependent_models <- models[vapply(models, function(x) !x$independent, logical(1))]
   outcomes <- vapply(dependent_models, function(x) parse_formula(x)$outcome, character(1))
   names(dependent_models) <- outcomes
@@ -163,7 +163,8 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
       model <- if (!is.null(schedules[[model_name]])) schedules[[model_name]][[h]]
                else dependent_models[[model_name]]
       pred <- tryCatch(
-        predict(model, t = t, data = simulation_data, ctx = ctx),
+        predict(model, t = t, data = simulation_data, ctx = ctx,
+                scenario = scenario, test_start = test_start),
         error = function(e) {
           stop("Prediction failed for model '", model_name,
                "' at time step ", t, ": ",
@@ -927,6 +928,7 @@ fit_system <- function(system_setup, nsim = 1L,
 simulate_system <- function(fitted_system,
                             window_policy = c("latest", "equal", "decay"),
                             decay = 0.5, weights = NULL,
+                            scenario_params = NULL,
                             parallel = FALSE, ncores = 6) {
   if (!inherits(fitted_system, "endogenr_fitted_system")) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
@@ -956,6 +958,49 @@ simulate_system <- function(fitted_system,
     warning("`window_policy`/`weights` are ignored unless `fitted_system` was fit ",
             "with a sliding window (window = \"rolling\"/\"expanding\").",
             call. = FALSE)
+  }
+
+  # Validate scenario_params
+  if (!is.null(scenario_params) &&
+      !inherits(scenario_params, "endogenr_scenario_params")) {
+    stop("`scenario_params` must be the output of setup_param() or NULL.",
+         call. = FALSE)
+  }
+  if (!is.null(scenario_params)) {
+    for (oc in names(scenario_params)) {
+      ov <- scenario_params[[oc]]$coefficients
+      if (length(ov) == 0L) next
+      # Find producing model in fitted_system
+      mdl <- Filter(function(m) !is.null(m$outcome) && m$outcome == oc,
+                    fitted_system$fitted_models)
+      if (length(mdl) == 0L) {
+        stop("scenario_params has overrides for outcome '", oc,
+             "' but no such model was found in fitted_system.", call. = FALSE)
+      }
+      mdl <- mdl[[1L]]
+      type <- class(mdl)[1L]
+      if (type != "linear") {
+        stop("coefficient overrides are only supported for `linear` models; ",
+             "outcome '", oc, "' is ", type, ".", call. = FALSE)
+      }
+      valid_nms <- names(scenario_params[[oc]]$estimates)
+      for (nm in names(ov)) {
+        if (!nm %in% valid_nms) {
+          stop("'", nm, "' is not a valid coefficient name for outcome '", oc,
+               "'. Valid names: ", paste(valid_nms, collapse = ", "), ".",
+               call. = FALSE)
+        }
+        spec <- ov[[nm]]
+        ok <- is.function(spec) ||
+              (is.numeric(spec) && length(spec) == 1L) ||
+              (is.numeric(spec) && length(spec) == fitted_system$horizon)
+        if (!ok) {
+          stop("coefficient override for '", nm, "' in outcome '", oc,
+               "' must be a scalar, a length-", fitted_system$horizon,
+               " numeric vector, or a function(h, beta_hat).", call. = FALSE)
+        }
+      }
+    }
   }
 
   nsim <- fitted_system$nsim
@@ -1011,7 +1056,7 @@ simulate_system <- function(fitted_system,
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
       horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
       models = models, refit_oc = refit_oc,
-      W = W, nwin = nwin
+      W = W, nwin = nwin, scenario = scenario_params
     )
     if (!is.null(fitted_system$globals)) {
       for (fn_name in names(fitted_system$globals)) {
@@ -1031,7 +1076,8 @@ simulate_system <- function(fitted_system,
           schedules[[refit_oc[k]]] <- lapply(seq_len(horizon), function(h) dwf[[k]][[wsel[h]]])
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
-                                        execution_order, schedules = schedules)
+                                        execution_order, schedules = schedules,
+                                        scenario = scenario)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
@@ -1046,7 +1092,8 @@ simulate_system <- function(fitted_system,
 
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
-      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims
+      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
+      scenario = scenario_params
     )
     if (!is.null(fitted_system$globals)) {
       for (fn_name in names(fitted_system$globals)) {
@@ -1059,7 +1106,8 @@ simulate_system <- function(fitted_system,
       function(models) {
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
-        sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
+        sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
+                                        execution_order, scenario = scenario)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim

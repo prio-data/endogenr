@@ -9,6 +9,7 @@ simulate_system(
   window_policy = c("latest", "equal", "decay"),
   decay = 0.5,
   weights = NULL,
+  scenario_params = NULL,
   parallel = FALSE,
   ncores = 6
 )
@@ -115,6 +116,8 @@ Other simulation:
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=scenario_terms]{scenario_terms()}},
+\code{\link[=setup_param]{setup_param()}},
 \code{\link[=setup_system]{setup_system()}}
 }
 \concept{simulation}

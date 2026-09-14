@@ -48,6 +48,8 @@ Other simulation:
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=scenario_terms]{scenario_terms()}},
+\code{\link[=setup_param]{setup_param()}},
 \code{\link[=setup_system]{setup_system()}},
 \code{\link[=simulate_system]{simulate_system()}}
 }

@@ -31,6 +31,14 @@ all distribution parameters, then either returns the location mean
 (\code{what = "expectation"}) or draws from the family's random generator
 (\code{what = "pi"}).
 }
+\details{
+Prediction rows whose predictors are \code{NA} at step \code{t} (e.g. a lagged
+exogenous predictor reaching a period the exogenous series does not cover)
+yield \code{NA} for that row rather than erroring, matching
+\code{predict.lm}/\code{predict.glm}. Supply every predictor across the full
+forecast window \verb{[test_start, test_start + horizon - 1]} to avoid \code{NA}
+(and, under \code{bounds}, midpoint-filled) forecasts.
+}
 \seealso{
 Other simulation:
 \code{\link[=draw_predictive]{draw_predictive()}},
@@ -49,6 +57,8 @@ Other simulation:
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=scenario_terms]{scenario_terms()}},
+\code{\link[=setup_param]{setup_param()}},
 \code{\link[=setup_system]{setup_system()}},
 \code{\link[=simulate_system]{simulate_system()}}
 }

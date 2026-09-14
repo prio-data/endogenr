@@ -32,6 +32,7 @@ time_since_event(x, lambda = 0.5)
 Other formula_helpers:
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},
 \code{\link[=intensity_decay]{intensity_decay()}},
 \code{\link[=materialize_formula]{materialize_formula()}}
