@@ -1,0 +1,198 @@
+---
+title: "Formulas and panel conventions"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Formulas and panel conventions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`endogenr` uses standard R formula syntax but evaluates formulas in two
+stages so that within-unit time-series operations and pooled design-matrix
+operations never collide.
+
+## Two-stage formula evaluation
+
+**Stage 1 (panel-aware)** — `panel_materialize()` scans the formula for
+*maximal time-series sub-expressions* (calls whose head is in the registered
+set; see below) and evaluates each one *per unit* in time order, storing the
+result in a synthetic `.pt#` column.  The formula is rewritten to reference
+those columns.
+
+**Stage 2 (pooled)** — the rewritten formula is fitted with a pooled `lm()`
+or `glm()` on all units at once.  Design constructs resolved here —
+`factor()`, `poly()`, `bs()`/`ns()`, interactions (`a:b`, `a*b`), `-1` —
+are reproduced at predict time through `predict`'s stored `predvars`/
+`xlevels`.  This is why `poly(x, 2)` works even when a single unit has few
+rows: the polynomial basis is built across all units.
+
+## The time-series function registry
+
+These call heads are treated as within-unit and materialised in Stage 1
+(matched bare or `pkg::`-qualified; the full call including its arguments is
+materialised, so `lag(zoo::rollmean(x, 5))` is always within-unit):
+
+| Family | Functions |
+|---|---|
+| Positional | `lag`, `lead`, `lead_horizon`, `shift`, `diff` |
+| Rolling (zoo/data.table) | `rollmean`/`r`/`l`, `rollsum`/`r`/`l`, `rollmax`/`r`/`l`, `rollmedian`/`r`/`l`, `rollapply`/`r`/`l`, `frollmean`, `frollsum`, `frollapply`, `frollmax`, `frollmin` |
+| Cumulative | `cumsum`, `cumprod`, `cummax`, `cummin`, `decay_since_event`, `time_since_event`, `intensity_decay`, `hist_mean` |
+
+A call to any of these — however deeply nested — is materialised as a unit
+block.  Anything *not* in this registry (e.g. a custom `my_smooth()` function)
+is evaluated pooled, which is wrong across unit boundaries.
+
+## Positional semantics of `lag` / `lead` / `shift` / `diff`
+
+These are bound *uniformly* by `endogenr` regardless of which packages are
+attached, so `data.table` or `dplyr` need not be loaded:
+
+- `lag(x, n)` — positional forward-shift by `n` within unit (pad head with
+  `NA`).  Type-preserving: a lagged factor keeps its class and levels.
+- `lead(x, n)` — pulls ahead by `n` (pad tail with `NA`).
+- `lag(x, -1)` **errors** — use `lead(x, 1)` instead.
+- `diff(x)` — length-stable (pads leading rows with `NA` rather than
+  shortening the vector).
+
+## The pitfall and its fixes
+
+A custom within-unit function used *unwrapped* — not in the registry — is
+evaluated **pooled** (across unit boundaries, which is wrong).
+
+Fix in order of preference:
+
+1. **Wrap in `lag()`** — the whole call is then materialised as a unit
+   block: `lag(my_smooth(x))`.
+2. **Precompute** it as a data column before `setup_system()`.
+3. **Register** via the `ts_fns` argument available on the long-horizon
+   fitters; for the main pipeline, use options 1 or 2.
+
+## Naming contract
+
+After Stage 1, the `.pt#` columns are renamed to `janitor`-cleaned deparsed
+expressions before the pooled fit, so coefficient names match base `lm()`:
+
+| Formula term | Coefficient name |
+|---|---|
+| `lag(x)` | `lag_x` |
+| `lag(log(gdppc))` | `lag_log_gdppc` |
+| `lag(psecprop)` | `lag_psecprop` |
+
+Internal `.pt#` names never surface in `get_coefficients()` output.
+**These alias names are also what you use for coefficient overrides** in
+scenario parameters (see `vignette("fixed-effects-and-scenarios")`).
+
+```{r naming-demo}
+library(endogenr)
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+
+model_system <- list(
+  build_model("linear",
+              formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+              boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+)
+
+sys <- setup_system(model_system, df,
+                    train_start = 1990, test_start = 2010, horizon = 5,
+                    groupvar = "gwcode", timevar = "year", inner_sims = 2)
+fit <- fit_system(sys, nsim = 2)
+
+# Term names in the fitted linear model
+coefs <- get_coefficients(fit)
+coefs[coefs$outcome == "gdppc_grwt", c("term", "estimate")]
+```
+
+The terms `lag_log_gdppc` and `lag_psecprop` match exactly what you would see
+in a plain `lm()` call — and they are the keys you use for coefficient
+overrides in `setup_param()`.
+
+## Formula helper functions
+
+### `hist_mean()` — trailing or expanding within-unit mean
+
+`hist_mean(x, window = Inf, min_obs = 1L)` computes the mean of the last
+`window` observations position by position.  `Inf` gives an expanding
+(cumulative) mean.  Returns `NA_real_` until `min_obs` non-NA values are
+available.
+
+```{r hist-mean}
+hist_mean(c(1, 2, 3, 4))              # expanding mean
+hist_mean(c(1, 2, 3, 4), window = 2) # trailing 2-step window
+```
+
+Used inside a formula it is materialised per unit in time order, so
+`hist_mean(psecprop)` is the cumulative within-unit mean of `psecprop` up to
+each row.
+
+### `decay_since_event()` and friends
+
+```{r decay-demo}
+# 1.0 at the event, decays toward exp(-0.5 * 50) thereafter
+decay_since_event(c(0, 0, 1, 0, 0), lambda = 0.5)
+```
+
+- `decay_since_event(event, lambda, max_years = 50)` — exponential decay from
+  the most recent event; peak = 1.
+- `time_since_event(event, lambda, max_years = 50)` — inverse: 0 at event,
+  rising toward 1.
+- `intensity_decay(event, intensity, lambda, max_years = 50)` — same but peak
+  equals the event intensity; multiple events accumulate.
+
+All three consume the entire prior unit series (`.required_history()` returns
+`Inf`), so they always use full per-unit history regardless of window settings.
+
+## Output bounds
+
+`build_model(..., bounds = c(lower, upper))` clamps that model's outcome to
+`[lower, upper]` at every forecast step before it feeds later steps.
+Useful for stabilising autoregressive feedback:
+
+```{r bounds-example, eval = FALSE}
+build_model("linear",
+            formula = gdppc_grwt ~ lag(log(gdppc)),
+            boot = "resid",
+            bounds = c(-1, 1))   # clamp growth rate
+```
+
+`Inf` is allowed for a one-sided limit (`c(0, Inf)` for a non-negative
+outcome).  A draw that remains non-finite after clamping is reset to a
+finite in-range fallback (midpoint of two finite bounds, or the finite bound
+itself), so a bounded outcome never propagates `NaN`/`Inf`.
+
+## User functions on parallel workers
+
+When a formula references a user-defined function, pass it to `setup_system()`
+so it is forwarded to parallel workers in both `fit_system()` and
+`simulate_system()`:
+
+```{r globals-example, eval = FALSE}
+my_transform <- function(x) log1p(pmax(x, 0))
+
+sys <- setup_system(
+  model_system, df,
+  train_start = 1990, test_start = 2010, horizon = 5,
+  groupvar = "gwcode", timevar = "year", inner_sims = 2,
+  globals = list(my_transform = my_transform)
+)
+```

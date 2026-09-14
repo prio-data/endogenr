@@ -1,0 +1,168 @@
+---
+title: "Estimation windows and coefficient uncertainty"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Estimation windows and coefficient uncertainty}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r data-prep}
+library(endogenr)
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+
+model_system <- list(
+  build_model("linear",
+              formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+              boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+)
+```
+
+## Where uncertainty enters
+
+`endogenr` uses a nested Monte Carlo:
+
+- **`nsim` draws** (set on `fit_system`) — parameter / model uncertainty.
+  Each draw uses potentially different coefficients.
+- **`inner_sims`** (set on `setup_system`) — innovation uncertainty.
+  Each residual or distributional draw within a coefficient draw.
+
+The ensemble has `nsim × inner_sims` trajectories per unit.
+
+For the regression families (`linear`, `glm`, `heterolm`, `glmmTMB`),
+across-draw parameter variation comes from `boot` (residual or wild bootstrap)
+and/or random window refits (`min_window`).  Without either, all draws share
+the same point estimates and the ensemble captures only innovation uncertainty.
+
+## Random windows (`min_window`)
+
+Setting `min_window` on `setup_system()` tells `fit_system()` to refit each
+regression spec on a randomly drawn training window of at least `min_window`
+time steps per coefficient draw (via `get_train_window()`).  Each draw can
+therefore see a different amount of history and produce different coefficients.
+
+`get_coefficients(fit)` surfaces the per-draw metadata:
+
+| Column | Meaning |
+|---|---|
+| `.draw` | Draw index (1 … nsim) |
+| `.window_start` | Start of the training window for that draw |
+| `.window_end` | End of the training window for that draw |
+| `outcome` | Model outcome variable |
+| `term` | Coefficient alias name |
+| `estimate` | Coefficient estimate |
+
+```{r random-windows}
+sys_mw <- setup_system(model_system, df,
+                       train_start = 1990, test_start = 2010, horizon = 5,
+                       groupvar = "gwcode", timevar = "year",
+                       inner_sims = 2, min_window = 12)
+fit_mw <- fit_system(sys_mw, nsim = 4)
+
+unique(get_coefficients(fit_mw)[, c(".draw", ".window_start", ".window_end")])
+```
+
+Each draw uses a different window — the variation across draws is *model*
+uncertainty (different training periods), on top of the residual bootstrap
+variation from `boot = "resid"`.
+
+**Without `min_window` and without `boot`**, all draws share the same fit
+(`[train_start, test_start - 1]`) and reproduce a plain pooled `lm()` exactly.
+
+## Sliding windows
+
+`fit_system(sys, window = "rolling", width = 12)` or `window = "expanding"`
+refits each regression spec on a *deterministic* grid of window ends (anchors
+from the first valid window to `test_start - 1`, spaced by `step`).  There is
+one fit per anchor; `simulate_system()` mixes the per-window fits according to
+`window_policy`:
+
+| Policy | Behaviour |
+|---|---|
+| `"latest"` (default) | Always use the most-recent window |
+| `"equal"` | Each window with equal probability |
+| `"decay"` | Geometric decay toward recent windows; tuned by `decay` |
+
+Pass `weights` for full control: a `function(h, age)` or a
+`horizon × n_window` numeric matrix.  `window_policy`/`weights` are ignored
+with a warning for random/fixed-window fits.
+
+```{r sliding-windows}
+sys_base <- setup_system(model_system, df,
+                         train_start = 1990, test_start = 2010, horizon = 5,
+                         groupvar = "gwcode", timevar = "year",
+                         inner_sims = 2, min_window = 12)
+
+fit_roll <- fit_system(sys_base, nsim = 2, window = "rolling", width = 12)
+res_roll <- simulate_system(fit_roll, window_policy = "equal")
+nrow(res_roll)
+```
+
+`width` defaults to `min_window` (or `10` when that is unset).
+
+## Coefficient-trajectory forecasting
+
+`forecast_coefficients()` estimates a deterministic coefficient *path* by
+refitting on an expanding or rolling grid of windows, then projects each
+coefficient forward as a Gaussian random walk (optionally with drift).  The
+forward distribution fans from the forecast origin's estimation uncertainty
+(the origin fit's variance-covariance matrix) and the empirical evolution
+covariance of the path.
+
+```{r coef-forecast}
+cf <- forecast_coefficients(fit_mw, window = "expanding")
+head(cf[cf$.type == "forecast", c("outcome", "term", ".time", ".mean", ".q05", ".q95")])
+```
+
+`plot_coefficient_forecast(cf)` plots the observed coefficient path and the
+forecast band, faceted by outcome and term:
+
+```{r plot-coef-forecast}
+plot_coefficient_forecast(cf)
+```
+
+Also available:
+
+- `plot_coefficients(fit)` — per-term violin plots of the coefficient draws
+  across the `nsim` fitted models.
+- `plot_estimates(fit)` — posterior predictive ribbons of model-fitted values.
+
+## Known caveats
+
+Using `linear` + `boot` + `min_window` together can **triple-count** parameter
+uncertainty: random window variation, residual bootstrap resampling, and the
+`predict.lm(se.fit = TRUE)` component are all active simultaneously.  The
+resulting ensemble is likely over-dispersed.  Use at most two of the three, or
+use `min_window` alone with `boot = NULL` for cleaner diagnostics.
+
+Additionally:
+
+- Innovations are drawn independently per `(unit, time, sim)` row — the engine
+  does not model cross-unit common shocks or cross-equation residual
+  correlation.
+- `parametric_distribution`, `univariate_fable`, and `exogen` carry no
+  parameter uncertainty across draws (they are fitted once and shared), unless
+  `parametric_distribution` is configured with `param_uncertainty = TRUE`.
+
+See `?endogenr` for the full discussion and roadmap.

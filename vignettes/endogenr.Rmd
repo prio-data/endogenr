@@ -1,0 +1,145 @@
+---
+title: "Get started with endogenr"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Get started with endogenr}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`endogenr` builds probabilistic forecasts for systems of coupled statistical
+models — where each model's predictions feed as inputs to the others.
+This article walks through the full pipeline on a minimal three-equation system.
+
+## The panel contract
+
+`endogenr` expects a plain `data.frame` (or `data.table`; no `tsibble` needed)
+with two identifier columns:
+
+- **`groupvar`** — cross-sectional unit (e.g. country code).
+- **`timevar`** — integer time index, contiguous *within* each unit.
+
+Panels may be **unbalanced**: units may enter late or exit early.
+`setup_system()` detects units that have no row at `test_start - 1` (the
+forecast origin), keeps their data for training but excludes them from the
+simulation grid, and prints a message listing them.
+
+## Three stages
+
+| Stage | Function | What it does |
+|---|---|---|
+| 1 | `setup_system()` | Validates panel + system closure, builds the dependency DAG, computes topological execution order, materialises the simulation grid — *no fitting* |
+| 2 | `fit_system(nsim = )` | Fits each model spec and stores `nsim` coefficient draws |
+| 3 | `simulate_system()` | Predict-only dynamic loop — derives `nsim` from stored draws; returns **forecast-only** rows (`time >= test_start`) |
+
+**Two sources of uncertainty:**
+
+- `nsim` (set on `fit_system`) — *parameter / model uncertainty*: each draw uses
+  a potentially different set of coefficients.
+- `inner_sims` (set on `setup_system`) — *innovation uncertainty*: residual or
+  distributional draws within each coefficient draw.
+
+The ensemble has `nsim × inner_sims` trajectories per unit.
+
+## A minimal closed system
+
+```{r data-prep}
+library(endogenr)
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+```
+
+The system below has three equations:
+
+1. **`gdppc_grwt`** (linear OLS with residual bootstrap) — depends on lagged
+   log GDP per capita and lagged secondary-school enrolment.
+2. **`psecprop`** (exogenous) — observed values are copied from `df` for the
+   whole horizon; no model is fitted.
+3. **`gdppc`** (deterministic) — `gdppc` is updated each step from the previous
+   `gdppc` and the freshly simulated `gdppc_grwt`.
+
+Every right-hand-side variable is either produced by another model in the system
+or supplied by an `exogen` — the system is **closed**.
+The `exogen` requires that observed values exist for every unit through
+`test_start + horizon - 1 = 2014`.
+
+```{r run-pipeline}
+model_system <- list(
+  build_model("linear",
+              formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+              boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+)
+
+sys <- setup_system(model_system, df,
+                    train_start = 1990, test_start = 2010, horizon = 5,
+                    groupvar = "gwcode", timevar = "year", inner_sims = 2)
+fit <- fit_system(sys, nsim = 2)
+res <- simulate_system(fit)
+head(res)
+```
+
+## Automatic validation
+
+`setup_system()` runs two validators before any fitting occurs:
+
+- **`validate_panel()`** checks: integer time, contiguous within each unit,
+  and a complete initial state at `test_start - 1` for every origin unit.
+- **`validate_system_closure()`** checks: every RHS variable is produced by
+  another model or present as a data column, no two models share an outcome,
+  and all formula-referenced columns exist in `data`.
+
+Units with no row at `test_start - 1` are printed by `setup_system()` and
+excluded from the simulation grid; they still contribute to training.
+
+## Score and plot
+
+`simulate_system()` stamps `panel_unit` / `panel_time` attributes on the result,
+so the post-processing helpers infer the panel context automatically — no need
+to pass `groupvar`/`timevar` again.
+
+```{r score-and-plot}
+acc <- get_accuracy(res, "gdppc_grwt", df, test_start = 2010, by = "horizon")
+acc
+plotsim(res, "gdppc", head(keep, 3L), df)
+```
+
+`get_accuracy()` returns mean CRPS, MAE, and Winkler interval score
+(default coverage level 50 %) per grouping. Pass `by = "horizon"` to score
+per forecast step. `sim_to_dist()` converts the ensemble to summary quantiles
+for custom summaries.
+
+## Parallelism
+
+`endogenr` does not manage a `future` plan — set one before calling and
+wrap in `progressr::with_progress()` for a progress bar:
+
+```{r parallel-note, eval = FALSE}
+future::plan(future::multisession, workers = 4)
+progressr::with_progress({
+  res <- simulate_system(fit)
+})
+future::plan(future::sequential)
+```
+
+Leave the plan as `future::sequential` (as this vignette does) for
+single-process, deterministic builds.

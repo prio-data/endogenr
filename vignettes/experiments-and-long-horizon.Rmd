@@ -1,0 +1,153 @@
+---
+title: "Experiment grids and the long-horizon benchmark"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Experiment grids and the long-horizon benchmark}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r data-prep}
+library(endogenr)
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+```
+
+## Experiment grid
+
+`run_experiments()` runs the full `setup_system() → fit_system() →
+simulate_system()` pipeline across a Cartesian product of:
+
+- model systems (`models`)
+- `train_start` (one or more values)
+- `test_start` (one or more values)
+- optionally `windows` (a named list of `window_config()` objects — adds a
+  fourth axis)
+
+Results are stacked into one `data.table` stamped with `.experiment`, `model`,
+`train_start`, `test_start`, and `window_cfg`.
+
+`vary_model(base, variants)` builds the named list of systems by swapping
+specs into a base system **by outcome variable** — it never appends new specs,
+only replaces existing ones with the same outcome.
+
+`get_experiment_accuracy(results, outcome, truth)` scores each experiment
+against its own `test_start`.
+
+```{r experiments}
+base <- list(
+  build_model("linear",
+              formula = gdppc_grwt ~ lag(log(gdppc)),
+              boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+)
+
+# Swap the gdppc_grwt spec between two formula variants
+systems <- vary_model(base, list(
+  plus_edu = build_model("linear",
+                         formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+                         boot = "resid")
+))
+names(systems)
+
+exp_res <- run_experiments(
+  data = df, models = systems,
+  train_start = 1990, test_start = 2010, horizon = 5,
+  groupvar = "gwcode", timevar = "year",
+  inner_sims = 2, nsim = 2
+)
+
+get_experiment_accuracy(exp_res, "gdppc", df)
+```
+
+`systems` contains the base system (named `"model1"` automatically by
+`vary_model`) and the `"plus_edu"` variant.  `get_experiment_accuracy` returns
+one row per `.experiment` with mean CRPS, MAE, and Winkler scores.
+
+**Parallelism axes:**  set `parallel = "experiments"` (default; maps the
+experiment grid in parallel, each experiment sequential) or
+`parallel = "draws"` (experiments sequential, each experiment's
+`fit`/`simulate` parallelises).  Use `window_config()` to add a window axis:
+
+```{r window-config, eval = FALSE}
+run_experiments(
+  data = df, models = systems,
+  train_start = 1990, test_start = 2010, horizon = 5,
+  groupvar = "gwcode", timevar = "year",
+  inner_sims = 2, nsim = 2,
+  windows = list(
+    rand = window_config(),
+    roll = window_config("rolling", width = 15, window_policy = "latest")
+  )
+)
+```
+
+## Long-horizon reduced-form benchmark
+
+The long-horizon (LH) approach is *distinct* from the dynamic simulator: it
+fits one **pooled** model per `(formula, horizon)` that leads the target
+directly via `lead_horizon(y) ~ x`.  No dynamic loop is needed.
+
+**When to use it:** as a benchmark.  An LH model is simpler and faster;
+the dynamic simulator wins when feedback and cross-equation dynamics matter.
+`compare_approaches()` stacks LH and simulation accuracy for side-by-side
+comparison.
+
+### `lead_horizon(y, h)` on the LHS
+
+Inside a long-horizon formula, wrap the LHS outcome in `lead_horizon()`.
+`setup_long_horizon()` substitutes the horizon `h` internally for each
+`horizons` element — you do not supply `h` in the formula.  The RHS is
+evaluated at the forecast origin (the last observed year), so write `lag()`
+only for older history.
+
+### Fit, forecast, and score
+
+```{r long-horizon}
+lh <- setup_long_horizon(
+  data = df,
+  formulas = list("y|y" = lead_horizon(log(gdppc)) ~ factor(gwcode) + log(gdppc)),
+  horizons = 1:5,
+  groupvar = "gwcode", timevar = "year",
+  test_start = 2010, boot = "resid"
+)
+
+lh_res <- forecast_long_horizon(lh, data = df, nsim = 2, inner_sims = 5)
+lh_acc <- get_lh_accuracy(lh_res, df, scale = "native", inverse = exp)
+head(lh_acc)
+```
+
+**Scale controls:**
+
+- `scale = "native"` (default) scores on the original outcome scale; supply
+  `inverse = exp` when the LHS is `log(gdppc)` to back-transform the draws.
+- `scale = "model"` scores on the modelled (log) scale; no `inverse` needed.
+
+### Other long-horizon utilities
+
+- `cv_long_horizon(data, formulas, horizons, groupvar, timevar, test_starts, ...)`
+  — cross-validate across multiple `test_start` values and average scores over
+  folds.
+- `compare_approaches(lh_accuracy, sim_accuracy)` — stack LH and dynamic-sim
+  accuracy into one table with an `approach` column.  Score the simulation with
+  `get_accuracy(..., test_start = 2010, by = c("gwcode", "horizon"))` for a
+  like-for-like comparison on the `(unit, horizon)` key.
