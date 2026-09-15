@@ -10,37 +10,121 @@ setup_param(fitted_system)
 \item{fitted_system}{An \code{endogenr_fitted_system} from \code{\link[=fit_system]{fit_system()}}.}
 }
 \value{
-An \code{endogenr_scenario_params} object.
+An \code{endogenr_scenario_params} object (S3 class).
 }
 \description{
 Builds an \code{endogenr_scenario_params} object keyed by model outcome (all
-models in the fitted system, including independent models). All stochastic
-parameters (time-FE draw trajectories) are \strong{baked at build time} using
-the current RNG state, so results are inspectable before
-\code{\link[=simulate_system]{simulate_system()}}.
+models in the fitted system, including independent models).  All stochastic
+parameters — time-FE draw trajectories — are \strong{baked at build time} using
+the current RNG state, so the exact values entering the simulation are
+inspectable and modifiable before calling \code{\link[=simulate_system]{simulate_system()}}.
 }
-\details{
-Default strategies applied at build time:
-\itemize{
-\item \strong{Time FE} (\code{factor(timevar)}): \code{\link[=fe_resample]{fe_resample()}} — one independent
-draw per \verb{(outer draw, inner sim, forecast step)}.
-\item \strong{Unit FE} (\code{factor(unitvar)}): \code{\link[=fe_persist]{fe_persist()}} with \code{active = FALSE} — \code{factor(unit)} stays in the design matrix unchanged;
-equivalent to the current default behaviour.
-}
+\section{Default strategies}{
 
-Each entry contains:
 \describe{
-\item{\code{type}}{Model type string.}
-\item{\code{outcome}}{Outcome variable name.}
-\item{\code{independent}}{Logical.}
-\item{\code{adjustable}}{Logical: any non-NULL adjustable block present.}
-\item{\code{time_fe}}{\code{endogenr_fe_param} or \code{NULL}.}
-\item{\code{unit_fe}}{\code{endogenr_fe_param} or \code{NULL}.}
-\item{\code{coef}}{\code{endogenr_coef_param} or \code{NULL}.}
+\item{Time FE (\code{factor(timevar)})}{\code{\link[=fe_resample]{fe_resample()}} with \code{active = TRUE} —
+one independent resample draw per \verb{(outer draw, inner sim, forecast step)}
+from the estimated year effects.  Baked as a
+\code{c(nsim, inner_sims, horizon)} array.}
+\item{Unit FE (\code{factor(unitvar)})}{\code{\link[=fe_persist]{fe_persist()}} with \code{active = FALSE} —
+\code{factor(unit)} stays in the design matrix unchanged.  Equivalent to
+running without any scenario parameter; the baked \code{c(n_units, horizon)}
+matrix is present for inspection but not applied.}
+}
 }
 
-The returned object carries a \code{dims} attribute:
+\section{Object structure}{
+
+The returned object is a named list keyed by outcome, where each entry
+contains:
+\describe{
+\item{\code{type}}{Model type string (e.g. \code{"linear"}, \code{"glm_endogenr"}).}
+\item{\code{outcome}}{Outcome variable name.}
+\item{\code{independent}}{\code{TRUE} for models that do not feed back into the
+system (e.g. \code{exogen}).}
+\item{\code{adjustable}}{\code{TRUE} when at least one of \code{time_fe}, \code{unit_fe}, or
+\code{coef} is non-\code{NULL}.}
+\item{\code{time_fe}}{An \code{endogenr_fe_param} or \code{NULL}.  Key sub-fields:
+\code{kind} (\code{"time"}), \code{term} (e.g. \code{"factor(time)"}), \code{var}, \code{ref},
+\code{levels}, \code{effects} (named numeric, baseline = 0), \code{effects_by_draw}
+(length-\code{nsim} list of per-draw effects), \code{dims}, \code{active}, \code{heuristic},
+\code{values} (baked array).}
+\item{\code{unit_fe}}{An \code{endogenr_fe_param} or \code{NULL}.  Same structure as
+\code{time_fe} but \code{kind = "unit"} and \code{values} is \code{c(n_units, horizon)}.}
+\item{\code{coef}}{An \code{endogenr_coef_param} or \code{NULL}.  Key sub-fields:
+\code{estimates} (named numeric, draw-1 β̂), \code{beta_by_draw} (\verb{nsim × p}
+matrix of per-draw fitted coefficients), \code{linear} (logical),
+\code{overrides} (user spec, for reference), \code{effective} (named list of
+\verb{nsim × horizon} baked override matrices — empty until
+\code{\link[=coef_override]{coef_override()}} is applied).}
+}
+The object also carries a \code{dims} attribute:
 \code{list(nsim, inner_sims, horizon, test_start, units, timevar, unitvar)}.
+}
+
+\section{Typical workflow}{
+
+\enumerate{
+\item Call \code{set.seed()} then \code{setup_param(fit)} to bake stochastic
+parameters reproducibly.
+\item Inspect the returned object (\code{print(sp)}, \verb{sp$<oc>$time_fe$values},
+\verb{sp$<oc>$coef$estimates}).
+\item Optionally replace FE blocks with a different heuristic:
+\verb{sp$<oc>$time_fe <- fe_distribution(sp$<oc>$time_fe, sd = 0.02)}.
+\item Optionally bake coefficient overrides:
+\verb{sp$<oc>$coef <- coef_override(sp$<oc>$coef, "lag_y", 0.5)}.
+\item Pass to \code{simulate_system(fit, scenario_params = sp)}.
+}
+Omitting \code{scenario_params} (or passing \code{NULL}) causes \code{simulate_system()}
+to call \code{setup_param()} internally under its own RNG state, which reproduces
+varied time-FE offsets exactly as before the redesign.
+}
+
+\examples{
+\dontrun{
+# -- Minimal time-FE example -----------------------------------------------
+dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 1L)
+sys <- setup_system(
+  list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+  data = dt, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 3L
+)
+fit <- fit_system(sys, nsim = 5L)
+
+# Bake defaults (fe_resample for time FE) under a fixed seed
+set.seed(1)
+sp <- setup_param(fit)
+print(sp)                          # human-readable summary
+attr(sp, "dims")                   # nsim / inner_sims / horizon / test_start
+
+# Inspect baked values
+dim(sp$y$time_fe$values)           # c(5, 3, 4) = c(nsim, inner_sims, horizon)
+sp$y$time_fe$heuristic$strategy    # "resample"
+sp$y$coef$estimates                # named vector of representative β̂
+
+# Modify time-FE strategy: narrow Normal draws
+set.seed(1)
+sp <- setup_param(fit)
+sp$y$time_fe <- fe_distribution(sp$y$time_fe, sd = 0.02)
+res_narrow <- simulate_system(fit, scenario_params = sp)
+
+# Modify time-FE strategy: converge to zero over the horizon
+set.seed(1)
+sp <- setup_param(fit)
+sp$y$time_fe <- fe_converge(sp$y$time_fe, to = 0, path = "linear")
+
+# Apply a coefficient override then simulate
+set.seed(1)
+sp <- setup_param(fit)
+sp$y$coef <- coef_override(sp$y$coef, "lag_y",
+                            function(h, beta_hat) beta_hat * 0.5)
+res_ov <- simulate_system(fit, scenario_params = sp)
+
+# Determinism: same seed => identical baked arrays
+set.seed(99); a <- setup_param(fit)
+set.seed(99); b <- setup_param(fit)
+identical(a$y$time_fe$values, b$y$time_fe$values)  # TRUE
+}
 }
 \seealso{
 \code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=fe_persist]{fe_persist()}},

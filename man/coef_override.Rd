@@ -7,33 +7,101 @@
 coef_override(block, term, value)
 }
 \arguments{
-\item{block}{An \code{endogenr_coef_param} from \code{\link[=setup_param]{setup_param()}}.}
+\item{block}{An \code{endogenr_coef_param} from \code{\link[=setup_param]{setup_param()}} (\verb{sp$<oc>$coef}).}
 
-\item{term}{Character. Coefficient name (must be in
-\code{colnames(block$beta_by_draw)}).}
+\item{term}{Character.  Name of the coefficient to override; must be in
+\code{colnames(block$beta_by_draw)}.  Use \verb{colnames(sp$<oc>$coef$beta_by_draw)}
+or inspect \code{block$estimates} to see valid names.}
 
-\item{value}{Override specification or \code{NULL} to clear.}
+\item{value}{Override specification: a scalar, a length-\code{horizon} numeric
+vector, a \verb{function(h, beta_hat)}, or \code{NULL} to clear.}
 }
 \value{
-The modified \code{endogenr_coef_param} block.
+The same \code{endogenr_coef_param} block with \code{overrides[[term]]} and
+\code{effective[[term]]} updated (or removed when \code{value = NULL}).
 }
 \description{
-Bakes overridden coefficient trajectories into the coef block, replacing
-the per-draw fitted estimate for the named term at every forecast step.
-\code{value} may be:
-\itemize{
-\item A \strong{scalar} — constant across all draws and forecast steps.
-\item A \strong{length-\code{horizon} numeric vector} — per-step, same across draws.
-\item A \strong{\verb{function(h, beta_hat)}} — returns the override β* at step \code{h}
-given the per-draw fitted estimate \code{beta_hat}.
+Bakes a per-draw, per-step coefficient override into the \code{coef} block of a
+\code{\link[=setup_param]{setup_param()}} result, replacing the fitted estimate for the named term
+with a user-specified value.  The effective value at each forecast step and
+outer draw is resolved immediately and stored in \code{block$effective[[term]]}
+as an \verb{nsim × horizon} matrix, so the override is inspectable before
+\code{\link[=simulate_system]{simulate_system()}} is called.
 }
-Pass \code{value = NULL} to clear a previously applied override.
+\section{Override forms}{
+
+\describe{
+\item{Scalar (\code{value} is a single number)}{The same constant replaces
+\code{beta_hat} for every draw and every forecast step.  Useful for pinning a
+coefficient to zero or to a theory-driven value.}
+\item{Length-\code{horizon} numeric vector}{A different value is used at each
+forecast step (same across draws).  Useful for specifying a step-by-step
+trajectory for the coefficient.}
+\item{Function \verb{function(h, beta_hat)}}{Called once per \verb{(draw, step)}
+pair with the forecast step index \code{h} (\verb{1..horizon}) and the per-draw
+fitted estimate \code{beta_hat}.  Use this form to express the override
+relative to each draw's own fitted value, e.g.
+\code{function(h, beta_hat) beta_hat * 0.5} halves the coefficient in every
+draw independently.  The function must return a single finite number.}
+\item{\code{NULL}}{Clears a previously applied override, restoring the
+per-draw fitted estimates.}
 }
-\details{
-Overrides are only supported for \code{linear} models; calling this on a
-non-linear block errors immediately.
+}
+
+\section{Supported models}{
+
+Overrides are only supported for \code{linear} models (\code{block$linear == TRUE}).
+Calling \code{coef_override()} on a \code{glm}, \code{gamlss}, or other non-linear
+block errors immediately with a clear message.  Check \code{block$linear} first
+if the model type is uncertain.
+}
+
+\examples{
+\dontrun{
+# Build a simple AR(1) + Mundlak means model
+dt <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 1L)
+dt[, m_x := hist_mean(x), by = unit]
+sys <- setup_system(
+  c(list(build_model("exogen", formula = ~x)),
+    mundlak_means("x"),
+    list(build_model("linear", formula = y ~ lag(y) + m_x))),
+  data = dt, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 2L
+)
+fit <- fit_system(sys, nsim = 4L)
+sp  <- setup_param(fit)
+
+# 1. Scalar override — pin the m_x coefficient to zero for all trajectories
+sp$y$coef <- coef_override(sp$y$coef, "m_x", 0)
+sp$y$coef$effective$m_x   # 4 x 4 matrix of zeros
+
+# 2. Vector override — ramp the m_x coefficient up across the horizon
+sp$y$coef <- coef_override(sp$y$coef, "m_x", c(0.2, 0.4, 0.6, 0.8))
+sp$y$coef$effective$m_x[1, ]  # draw 1: 0.2, 0.4, 0.6, 0.8
+
+# 3. Function override — halve each draw's own fitted coefficient
+sp$y$coef <- coef_override(sp$y$coef, "m_x",
+                            function(h, beta_hat) beta_hat * 0.5)
+# effective$m_x differs across rows (draws) but is 0.5 * beta_hat for each
+
+# 4. Function override — decay the AR coefficient by h/(H+1) each step
+sp$y$coef <- coef_override(
+  sp$y$coef, "lag_y",
+  function(h, beta_hat) beta_hat * (1 - h / (sp$y$coef$dims$horizon + 1))
+)
+
+# 5. Clear the override (restores per-draw fitted estimates)
+sp$y$coef <- coef_override(sp$y$coef, "m_x", NULL)
+is.null(sp$y$coef$effective$m_x)  # TRUE
+
+# Simulate with the active override
+sp$y$coef <- coef_override(sp$y$coef, "m_x", 0)
+res <- simulate_system(fit, scenario_params = sp)
+}
 }
 \seealso{
+\code{\link[=setup_param]{setup_param()}}, \code{\link[=simulate_system]{simulate_system()}}
+
 Other simulation:
 \code{\link[=draw_predictive]{draw_predictive()}},
 \code{\link[=fe_converge]{fe_converge()}},

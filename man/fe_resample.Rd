@@ -16,35 +16,104 @@ fe_resample(
 \arguments{
 \item{block}{An \code{endogenr_fe_param} from \code{\link[=setup_param]{setup_param()}}.}
 
-\item{to}{Convergence target after the resample baseline: \code{NULL} (no
-convergence), a numeric scalar, \code{"zero"}, \code{"mean"}, or a character vector
-of unit ids whose mean effect is the target.}
+\item{to}{Convergence target: \code{NULL} (no convergence), a numeric scalar,
+\code{"zero"}, \code{"mean"} (mean of all estimated effects), or a character vector
+of unit ids whose mean effect is used.}
 
-\item{factor}{Divergence/shrink multiplier applied along \code{path} when \code{to}
-is \code{NULL} (default \code{1} = no change; \verb{> 1} diverge; \verb{< 1} shrink).}
+\item{factor}{Multiplicative scale applied along \code{path} when \code{to = NULL}
+(default \code{1} = no scaling; \verb{> 1} diverge; \verb{< 1} shrink).}
 
-\item{path}{Movement path: \code{"constant"} (default, no movement),
-\code{"linear"}, or \code{"sigmoid"}.}
+\item{path}{Shape of the movement toward \code{to} or along \code{factor}:
+\code{"constant"} (default, no movement), \code{"linear"}, or \code{"sigmoid"}.}
 
-\item{mid}{Sigmoid inflection step (default: midpoint of the horizon).}
+\item{mid}{Sigmoid inflection step index (default: midpoint of the horizon).}
 
-\item{steep}{Sigmoid steepness (default \code{1}).}
+\item{steep}{Sigmoid steepness parameter (default \code{1}; larger = sharper
+transition).}
 }
 \value{
-The modified \code{endogenr_fe_param} block with updated \code{values},
-\code{active}, and \code{heuristic}.
+The same \code{endogenr_fe_param} block with \code{values}, \code{active = TRUE},
+and \code{heuristic} updated.  Replace the block in the \code{setup_param()} result
+and pass to \code{\link[=simulate_system]{simulate_system()}}.
 }
 \description{
-Re-bakes the FE block's \code{values} by sampling with replacement from the
-per-draw estimated effects, independently for every \verb{(inner_sim, step)}.
-This is the \strong{default strategy for time fixed effects}.
+Re-bakes an FE block's \code{values} array by sampling with replacement from the
+per-draw pool of estimated effects, drawing independently for every
+\verb{(outer draw, inner sim, forecast step)} combination.  This is the
+\strong{default strategy applied to time fixed effects} by \code{\link[=setup_param]{setup_param()}}.
 }
-\details{
-For unit FE, this produces a full
-\code{c(n_units, nsim, inner_sims, horizon)} array (\code{per_trajectory = TRUE});
-be aware of the memory cost for large panels.
+\section{Baked array shapes}{
+
+\describe{
+\item{Time FE (\code{kind = "time"})}{\code{dim = c(nsim, inner_sims, horizon)}.
+Each cell is one independent resample from the estimated year effects of
+that outer draw.}
+\item{Unit FE (\code{kind = "unit"})}{\code{dim = c(n_units, nsim, inner_sims, horizon)}, \code{attr(values, "per_trajectory") = TRUE}.  Each cell is an
+independent draw from the pooled effects, assigned per unit × trajectory
+combination.  The full 4-D array can be memory-intensive for large panels;
+consider \code{\link[=fe_persist]{fe_persist()}} or \code{\link[=fe_converge]{fe_converge()}} for deterministic alternatives.}
+}
+}
+
+\section{Path and target mechanics}{
+
+All FE helpers share a common framework for gradually moving the baseline
+toward a target or scaling it over the forecast horizon.  A weight vector
+\code{w[h]} in \verb{[0, 1]} is computed from \code{path}:
+\describe{
+\item{\code{"constant"} (default)}{\code{w[h] = 0} for all steps — the baseline is
+returned unchanged.}
+\item{\code{"linear"}}{\code{w[h] = h / H}; reaches 1 at the final step.}
+\item{\code{"sigmoid"}}{S-curve anchored at 0 and 1, inflecting at step \code{mid}
+(default midpoint) with steepness \code{steep}.}
+}
+The weight is applied differently depending on whether \code{to} is set:
+\itemize{
+\item \strong{\code{to} is non-\code{NULL}}: offset at step \code{h} =
+\code{(1 - w[h]) * baseline + w[h] * target}.
+\item \strong{\code{to = NULL}, \code{factor != 1}}: offset at step \code{h} =
+\code{baseline * (1 + (factor - 1) * w[h])}.  A \code{factor > 1} diverges
+(amplifies effects over time); \code{factor < 1} shrinks them.
+\item \strong{All defaults} (\code{to = NULL}, \code{factor = 1},
+\code{path = "constant"}): \code{w = 0} everywhere → offsets equal the resampled
+baseline at every step.
+}
+}
+
+\examples{
+\dontrun{
+# -- Shared setup (reused in all FE-helper examples) ----------------------
+dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 1L)
+sys <- setup_system(
+  list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+  data = dt, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 3L
+)
+fit <- fit_system(sys, nsim = 5L)
+set.seed(1); sp <- setup_param(fit)  # already uses fe_resample by default
+blk <- sp$y$time_fe
+dim(blk$values)       # c(5, 3, 4) = c(nsim, inner_sims, horizon)
+
+# Re-bake with a fresh seed (e.g. to change RNG state)
+set.seed(42)
+sp$y$time_fe <- fe_resample(blk)
+res <- simulate_system(fit, scenario_params = sp)
+
+# Resample baseline that converges linearly toward 0 over the horizon
+set.seed(42)
+sp$y$time_fe <- fe_resample(blk, to = 0, path = "linear")
+# At step 1 the offset is ~the resampled value; at step 4 it is 0.
+round(sp$y$time_fe$values[1, 1, ], 3)   # monotonically shrinking
+
+# Amplify (diverge) the time-FE variance over the horizon by factor 2
+set.seed(42)
+sp$y$time_fe <- fe_resample(blk, factor = 2, path = "linear")
+}
 }
 \seealso{
+\code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=fe_persist]{fe_persist()}}, \code{\link[=fe_converge]{fe_converge()}},
+\code{\link[=setup_param]{setup_param()}}, \code{\link[=simulate_system]{simulate_system()}}
+
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},

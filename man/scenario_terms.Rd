@@ -16,15 +16,44 @@ scenario_terms(model)
 \item{model}{A fitted endogenr model object.}
 }
 \value{
-A list with elements \code{time_fe} and \code{unit_fe} (each a metadata list
-or \code{NULL}).
+A list with two elements:
+\describe{
+\item{\code{time_fe}}{Named list with \code{term}, \code{timevar}, \code{ref_value},
+\code{effects} (named numeric; baseline level = 0), or \code{NULL}.}
+\item{\code{unit_fe}}{Named list with \code{term}, \code{unitvar}, \code{ref_value},
+\code{effects} (named numeric; reference unit = 0), or \code{NULL}.}
+}
 }
 \description{
 Returns a list with elements \code{time_fe} and \code{unit_fe}, each either a
-metadata list or \code{NULL}. This is the per-model-type extension seam consumed
-by \code{\link[=setup_param]{setup_param()}}. Currently only \code{linear} models carry FE metadata; all
-other types return \code{NULL} for both elements via the default method. Add
-support for additional types by implementing \verb{scenario_terms.<class>}.
+metadata list (produced at fit time by \code{.detect_time_fe} /
+\code{.detect_unit_fe}) or \code{NULL} when the corresponding fixed effect is absent
+from the formula.
+}
+\details{
+This is the per-model-type extension seam consumed by \code{\link[=setup_param]{setup_param()}}.
+Currently only \code{linear} models carry FE metadata; all other types return
+\code{NULL} for both elements via the default method.  To add support for a new
+model type, implement \verb{scenario_terms.<class>} returning the same list
+shape.
+}
+\examples{
+\dontrun{
+dt  <- sim_panel_common_shock(units = 6L, n_time = 20L, seed = 1L)
+sys <- setup_system(
+  list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+  data = dt, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 2L
+)
+fit <- fit_system(sys, nsim = 2L)
+
+# Access time-FE metadata from the representative fitted model
+model <- fit$fitted_models[[1L]]
+st    <- scenario_terms(model)
+st$time_fe$term      # "factor(time)"
+st$time_fe$effects   # named numeric: year -> estimated offset
+st$unit_fe           # NULL (no factor(unit) in formula)
+}
 }
 \seealso{
 Other simulation:

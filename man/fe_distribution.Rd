@@ -18,35 +18,75 @@ fe_distribution(
 \arguments{
 \item{block}{An \code{endogenr_fe_param} from \code{\link[=setup_param]{setup_param()}}.}
 
-\item{mean}{Optional scalar mean override (default: per-draw mean of
-estimated effects).}
+\item{mean}{Scalar mean of the Normal distribution (default: per-draw mean
+of \code{effects_by_draw}, so it adapts to each bootstrap draw).}
 
-\item{sd}{Optional scalar sd override (default: per-draw sd of estimated
-effects).}
+\item{sd}{Scalar standard deviation of the Normal distribution (default:
+per-draw sd of \code{effects_by_draw}).  Set to a small value (e.g. \code{0}) to
+produce near-constant offsets while keeping the Normal draw machinery.}
 
-\item{to}{Convergence target after the resample baseline: \code{NULL} (no
-convergence), a numeric scalar, \code{"zero"}, \code{"mean"}, or a character vector
-of unit ids whose mean effect is the target.}
+\item{to}{Convergence target: \code{NULL} (no convergence), a numeric scalar,
+\code{"zero"}, \code{"mean"} (mean of all estimated effects), or a character vector
+of unit ids whose mean effect is used.}
 
-\item{factor}{Divergence/shrink multiplier applied along \code{path} when \code{to}
-is \code{NULL} (default \code{1} = no change; \verb{> 1} diverge; \verb{< 1} shrink).}
+\item{factor}{Multiplicative scale applied along \code{path} when \code{to = NULL}
+(default \code{1} = no scaling; \verb{> 1} diverge; \verb{< 1} shrink).}
 
-\item{path}{Movement path: \code{"constant"} (default, no movement),
-\code{"linear"}, or \code{"sigmoid"}.}
+\item{path}{Shape of the movement toward \code{to} or along \code{factor}:
+\code{"constant"} (default, no movement), \code{"linear"}, or \code{"sigmoid"}.}
 
-\item{mid}{Sigmoid inflection step (default: midpoint of the horizon).}
+\item{mid}{Sigmoid inflection step index (default: midpoint of the horizon).}
 
-\item{steep}{Sigmoid steepness (default \code{1}).}
+\item{steep}{Sigmoid steepness parameter (default \code{1}; larger = sharper
+transition).}
 }
 \value{
-The modified \code{endogenr_fe_param} block.
+The same \code{endogenr_fe_param} block with \code{values}, \code{active = TRUE},
+and \code{heuristic} updated.
 }
 \description{
-Re-bakes the FE block's \code{values} by drawing from a Normal distribution with
-per-draw mean and sd estimated from \code{effects_by_draw}, independently for
-every \verb{(inner_sim, step)}.
+Re-bakes an FE block's \code{values} by drawing i.i.d. Normal offsets,
+independently for every \verb{(outer draw, inner sim, forecast step)}.  The
+distribution parameters default to the per-draw mean and sd of the estimated
+effects, so the spread is calibrated to the model's own historical variation.
+Fix \code{mean} and/or \code{sd} to impose a specific distribution.
+}
+\section{When to use instead of fe_resample()}{
+
+\code{\link[=fe_resample]{fe_resample()}} draws directly from the discrete pool of estimated year
+effects; \code{\link[=fe_distribution]{fe_distribution()}} draws from a fitted Normal, which smooths out
+discreteness and allows the support to extend beyond the observed range.  Use
+\code{fe_distribution()} when you want to widen or narrow the spread (via \code{sd})
+or shift the center (via \code{mean}) relative to historical estimates, or when
+the pool of estimated levels is too small to resample from reliably.
+}
+
+\examples{
+\dontrun{
+# (Reuse 'fit' and 'sp' from the fe_resample() example)
+blk <- sp$y$time_fe
+
+# Default: Normal with per-draw mean and sd from estimated year effects
+set.seed(42)
+sp$y$time_fe <- fe_distribution(blk)
+res_norm <- simulate_system(fit, scenario_params = sp)
+
+# Narrow the spread to 1/10 of the estimated sd (near-deterministic mean)
+set.seed(42)
+sp$y$time_fe <- fe_distribution(blk, sd = 0.01)
+
+# Fix both mean and sd: offsets drawn from N(0, 0.5) for all trajectories
+set.seed(42)
+sp$y$time_fe <- fe_distribution(blk, mean = 0, sd = 0.5)
+
+# Combine with path: Normal baseline converging to zero over the horizon
+set.seed(42)
+sp$y$time_fe <- fe_distribution(blk, sd = 0.5, to = 0, path = "linear")
+}
 }
 \seealso{
+\code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=fe_converge]{fe_converge()}}, \code{\link[=setup_param]{setup_param()}}
+
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},

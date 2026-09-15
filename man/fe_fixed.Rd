@@ -17,31 +17,81 @@ fe_fixed(
 \arguments{
 \item{block}{An \code{endogenr_fe_param} from \code{\link[=setup_param]{setup_param()}}.}
 
-\item{value}{Numeric scalar baseline (default \code{0}).}
+\item{value}{Numeric scalar offset applied to all trajectories and steps
+(default \code{0}).}
 
-\item{to}{Convergence target after the resample baseline: \code{NULL} (no
-convergence), a numeric scalar, \code{"zero"}, \code{"mean"}, or a character vector
-of unit ids whose mean effect is the target.}
+\item{to}{Convergence target: \code{NULL} (no convergence), a numeric scalar,
+\code{"zero"}, \code{"mean"} (mean of all estimated effects), or a character vector
+of unit ids whose mean effect is used.}
 
-\item{factor}{Divergence/shrink multiplier applied along \code{path} when \code{to}
-is \code{NULL} (default \code{1} = no change; \verb{> 1} diverge; \verb{< 1} shrink).}
+\item{factor}{Multiplicative scale applied along \code{path} when \code{to = NULL}
+(default \code{1} = no scaling; \verb{> 1} diverge; \verb{< 1} shrink).}
 
-\item{path}{Movement path: \code{"constant"} (default, no movement),
-\code{"linear"}, or \code{"sigmoid"}.}
+\item{path}{Shape of the movement toward \code{to} or along \code{factor}:
+\code{"constant"} (default, no movement), \code{"linear"}, or \code{"sigmoid"}.}
 
-\item{mid}{Sigmoid inflection step (default: midpoint of the horizon).}
+\item{mid}{Sigmoid inflection step index (default: midpoint of the horizon).}
 
-\item{steep}{Sigmoid steepness (default \code{1}).}
+\item{steep}{Sigmoid steepness parameter (default \code{1}; larger = sharper
+transition).}
 }
 \value{
-The modified \code{endogenr_fe_param} block.
+The same \code{endogenr_fe_param} block with \code{values}, \code{active = TRUE},
+and \code{heuristic} updated.
 }
 \description{
-Re-bakes the FE block's \code{values} with a deterministic constant baseline.
-The array is shaped \code{c(nsim, inner_sims, horizon)} for time FE and
-\code{c(n_units, horizon)} for unit FE, preserving the uniform consumer contract.
+Re-bakes an FE block's \code{values} with a single deterministic constant.
+Every trajectory receives the same offset at every step (unless combined with
+\code{to} or \code{factor} + \code{path} to ramp it).  This completely removes
+between-trajectory variance from the FE channel, making it useful as a
+controlled baseline for sensitivity analysis.
+}
+\details{
+The \code{values} array is always shaped \code{c(nsim, inner_sims, horizon)} for time
+FE and \code{c(n_units, horizon)} for unit FE, preserving the same consumer
+contract as the stochastic strategies.
+}
+\section{Common uses}{
+
+\describe{
+\item{Null scenario}{\code{fe_fixed(blk, value = 0)} removes the time-FE
+contribution entirely, isolating the effect of other predictors.}
+\item{Mean scenario}{\code{fe_fixed(blk, value = mean(blk$effects))} fixes the
+offset at the historical cross-year average for all trajectories.}
+\item{Ramp to zero}{\code{fe_fixed(blk, value = mean(blk$effects), to = 0, path = "linear")} starts at the historical mean and linearly reaches 0 by
+the final forecast step.}
+}
+}
+
+\examples{
+\dontrun{
+# (Reuse 'fit' and 'sp' from the fe_resample() example)
+blk <- sp$y$time_fe
+
+# Zero out the time-FE offset for all trajectories (null scenario)
+sp$y$time_fe <- fe_fixed(blk, value = 0)
+res_null <- simulate_system(fit, scenario_params = sp)
+
+# Fix at the historical mean offset (single deterministic trajectory)
+sp$y$time_fe <- fe_fixed(blk, value = mean(blk$effects))
+
+# Start at the mean and linearly ramp toward 0 (e.g. "fading shock")
+sp$y$time_fe <- fe_fixed(blk, value = mean(blk$effects),
+                          to = 0, path = "linear")
+round(sp$y$time_fe$values[1, 1, ], 3)   # decreasing sequence
+
+# Compare ensemble variance: resample vs fixed zero
+set.seed(1); sp_rs  <- setup_param(fit)   # default fe_resample
+sp_fix <- setup_param(fit)
+sp_fix$y$time_fe <- fe_fixed(sp_fix$y$time_fe, value = 0)
+set.seed(1); res_rs  <- simulate_system(fit)
+set.seed(1); res_fix <- simulate_system(fit, scenario_params = sp_fix)
+# res_rs has larger cross-trajectory variance in forecast years
+}
 }
 \seealso{
+\code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_converge]{fe_converge()}}, \code{\link[=setup_param]{setup_param()}}
+
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},

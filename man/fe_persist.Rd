@@ -14,34 +14,84 @@ fe_persist(
 )
 }
 \arguments{
-\item{block}{An \code{endogenr_fe_param} with \code{kind == "unit"}.}
+\item{block}{An \code{endogenr_fe_param} with \code{kind == "unit"} from
+\code{\link[=setup_param]{setup_param()}}.}
 
-\item{to}{Convergence target after the resample baseline: \code{NULL} (no
-convergence), a numeric scalar, \code{"zero"}, \code{"mean"}, or a character vector
-of unit ids whose mean effect is the target.}
+\item{to}{Convergence target: \code{NULL} (no convergence), a numeric scalar,
+\code{"zero"}, \code{"mean"} (mean of all estimated effects), or a character vector
+of unit ids whose mean effect is used.}
 
-\item{factor}{Divergence/shrink multiplier applied along \code{path} when \code{to}
-is \code{NULL} (default \code{1} = no change; \verb{> 1} diverge; \verb{< 1} shrink).}
+\item{factor}{Multiplicative scale applied along \code{path} when \code{to = NULL}
+(default \code{1} = no scaling; \verb{> 1} diverge; \verb{< 1} shrink).}
 
-\item{path}{Movement path: \code{"constant"} (default, no movement),
-\code{"linear"}, or \code{"sigmoid"}.}
+\item{path}{Shape of the movement toward \code{to} or along \code{factor}:
+\code{"constant"} (default, no movement), \code{"linear"}, or \code{"sigmoid"}.}
 
-\item{mid}{Sigmoid inflection step (default: midpoint of the horizon).}
+\item{mid}{Sigmoid inflection step index (default: midpoint of the horizon).}
 
-\item{steep}{Sigmoid steepness (default \code{1}).}
+\item{steep}{Sigmoid steepness parameter (default \code{1}; larger = sharper
+transition).}
 }
 \value{
-The modified \code{endogenr_fe_param} block (\code{active = FALSE} under all
-defaults; \code{active = TRUE} when any non-default argument is supplied).
+The same \code{endogenr_fe_param} block with \code{values} (\code{c(n_units, horizon)}, \code{per_trajectory = FALSE}), \code{active} (\code{FALSE} under all defaults,
+\code{TRUE} otherwise), and \code{heuristic} updated.
 }
 \description{
-Sets each simulation unit's fixed-effect offset to its historically
-estimated value, optionally converging toward a target. With all defaults
-(\code{to = NULL}, \code{factor = 1}, \code{path = "constant"}), \code{active = FALSE} and
-\code{factor(unit)} stays in the design matrix \strong{unchanged} — identical to
-today's behaviour with no scenario modification.
+The \strong{default strategy for unit fixed effects} applied by \code{\link[=setup_param]{setup_param()}}.
+Each simulation unit's offset is set to its historically estimated effect
+and held constant across the horizon.
+}
+\details{
+With all defaults (\code{to = NULL}, \code{factor = 1}, \code{path = "constant"}),
+\code{active = FALSE} is set on the block, which means \code{factor(unit)} stays in
+the design matrix \strong{completely unchanged} — unit dummies contribute their
+normal contrast at predict time and no explicit offset array is added.  This
+is identical to running without any scenario parameter at all.
+
+Pass any non-default \code{to}, \code{factor}, or \code{path} to activate the block
+(\code{active = TRUE}) and apply a path-shaped adjustment on top of each unit's
+historical baseline.  For a simple convergence-to-zero use \code{\link[=fe_converge]{fe_converge()}}.
+}
+\section{Active flag and design matrix}{
+
+When \code{active = FALSE} (the default), \code{predict.linear} keeps \code{factor(unit)}
+live in the design matrix and adds nothing extra.  When \code{active = TRUE}, the
+unit column is neutralised to the reference level in the prediction frame
+(zeroing out the factor contrast) and the baked \code{values} matrix — shaped
+\code{c(n_units, horizon)} — is added row-by-row.  This lets you override or
+fade the cross-sectional intercepts explicitly.
+}
+
+\examples{
+\dontrun{
+# Build a unit-FE model
+dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 1L)
+sys <- setup_system(
+  list(build_model("exogen", formula = ~x),
+       build_model("linear", formula = y ~ lag(y) + x + factor(unit))),
+  data = dt, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 2L
+)
+fit <- fit_system(sys, nsim = 4L)
+sp  <- setup_param(fit)
+
+# Default: active = FALSE — factor(unit) in design, no offset override
+sp$y$unit_fe$active   # FALSE
+sp$y$unit_fe$values   # c(n_units, horizon) of historical effects (for reference)
+
+# Explicit persist (identity, same as default)
+sp$y$unit_fe <- fe_persist(sp$y$unit_fe)
+sp$y$unit_fe$active   # still FALSE
+
+# Shrink unit effects to 50\% of historical values linearly across the horizon
+sp$y$unit_fe <- fe_persist(sp$y$unit_fe, factor = 0.5, path = "linear")
+sp$y$unit_fe$active   # TRUE
+res <- simulate_system(fit, scenario_params = sp)
+}
 }
 \seealso{
+\code{\link[=fe_converge]{fe_converge()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=setup_param]{setup_param()}}
+
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},

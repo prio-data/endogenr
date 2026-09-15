@@ -9,27 +9,109 @@ fe_converge(block, to, path = "linear", mid = NULL, steep = 1)
 \arguments{
 \item{block}{An \code{endogenr_fe_param} from \code{\link[=setup_param]{setup_param()}}.}
 
-\item{to}{Convergence target (required): numeric scalar, \code{"zero"},
-\code{"mean"}, or a character vector of unit ids whose mean effect is the
-target.}
+\item{to}{Convergence target (required).  See Target specification above.}
 
-\item{path}{\code{"linear"} (default), \code{"constant"}, or \code{"sigmoid"}.}
+\item{path}{Shape of the convergence: \code{"linear"} (default — reaches \code{to}
+exactly at the final forecast step), \code{"constant"} (jump immediately to
+\code{to} at every step — equivalent to \code{fe_fixed(value = to)}), or
+\code{"sigmoid"} (S-curve transition).}
 
 \item{mid}{Sigmoid inflection step (default: midpoint of the horizon).}
 
-\item{steep}{Sigmoid steepness (default \code{1}).}
+\item{steep}{Sigmoid steepness (default \code{1}; larger = sharper transition).}
 }
 \value{
-The modified \code{endogenr_fe_param} block with \code{active = TRUE}.
+The same \code{endogenr_fe_param} block with \code{values}, \code{active = TRUE},
+and \code{heuristic} updated.
 }
 \description{
-Sugar over the path mechanics: applies a path-shaped convergence toward
-\code{to} from the block's natural baseline. For unit FE the baseline per unit
-is its historically estimated effect. For time FE a single resample draw per
-trajectory is held constant across steps (so trajectories vary but each one
-is internally consistent).
+Convenience wrapper that applies a path-shaped convergence from the block's
+natural baseline toward \code{to}.  This is the recommended helper when you want
+to neutralise fixed effects over the forecast horizon — e.g. letting unit
+intercepts or time shocks fade toward zero, the cross-unit mean, or a
+specific historical unit's level.
+}
+\section{Baseline per kind}{
+
+\describe{
+\item{Unit FE (\code{kind = "unit"})}{Each unit's baseline is its own
+historically estimated effect (same as \code{\link[=fe_persist]{fe_persist()}}).  The convergence
+is deterministic: \code{values} is \code{c(n_units, horizon)},
+\code{per_trajectory = FALSE}.  All units converge at the same rate but from
+different starting points, so cross-sectional variation in intercepts
+persists early in the horizon and compresses toward the target late.}
+\item{Time FE (\code{kind = "time"})}{A single effect is drawn per
+\verb{(outer draw, inner sim)} from the per-draw pool and held constant
+across steps as the baseline (unlike \code{\link[=fe_resample]{fe_resample()}}, which draws
+independently at every step).  This keeps each trajectory internally
+consistent while still varying across trajectories.  The drawn baseline
+then converges to \code{to} along \code{path}.}
+}
+}
+
+\section{Target specification (\code{to})}{
+
+\describe{
+\item{Numeric scalar}{Converge to that specific value (e.g. \code{0}).}
+\item{\code{"zero"}}{Synonym for \code{to = 0}.}
+\item{\code{"mean"}}{Converge to the mean of all estimated effects
+(\code{mean(block$effects)}).}
+\item{Character vector of unit ids}{Converge to the mean effect of those
+specific units — useful for anchoring a counterfactual to a reference
+group's historical intercept level.}
+}
+}
+
+\examples{
+\dontrun{
+# ── Time FE: convergence toward zero ──────────────────────────────────────
+# (Reuse 'fit' and 'sp' from the fe_resample() example)
+blk <- sp$y$time_fe
+
+# Linear convergence: offsets start at the per-trajectory draw and reach 0
+# at the last forecast step
+set.seed(42)
+sp$y$time_fe <- fe_converge(blk, to = 0, path = "linear")
+mean(abs(sp$y$time_fe$values[,, 1]))  # large
+mean(abs(sp$y$time_fe$values[,, 4]))  # near 0
+
+# Sigmoid convergence (slow start, fast middle, slow end)
+set.seed(42)
+sp$y$time_fe <- fe_converge(blk, to = 0, path = "sigmoid", steep = 2)
+
+# Converge to the cross-year mean rather than zero
+set.seed(42)
+sp$y$time_fe <- fe_converge(blk, to = "mean", path = "linear")
+res <- simulate_system(fit, scenario_params = sp)
+
+# ── Unit FE: fade intercepts toward zero ─────────────────────────────────
+dt2  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 2L)
+sys2 <- setup_system(
+  list(build_model("exogen", formula = ~x),
+       build_model("linear", formula = y ~ lag(y) + x + factor(unit))),
+  data = dt2, train_start = 1, test_start = 16, horizon = 4,
+  groupvar = "unit", timevar = "time", inner_sims = 2L
+)
+fit2 <- fit_system(sys2, nsim = 4L)
+sp2  <- setup_param(fit2)
+
+# Converge each unit's historical intercept to zero over the horizon
+sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = 0, path = "linear")
+sp2$y$unit_fe$active  # TRUE
+
+# Converge toward the mean cross-sectional intercept
+sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = "mean")
+
+# Converge toward the mean effect of specific reference units
+ref_units <- as.character(unique(dt2$unit)[1:2])
+sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = ref_units)
+res2 <- simulate_system(fit2, scenario_params = sp2)
+}
 }
 \seealso{
+\code{\link[=fe_persist]{fe_persist()}}, \code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=setup_param]{setup_param()}},
+\code{\link[=simulate_system]{simulate_system()}}
+
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
