@@ -132,16 +132,46 @@
 #' Retrieve fixed-effect metadata for scenario construction
 #'
 #' Returns a list with elements `time_fe` and `unit_fe`, each either a
-#' metadata list or `NULL`. This is the per-model-type extension seam consumed
-#' by [setup_param()]. Currently only `linear` models carry FE metadata; all
-#' other types return `NULL` for both elements via the default method. Add
-#' support for additional types by implementing `scenario_terms.<class>`.
+#' metadata list (produced at fit time by `.detect_time_fe` /
+#' `.detect_unit_fe`) or `NULL` when the corresponding fixed effect is absent
+#' from the formula.
+#'
+#' This is the per-model-type extension seam consumed by [setup_param()].
+#' Currently only `linear` models carry FE metadata; all other types return
+#' `NULL` for both elements via the default method.  To add support for a new
+#' model type, implement `scenario_terms.<class>` returning the same list
+#' shape.
 #'
 #' @param model A fitted endogenr model object.
-#' @return A list with elements `time_fe` and `unit_fe` (each a metadata list
-#'   or `NULL`).
+#'
+#' @return A list with two elements:
+#' \describe{
+#'   \item{`time_fe`}{Named list with `term`, `timevar`, `ref_value`,
+#'     `effects` (named numeric; baseline level = 0), or `NULL`.}
+#'   \item{`unit_fe`}{Named list with `term`, `unitvar`, `ref_value`,
+#'     `effects` (named numeric; reference unit = 0), or `NULL`.}
+#' }
+#'
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' dt  <- sim_panel_common_shock(units = 6L, n_time = 20L, seed = 1L)
+#' sys <- setup_system(
+#'   list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+#'   data = dt, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 2L
+#' )
+#' fit <- fit_system(sys, nsim = 2L)
+#'
+#' # Access time-FE metadata from the representative fitted model
+#' model <- fit$fitted_models[[1L]]
+#' st    <- scenario_terms(model)
+#' st$time_fe$term      # "factor(time)"
+#' st$time_fe$effects   # named numeric: year -> estimated offset
+#' st$unit_fe           # NULL (no factor(unit) in formula)
+#' }
 scenario_terms <- function(model) UseMethod("scenario_terms")
 
 #' @rdname scenario_terms
@@ -201,29 +231,95 @@ scenario_terms.linear <- function(model) {
 
 #' Fixed-effect heuristic: resample from estimated effects
 #'
-#' Re-bakes the FE block's `values` by sampling with replacement from the
-#' per-draw estimated effects, independently for every `(inner_sim, step)`.
-#' This is the **default strategy for time fixed effects**.
+#' Re-bakes an FE block's `values` array by sampling with replacement from the
+#' per-draw pool of estimated effects, drawing independently for every
+#' `(outer draw, inner sim, forecast step)` combination.  This is the
+#' **default strategy applied to time fixed effects** by [setup_param()].
 #'
-#' For unit FE, this produces a full
-#' `c(n_units, nsim, inner_sims, horizon)` array (`per_trajectory = TRUE`);
-#' be aware of the memory cost for large panels.
+#' @section Baked array shapes:
+#' \describe{
+#'   \item{Time FE (`kind = "time"`)}{`dim = c(nsim, inner_sims, horizon)`.
+#'     Each cell is one independent resample from the estimated year effects of
+#'     that outer draw.}
+#'   \item{Unit FE (`kind = "unit"`)}{`dim = c(n_units, nsim, inner_sims,
+#'     horizon)`, `attr(values, "per_trajectory") = TRUE`.  Each cell is an
+#'     independent draw from the pooled effects, assigned per unit × trajectory
+#'     combination.  The full 4-D array can be memory-intensive for large panels;
+#'     consider [fe_persist()] or [fe_converge()] for deterministic alternatives.}
+#' }
+#'
+#' @section Path and target mechanics:
+#' All FE helpers share a common framework for gradually moving the baseline
+#' toward a target or scaling it over the forecast horizon.  A weight vector
+#' `w[h]` in `[0, 1]` is computed from `path`:
+#' \describe{
+#'   \item{`"constant"` (default)}{`w[h] = 0` for all steps — the baseline is
+#'     returned unchanged.}
+#'   \item{`"linear"`}{`w[h] = h / H`; reaches 1 at the final step.}
+#'   \item{`"sigmoid"`}{S-curve anchored at 0 and 1, inflecting at step `mid`
+#'     (default midpoint) with steepness `steep`.}
+#' }
+#' The weight is applied differently depending on whether `to` is set:
+#' \itemize{
+#'   \item \strong{`to` is non-`NULL`}: offset at step `h` =
+#'     `(1 - w[h]) * baseline + w[h] * target`.
+#'   \item \strong{`to = NULL`, `factor != 1`}: offset at step `h` =
+#'     `baseline * (1 + (factor - 1) * w[h])`.  A `factor > 1` diverges
+#'     (amplifies effects over time); `factor < 1` shrinks them.
+#'   \item \strong{All defaults} (`to = NULL`, `factor = 1`,
+#'     `path = "constant"`): `w = 0` everywhere → offsets equal the resampled
+#'     baseline at every step.
+#' }
 #'
 #' @param block An `endogenr_fe_param` from [setup_param()].
-#' @param to Convergence target after the resample baseline: `NULL` (no
-#'   convergence), a numeric scalar, `"zero"`, `"mean"`, or a character vector
-#'   of unit ids whose mean effect is the target.
-#' @param factor Divergence/shrink multiplier applied along `path` when `to`
-#'   is `NULL` (default `1` = no change; `> 1` diverge; `< 1` shrink).
-#' @param path Movement path: `"constant"` (default, no movement),
-#'   `"linear"`, or `"sigmoid"`.
-#' @param mid Sigmoid inflection step (default: midpoint of the horizon).
-#' @param steep Sigmoid steepness (default `1`).
+#' @param to Convergence target: `NULL` (no convergence), a numeric scalar,
+#'   `"zero"`, `"mean"` (mean of all estimated effects), or a character vector
+#'   of unit ids whose mean effect is used.
+#' @param factor Multiplicative scale applied along `path` when `to = NULL`
+#'   (default `1` = no scaling; `> 1` diverge; `< 1` shrink).
+#' @param path Shape of the movement toward `to` or along `factor`:
+#'   `"constant"` (default, no movement), `"linear"`, or `"sigmoid"`.
+#' @param mid Sigmoid inflection step index (default: midpoint of the horizon).
+#' @param steep Sigmoid steepness parameter (default `1`; larger = sharper
+#'   transition).
 #'
-#' @return The modified `endogenr_fe_param` block with updated `values`,
-#'   `active`, and `heuristic`.
+#' @return The same `endogenr_fe_param` block with `values`, `active = TRUE`,
+#'   and `heuristic` updated.  Replace the block in the `setup_param()` result
+#'   and pass to [simulate_system()].
+#' @seealso [fe_distribution()], [fe_fixed()], [fe_persist()], [fe_converge()],
+#'   [setup_param()], [simulate_system()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # -- Shared setup (reused in all FE-helper examples) ----------------------
+#' dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 1L)
+#' sys <- setup_system(
+#'   list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+#'   data = dt, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 3L
+#' )
+#' fit <- fit_system(sys, nsim = 5L)
+#' set.seed(1); sp <- setup_param(fit)  # already uses fe_resample by default
+#' blk <- sp$y$time_fe
+#' dim(blk$values)       # c(5, 3, 4) = c(nsim, inner_sims, horizon)
+#'
+#' # Re-bake with a fresh seed (e.g. to change RNG state)
+#' set.seed(42)
+#' sp$y$time_fe <- fe_resample(blk)
+#' res <- simulate_system(fit, scenario_params = sp)
+#'
+#' # Resample baseline that converges linearly toward 0 over the horizon
+#' set.seed(42)
+#' sp$y$time_fe <- fe_resample(blk, to = 0, path = "linear")
+#' # At step 1 the offset is ~the resampled value; at step 4 it is 0.
+#' round(sp$y$time_fe$values[1, 1, ], 3)   # monotonically shrinking
+#'
+#' # Amplify (diverge) the time-FE variance over the horizon by factor 2
+#' set.seed(42)
+#' sp$y$time_fe <- fe_resample(blk, factor = 2, path = "linear")
+#' }
 fe_resample <- function(block, to = NULL, factor = 1, path = "constant",
                         mid = NULL, steep = 1) {
   dims       <- block$dims
@@ -276,20 +372,56 @@ fe_resample <- function(block, to = NULL, factor = 1, path = "constant",
 
 #' Fixed-effect heuristic: normal distribution
 #'
-#' Re-bakes the FE block's `values` by drawing from a Normal distribution with
-#' per-draw mean and sd estimated from `effects_by_draw`, independently for
-#' every `(inner_sim, step)`.
+#' Re-bakes an FE block's `values` by drawing i.i.d. Normal offsets,
+#' independently for every `(outer draw, inner sim, forecast step)`.  The
+#' distribution parameters default to the per-draw mean and sd of the estimated
+#' effects, so the spread is calibrated to the model's own historical variation.
+#' Fix `mean` and/or `sd` to impose a specific distribution.
+#'
+#' @section When to use instead of fe_resample():
+#' [fe_resample()] draws directly from the discrete pool of estimated year
+#' effects; [fe_distribution()] draws from a fitted Normal, which smooths out
+#' discreteness and allows the support to extend beyond the observed range.  Use
+#' `fe_distribution()` when you want to widen or narrow the spread (via `sd`)
+#' or shift the center (via `mean`) relative to historical estimates, or when
+#' the pool of estimated levels is too small to resample from reliably.
 #'
 #' @param block An `endogenr_fe_param` from [setup_param()].
-#' @param mean Optional scalar mean override (default: per-draw mean of
-#'   estimated effects).
-#' @param sd Optional scalar sd override (default: per-draw sd of estimated
-#'   effects).
+#' @param mean Scalar mean of the Normal distribution (default: per-draw mean
+#'   of `effects_by_draw`, so it adapts to each bootstrap draw).
+#' @param sd Scalar standard deviation of the Normal distribution (default:
+#'   per-draw sd of `effects_by_draw`).  Set to a small value (e.g. `0`) to
+#'   produce near-constant offsets while keeping the Normal draw machinery.
 #' @inheritParams fe_resample
 #'
-#' @return The modified `endogenr_fe_param` block.
+#' @return The same `endogenr_fe_param` block with `values`, `active = TRUE`,
+#'   and `heuristic` updated.
+#' @seealso [fe_resample()], [fe_fixed()], [fe_converge()], [setup_param()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # (Reuse 'fit' and 'sp' from the fe_resample() example)
+#' blk <- sp$y$time_fe
+#'
+#' # Default: Normal with per-draw mean and sd from estimated year effects
+#' set.seed(42)
+#' sp$y$time_fe <- fe_distribution(blk)
+#' res_norm <- simulate_system(fit, scenario_params = sp)
+#'
+#' # Narrow the spread to 1/10 of the estimated sd (near-deterministic mean)
+#' set.seed(42)
+#' sp$y$time_fe <- fe_distribution(blk, sd = 0.01)
+#'
+#' # Fix both mean and sd: offsets drawn from N(0, 0.5) for all trajectories
+#' set.seed(42)
+#' sp$y$time_fe <- fe_distribution(blk, mean = 0, sd = 0.5)
+#'
+#' # Combine with path: Normal baseline converging to zero over the horizon
+#' set.seed(42)
+#' sp$y$time_fe <- fe_distribution(blk, sd = 0.5, to = 0, path = "linear")
+#' }
 fe_distribution <- function(block, mean = NULL, sd = NULL, to = NULL,
                              factor = 1, path = "constant", mid = NULL, steep = 1) {
   dims       <- block$dims
@@ -346,17 +478,63 @@ fe_distribution <- function(block, mean = NULL, sd = NULL, to = NULL,
 
 #' Fixed-effect heuristic: fixed constant
 #'
-#' Re-bakes the FE block's `values` with a deterministic constant baseline.
-#' The array is shaped `c(nsim, inner_sims, horizon)` for time FE and
-#' `c(n_units, horizon)` for unit FE, preserving the uniform consumer contract.
+#' Re-bakes an FE block's `values` with a single deterministic constant.
+#' Every trajectory receives the same offset at every step (unless combined with
+#' `to` or `factor` + `path` to ramp it).  This completely removes
+#' between-trajectory variance from the FE channel, making it useful as a
+#' controlled baseline for sensitivity analysis.
+#'
+#' The `values` array is always shaped `c(nsim, inner_sims, horizon)` for time
+#' FE and `c(n_units, horizon)` for unit FE, preserving the same consumer
+#' contract as the stochastic strategies.
+#'
+#' @section Common uses:
+#' \describe{
+#'   \item{Null scenario}{`fe_fixed(blk, value = 0)` removes the time-FE
+#'     contribution entirely, isolating the effect of other predictors.}
+#'   \item{Mean scenario}{`fe_fixed(blk, value = mean(blk$effects))` fixes the
+#'     offset at the historical cross-year average for all trajectories.}
+#'   \item{Ramp to zero}{`fe_fixed(blk, value = mean(blk$effects), to = 0,
+#'     path = "linear")` starts at the historical mean and linearly reaches 0 by
+#'     the final forecast step.}
+#' }
 #'
 #' @param block An `endogenr_fe_param` from [setup_param()].
-#' @param value Numeric scalar baseline (default `0`).
+#' @param value Numeric scalar offset applied to all trajectories and steps
+#'   (default `0`).
 #' @inheritParams fe_resample
 #'
-#' @return The modified `endogenr_fe_param` block.
+#' @return The same `endogenr_fe_param` block with `values`, `active = TRUE`,
+#'   and `heuristic` updated.
+#' @seealso [fe_resample()], [fe_distribution()], [fe_converge()], [setup_param()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # (Reuse 'fit' and 'sp' from the fe_resample() example)
+#' blk <- sp$y$time_fe
+#'
+#' # Zero out the time-FE offset for all trajectories (null scenario)
+#' sp$y$time_fe <- fe_fixed(blk, value = 0)
+#' res_null <- simulate_system(fit, scenario_params = sp)
+#'
+#' # Fix at the historical mean offset (single deterministic trajectory)
+#' sp$y$time_fe <- fe_fixed(blk, value = mean(blk$effects))
+#'
+#' # Start at the mean and linearly ramp toward 0 (e.g. "fading shock")
+#' sp$y$time_fe <- fe_fixed(blk, value = mean(blk$effects),
+#'                           to = 0, path = "linear")
+#' round(sp$y$time_fe$values[1, 1, ], 3)   # decreasing sequence
+#'
+#' # Compare ensemble variance: resample vs fixed zero
+#' set.seed(1); sp_rs  <- setup_param(fit)   # default fe_resample
+#' sp_fix <- setup_param(fit)
+#' sp_fix$y$time_fe <- fe_fixed(sp_fix$y$time_fe, value = 0)
+#' set.seed(1); res_rs  <- simulate_system(fit)
+#' set.seed(1); res_fix <- simulate_system(fit, scenario_params = sp_fix)
+#' # res_rs has larger cross-trajectory variance in forecast years
+#' }
 fe_fixed <- function(block, value = 0, to = NULL, factor = 1, path = "constant",
                      mid = NULL, steep = 1) {
   dims       <- block$dims
@@ -394,19 +572,65 @@ fe_fixed <- function(block, value = 0, to = NULL, factor = 1, path = "constant",
 
 #' Fixed-effect heuristic: persist historical unit effects (default)
 #'
-#' Sets each simulation unit's fixed-effect offset to its historically
-#' estimated value, optionally converging toward a target. With all defaults
-#' (`to = NULL`, `factor = 1`, `path = "constant"`), `active = FALSE` and
-#' `factor(unit)` stays in the design matrix **unchanged** — identical to
-#' today's behaviour with no scenario modification.
+#' The **default strategy for unit fixed effects** applied by [setup_param()].
+#' Each simulation unit's offset is set to its historically estimated effect
+#' and held constant across the horizon.
 #'
-#' @param block An `endogenr_fe_param` with `kind == "unit"`.
+#' With all defaults (`to = NULL`, `factor = 1`, `path = "constant"`),
+#' `active = FALSE` is set on the block, which means `factor(unit)` stays in
+#' the design matrix **completely unchanged** — unit dummies contribute their
+#' normal contrast at predict time and no explicit offset array is added.  This
+#' is identical to running without any scenario parameter at all.
+#'
+#' Pass any non-default `to`, `factor`, or `path` to activate the block
+#' (`active = TRUE`) and apply a path-shaped adjustment on top of each unit's
+#' historical baseline.  For a simple convergence-to-zero use [fe_converge()].
+#'
+#' @section Active flag and design matrix:
+#' When `active = FALSE` (the default), `predict.linear` keeps `factor(unit)`
+#' live in the design matrix and adds nothing extra.  When `active = TRUE`, the
+#' unit column is neutralised to the reference level in the prediction frame
+#' (zeroing out the factor contrast) and the baked `values` matrix — shaped
+#' `c(n_units, horizon)` — is added row-by-row.  This lets you override or
+#' fade the cross-sectional intercepts explicitly.
+#'
+#' @param block An `endogenr_fe_param` with `kind == "unit"` from
+#'   [setup_param()].
 #' @inheritParams fe_resample
 #'
-#' @return The modified `endogenr_fe_param` block (`active = FALSE` under all
-#'   defaults; `active = TRUE` when any non-default argument is supplied).
+#' @return The same `endogenr_fe_param` block with `values` (`c(n_units,
+#'   horizon)`, `per_trajectory = FALSE`), `active` (`FALSE` under all defaults,
+#'   `TRUE` otherwise), and `heuristic` updated.
+#' @seealso [fe_converge()], [fe_fixed()], [setup_param()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Build a unit-FE model
+#' dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 1L)
+#' sys <- setup_system(
+#'   list(build_model("exogen", formula = ~x),
+#'        build_model("linear", formula = y ~ lag(y) + x + factor(unit))),
+#'   data = dt, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 2L
+#' )
+#' fit <- fit_system(sys, nsim = 4L)
+#' sp  <- setup_param(fit)
+#'
+#' # Default: active = FALSE — factor(unit) in design, no offset override
+#' sp$y$unit_fe$active   # FALSE
+#' sp$y$unit_fe$values   # c(n_units, horizon) of historical effects (for reference)
+#'
+#' # Explicit persist (identity, same as default)
+#' sp$y$unit_fe <- fe_persist(sp$y$unit_fe)
+#' sp$y$unit_fe$active   # still FALSE
+#'
+#' # Shrink unit effects to 50% of historical values linearly across the horizon
+#' sp$y$unit_fe <- fe_persist(sp$y$unit_fe, factor = 0.5, path = "linear")
+#' sp$y$unit_fe$active   # TRUE
+#' res <- simulate_system(fit, scenario_params = sp)
+#' }
 fe_persist <- function(block, to = NULL, factor = 1, path = "constant",
                        mid = NULL, steep = 1) {
   dims       <- block$dims
@@ -441,23 +665,100 @@ fe_persist <- function(block, to = NULL, factor = 1, path = "constant",
 
 #' Fixed-effect heuristic: converge toward a target
 #'
-#' Sugar over the path mechanics: applies a path-shaped convergence toward
-#' `to` from the block's natural baseline. For unit FE the baseline per unit
-#' is its historically estimated effect. For time FE a single resample draw per
-#' trajectory is held constant across steps (so trajectories vary but each one
-#' is internally consistent).
+#' Convenience wrapper that applies a path-shaped convergence from the block's
+#' natural baseline toward `to`.  This is the recommended helper when you want
+#' to neutralise fixed effects over the forecast horizon — e.g. letting unit
+#' intercepts or time shocks fade toward zero, the cross-unit mean, or a
+#' specific historical unit's level.
+#'
+#' @section Baseline per kind:
+#' \describe{
+#'   \item{Unit FE (`kind = "unit"`)}{Each unit's baseline is its own
+#'     historically estimated effect (same as [fe_persist()]).  The convergence
+#'     is deterministic: `values` is `c(n_units, horizon)`,
+#'     `per_trajectory = FALSE`.  All units converge at the same rate but from
+#'     different starting points, so cross-sectional variation in intercepts
+#'     persists early in the horizon and compresses toward the target late.}
+#'   \item{Time FE (`kind = "time"`)}{A single effect is drawn per
+#'     `(outer draw, inner sim)` from the per-draw pool and held constant
+#'     across steps as the baseline (unlike [fe_resample()], which draws
+#'     independently at every step).  This keeps each trajectory internally
+#'     consistent while still varying across trajectories.  The drawn baseline
+#'     then converges to `to` along `path`.}
+#' }
+#'
+#' @section Target specification (`to`):
+#' \describe{
+#'   \item{Numeric scalar}{Converge to that specific value (e.g. `0`).}
+#'   \item{`"zero"`}{Synonym for `to = 0`.}
+#'   \item{`"mean"`}{Converge to the mean of all estimated effects
+#'     (`mean(block$effects)`).}
+#'   \item{Character vector of unit ids}{Converge to the mean effect of those
+#'     specific units — useful for anchoring a counterfactual to a reference
+#'     group's historical intercept level.}
+#' }
 #'
 #' @param block An `endogenr_fe_param` from [setup_param()].
-#' @param to Convergence target (required): numeric scalar, `"zero"`,
-#'   `"mean"`, or a character vector of unit ids whose mean effect is the
-#'   target.
-#' @param path `"linear"` (default), `"constant"`, or `"sigmoid"`.
+#' @param to Convergence target (required).  See Target specification above.
+#' @param path Shape of the convergence: `"linear"` (default — reaches `to`
+#'   exactly at the final forecast step), `"constant"` (jump immediately to
+#'   `to` at every step — equivalent to `fe_fixed(value = to)`), or
+#'   `"sigmoid"` (S-curve transition).
 #' @param mid Sigmoid inflection step (default: midpoint of the horizon).
-#' @param steep Sigmoid steepness (default `1`).
+#' @param steep Sigmoid steepness (default `1`; larger = sharper transition).
 #'
-#' @return The modified `endogenr_fe_param` block with `active = TRUE`.
+#' @return The same `endogenr_fe_param` block with `values`, `active = TRUE`,
+#'   and `heuristic` updated.
+#' @seealso [fe_persist()], [fe_resample()], [fe_fixed()], [setup_param()],
+#'   [simulate_system()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # ── Time FE: convergence toward zero ──────────────────────────────────────
+#' # (Reuse 'fit' and 'sp' from the fe_resample() example)
+#' blk <- sp$y$time_fe
+#'
+#' # Linear convergence: offsets start at the per-trajectory draw and reach 0
+#' # at the last forecast step
+#' set.seed(42)
+#' sp$y$time_fe <- fe_converge(blk, to = 0, path = "linear")
+#' mean(abs(sp$y$time_fe$values[,, 1]))  # large
+#' mean(abs(sp$y$time_fe$values[,, 4]))  # near 0
+#'
+#' # Sigmoid convergence (slow start, fast middle, slow end)
+#' set.seed(42)
+#' sp$y$time_fe <- fe_converge(blk, to = 0, path = "sigmoid", steep = 2)
+#'
+#' # Converge to the cross-year mean rather than zero
+#' set.seed(42)
+#' sp$y$time_fe <- fe_converge(blk, to = "mean", path = "linear")
+#' res <- simulate_system(fit, scenario_params = sp)
+#'
+#' # ── Unit FE: fade intercepts toward zero ─────────────────────────────────
+#' dt2  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 2L)
+#' sys2 <- setup_system(
+#'   list(build_model("exogen", formula = ~x),
+#'        build_model("linear", formula = y ~ lag(y) + x + factor(unit))),
+#'   data = dt2, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 2L
+#' )
+#' fit2 <- fit_system(sys2, nsim = 4L)
+#' sp2  <- setup_param(fit2)
+#'
+#' # Converge each unit's historical intercept to zero over the horizon
+#' sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = 0, path = "linear")
+#' sp2$y$unit_fe$active  # TRUE
+#'
+#' # Converge toward the mean cross-sectional intercept
+#' sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = "mean")
+#'
+#' # Converge toward the mean effect of specific reference units
+#' ref_units <- as.character(unique(dt2$unit)[1:2])
+#' sp2$y$unit_fe <- fe_converge(sp2$y$unit_fe, to = ref_units)
+#' res2 <- simulate_system(fit2, scenario_params = sp2)
+#' }
 fe_converge <- function(block, to, path = "linear", mid = NULL, steep = 1) {
   dims    <- block$dims
   horizon <- dims$horizon
@@ -500,28 +801,92 @@ fe_converge <- function(block, to, path = "linear", mid = NULL, steep = 1) {
 
 #' Apply a coefficient override to a coef block
 #'
-#' Bakes overridden coefficient trajectories into the coef block, replacing
-#' the per-draw fitted estimate for the named term at every forecast step.
-#' `value` may be:
-#' \itemize{
-#'   \item A **scalar** — constant across all draws and forecast steps.
-#'   \item A **length-`horizon` numeric vector** — per-step, same across draws.
-#'   \item A **`function(h, beta_hat)`** — returns the override β* at step `h`
-#'     given the per-draw fitted estimate `beta_hat`.
+#' Bakes a per-draw, per-step coefficient override into the `coef` block of a
+#' [setup_param()] result, replacing the fitted estimate for the named term
+#' with a user-specified value.  The effective value at each forecast step and
+#' outer draw is resolved immediately and stored in `block$effective[[term]]`
+#' as an `nsim × horizon` matrix, so the override is inspectable before
+#' [simulate_system()] is called.
+#'
+#' @section Override forms:
+#' \describe{
+#'   \item{Scalar (`value` is a single number)}{The same constant replaces
+#'     `beta_hat` for every draw and every forecast step.  Useful for pinning a
+#'     coefficient to zero or to a theory-driven value.}
+#'   \item{Length-`horizon` numeric vector}{A different value is used at each
+#'     forecast step (same across draws).  Useful for specifying a step-by-step
+#'     trajectory for the coefficient.}
+#'   \item{Function `function(h, beta_hat)`}{Called once per `(draw, step)`
+#'     pair with the forecast step index `h` (`1..horizon`) and the per-draw
+#'     fitted estimate `beta_hat`.  Use this form to express the override
+#'     relative to each draw's own fitted value, e.g.
+#'     `function(h, beta_hat) beta_hat * 0.5` halves the coefficient in every
+#'     draw independently.  The function must return a single finite number.}
+#'   \item{`NULL`}{Clears a previously applied override, restoring the
+#'     per-draw fitted estimates.}
 #' }
-#' Pass `value = NULL` to clear a previously applied override.
 #'
-#' Overrides are only supported for `linear` models; calling this on a
-#' non-linear block errors immediately.
+#' @section Supported models:
+#' Overrides are only supported for `linear` models (`block$linear == TRUE`).
+#' Calling `coef_override()` on a `glm`, `gamlss`, or other non-linear
+#' block errors immediately with a clear message.  Check `block$linear` first
+#' if the model type is uncertain.
 #'
-#' @param block An `endogenr_coef_param` from [setup_param()].
-#' @param term Character. Coefficient name (must be in
-#'   `colnames(block$beta_by_draw)`).
-#' @param value Override specification or `NULL` to clear.
+#' @param block An `endogenr_coef_param` from [setup_param()] (`sp$<oc>$coef`).
+#' @param term Character.  Name of the coefficient to override; must be in
+#'   `colnames(block$beta_by_draw)`.  Use `colnames(sp$<oc>$coef$beta_by_draw)`
+#'   or inspect `block$estimates` to see valid names.
+#' @param value Override specification: a scalar, a length-`horizon` numeric
+#'   vector, a `function(h, beta_hat)`, or `NULL` to clear.
 #'
-#' @return The modified `endogenr_coef_param` block.
+#' @return The same `endogenr_coef_param` block with `overrides[[term]]` and
+#'   `effective[[term]]` updated (or removed when `value = NULL`).
+#' @seealso [setup_param()], [simulate_system()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Build a simple AR(1) + Mundlak means model
+#' dt <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 1L)
+#' dt[, m_x := hist_mean(x), by = unit]
+#' sys <- setup_system(
+#'   c(list(build_model("exogen", formula = ~x)),
+#'     mundlak_means("x"),
+#'     list(build_model("linear", formula = y ~ lag(y) + m_x))),
+#'   data = dt, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 2L
+#' )
+#' fit <- fit_system(sys, nsim = 4L)
+#' sp  <- setup_param(fit)
+#'
+#' # 1. Scalar override — pin the m_x coefficient to zero for all trajectories
+#' sp$y$coef <- coef_override(sp$y$coef, "m_x", 0)
+#' sp$y$coef$effective$m_x   # 4 x 4 matrix of zeros
+#'
+#' # 2. Vector override — ramp the m_x coefficient up across the horizon
+#' sp$y$coef <- coef_override(sp$y$coef, "m_x", c(0.2, 0.4, 0.6, 0.8))
+#' sp$y$coef$effective$m_x[1, ]  # draw 1: 0.2, 0.4, 0.6, 0.8
+#'
+#' # 3. Function override — halve each draw's own fitted coefficient
+#' sp$y$coef <- coef_override(sp$y$coef, "m_x",
+#'                             function(h, beta_hat) beta_hat * 0.5)
+#' # effective$m_x differs across rows (draws) but is 0.5 * beta_hat for each
+#'
+#' # 4. Function override — decay the AR coefficient by h/(H+1) each step
+#' sp$y$coef <- coef_override(
+#'   sp$y$coef, "lag_y",
+#'   function(h, beta_hat) beta_hat * (1 - h / (sp$y$coef$dims$horizon + 1))
+#' )
+#'
+#' # 5. Clear the override (restores per-draw fitted estimates)
+#' sp$y$coef <- coef_override(sp$y$coef, "m_x", NULL)
+#' is.null(sp$y$coef$effective$m_x)  # TRUE
+#'
+#' # Simulate with the active override
+#' sp$y$coef <- coef_override(sp$y$coef, "m_x", 0)
+#' res <- simulate_system(fit, scenario_params = sp)
+#' }
 coef_override <- function(block, term, value) {
   if (!block$linear) {
     stop("coefficient overrides are only supported for `linear` models",
@@ -624,41 +989,119 @@ coef_override <- function(block, term, value) {
 #' Set up precomputed scenario parameters for a fitted endogenr system
 #'
 #' Builds an `endogenr_scenario_params` object keyed by model outcome (all
-#' models in the fitted system, including independent models). All stochastic
-#' parameters (time-FE draw trajectories) are **baked at build time** using
-#' the current RNG state, so results are inspectable before
-#' [simulate_system()].
+#' models in the fitted system, including independent models).  All stochastic
+#' parameters — time-FE draw trajectories — are **baked at build time** using
+#' the current RNG state, so the exact values entering the simulation are
+#' inspectable and modifiable before calling [simulate_system()].
 #'
-#' Default strategies applied at build time:
-#' \itemize{
-#'   \item **Time FE** (`factor(timevar)`): [fe_resample()] — one independent
-#'     draw per `(outer draw, inner sim, forecast step)`.
-#'   \item **Unit FE** (`factor(unitvar)`): [fe_persist()] with `active =
-#'     FALSE` — `factor(unit)` stays in the design matrix unchanged;
-#'     equivalent to the current default behaviour.
-#' }
-#'
-#' Each entry contains:
+#' @section Default strategies:
 #' \describe{
-#'   \item{`type`}{Model type string.}
-#'   \item{`outcome`}{Outcome variable name.}
-#'   \item{`independent`}{Logical.}
-#'   \item{`adjustable`}{Logical: any non-NULL adjustable block present.}
-#'   \item{`time_fe`}{`endogenr_fe_param` or `NULL`.}
-#'   \item{`unit_fe`}{`endogenr_fe_param` or `NULL`.}
-#'   \item{`coef`}{`endogenr_coef_param` or `NULL`.}
+#'   \item{Time FE (`factor(timevar)`)}{[fe_resample()] with `active = TRUE` —
+#'     one independent resample draw per `(outer draw, inner sim, forecast step)`
+#'     from the estimated year effects.  Baked as a
+#'     `c(nsim, inner_sims, horizon)` array.}
+#'   \item{Unit FE (`factor(unitvar)`)}{[fe_persist()] with `active = FALSE` —
+#'     `factor(unit)` stays in the design matrix unchanged.  Equivalent to
+#'     running without any scenario parameter; the baked `c(n_units, horizon)`
+#'     matrix is present for inspection but not applied.}
 #' }
 #'
-#' The returned object carries a `dims` attribute:
+#' @section Object structure:
+#' The returned object is a named list keyed by outcome, where each entry
+#' contains:
+#' \describe{
+#'   \item{`type`}{Model type string (e.g. `"linear"`, `"glm_endogenr"`).}
+#'   \item{`outcome`}{Outcome variable name.}
+#'   \item{`independent`}{`TRUE` for models that do not feed back into the
+#'     system (e.g. `exogen`).}
+#'   \item{`adjustable`}{`TRUE` when at least one of `time_fe`, `unit_fe`, or
+#'     `coef` is non-`NULL`.}
+#'   \item{`time_fe`}{An `endogenr_fe_param` or `NULL`.  Key sub-fields:
+#'     `kind` (`"time"`), `term` (e.g. `"factor(time)"`), `var`, `ref`,
+#'     `levels`, `effects` (named numeric, baseline = 0), `effects_by_draw`
+#'     (length-`nsim` list of per-draw effects), `dims`, `active`, `heuristic`,
+#'     `values` (baked array).}
+#'   \item{`unit_fe`}{An `endogenr_fe_param` or `NULL`.  Same structure as
+#'     `time_fe` but `kind = "unit"` and `values` is `c(n_units, horizon)`.}
+#'   \item{`coef`}{An `endogenr_coef_param` or `NULL`.  Key sub-fields:
+#'     `estimates` (named numeric, draw-1 β̂), `beta_by_draw` (`nsim × p`
+#'     matrix of per-draw fitted coefficients), `linear` (logical),
+#'     `overrides` (user spec, for reference), `effective` (named list of
+#'     `nsim × horizon` baked override matrices — empty until
+#'     [coef_override()] is applied).}
+#' }
+#' The object also carries a `dims` attribute:
 #' `list(nsim, inner_sims, horizon, test_start, units, timevar, unitvar)`.
+#'
+#' @section Typical workflow:
+#' \enumerate{
+#'   \item Call `set.seed()` then `setup_param(fit)` to bake stochastic
+#'     parameters reproducibly.
+#'   \item Inspect the returned object (`print(sp)`, `sp$<oc>$time_fe$values`,
+#'     `sp$<oc>$coef$estimates`).
+#'   \item Optionally replace FE blocks with a different heuristic:
+#'     `sp$<oc>$time_fe <- fe_distribution(sp$<oc>$time_fe, sd = 0.02)`.
+#'   \item Optionally bake coefficient overrides:
+#'     `sp$<oc>$coef <- coef_override(sp$<oc>$coef, "lag_y", 0.5)`.
+#'   \item Pass to `simulate_system(fit, scenario_params = sp)`.
+#' }
+#' Omitting `scenario_params` (or passing `NULL`) causes `simulate_system()`
+#' to call `setup_param()` internally under its own RNG state, which reproduces
+#' varied time-FE offsets exactly as before the redesign.
 #'
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #'
-#' @return An `endogenr_scenario_params` object.
+#' @return An `endogenr_scenario_params` object (S3 class).
 #' @seealso [fe_resample()], [fe_distribution()], [fe_fixed()], [fe_persist()],
 #'   [fe_converge()], [coef_override()], [simulate_system()]
 #' @family simulation
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # -- Minimal time-FE example -----------------------------------------------
+#' dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 1L)
+#' sys <- setup_system(
+#'   list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+#'   data = dt, train_start = 1, test_start = 16, horizon = 4,
+#'   groupvar = "unit", timevar = "time", inner_sims = 3L
+#' )
+#' fit <- fit_system(sys, nsim = 5L)
+#'
+#' # Bake defaults (fe_resample for time FE) under a fixed seed
+#' set.seed(1)
+#' sp <- setup_param(fit)
+#' print(sp)                          # human-readable summary
+#' attr(sp, "dims")                   # nsim / inner_sims / horizon / test_start
+#'
+#' # Inspect baked values
+#' dim(sp$y$time_fe$values)           # c(5, 3, 4) = c(nsim, inner_sims, horizon)
+#' sp$y$time_fe$heuristic$strategy    # "resample"
+#' sp$y$coef$estimates                # named vector of representative β̂
+#'
+#' # Modify time-FE strategy: narrow Normal draws
+#' set.seed(1)
+#' sp <- setup_param(fit)
+#' sp$y$time_fe <- fe_distribution(sp$y$time_fe, sd = 0.02)
+#' res_narrow <- simulate_system(fit, scenario_params = sp)
+#'
+#' # Modify time-FE strategy: converge to zero over the horizon
+#' set.seed(1)
+#' sp <- setup_param(fit)
+#' sp$y$time_fe <- fe_converge(sp$y$time_fe, to = 0, path = "linear")
+#'
+#' # Apply a coefficient override then simulate
+#' set.seed(1)
+#' sp <- setup_param(fit)
+#' sp$y$coef <- coef_override(sp$y$coef, "lag_y",
+#'                             function(h, beta_hat) beta_hat * 0.5)
+#' res_ov <- simulate_system(fit, scenario_params = sp)
+#'
+#' # Determinism: same seed => identical baked arrays
+#' set.seed(99); a <- setup_param(fit)
+#' set.seed(99); b <- setup_param(fit)
+#' identical(a$y$time_fe$values, b$y$time_fe$values)  # TRUE
+#' }
 setup_param <- function(fitted_system) {
   if (!inherits(fitted_system, "endogenr_fitted_system")) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
