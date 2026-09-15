@@ -80,67 +80,109 @@ res <- simulate_system(fit)
 
 ## Inspect and configure scenario parameters
 
-`setup_param(fit)` returns an editable `endogenr_scenario_params` list keyed
-by outcome variable.  Each entry contains:
+`setup_param(fit)` returns an `endogenr_scenario_params` object keyed by
+outcome variable, covering **every** model in the fitted system.  All
+stochastic draws (time-FE offsets) are **baked at build time** so you can
+inspect the exact values that will enter the run.
+
+Each entry contains:
 
 | Field | Description |
 |---|---|
 | `type` | Model type string (e.g. `"linear"`) |
-| `time_fe` | `NULL`, or a list with `term`, `timevar`, `n_levels`, `effects` (numeric vector, baseline = 0), `summary` (mean/sd/min/max) |
-| `policy` | Time-FE draw policy: `$type` is `"resample"` (default), `"distribution"`, or `"fixed"` |
-| `coef_table` | `data.frame` of non-FE coefficient estimates and standard errors, or `NULL` |
-| `estimates` | Named numeric vector of overridable coefficient estimates |
-| `coefficients` | Empty `list()` for user coefficient overrides |
+| `time_fe` | `endogenr_fe_param` or `NULL`.  Fields: `kind`, `term`, `var`, `ref`, `levels`, `effects`, `effects_by_draw`, `dims`, `active`, `heuristic`, `values` (baked array `nsim × inner_sims × horizon`). |
+| `unit_fe` | `endogenr_fe_param` or `NULL`.  Default `active = FALSE` (persist historical effects unchanged). |
+| `coef` | `endogenr_coef_param` or `NULL`.  Fields: `estimates`, `beta_by_draw`, `linear`, `overrides`, `effective`. |
+
+The object carries a `dims` attribute:
+`list(nsim, inner_sims, horizon, test_start, units, timevar, unitvar)`.
 
 ```{r setup-param}
+set.seed(2)
 sp <- setup_param(fit)
 sp
 ```
 
-The `time FE` block for `gdppc_grwt` confirms that `factor(year)` was detected,
-and shows the distribution of the estimated year effects.
+The `time_fe` block for `gdppc_grwt` confirms `factor(year)` detection and
+shows the distribution of estimated year effects plus a summary of the baked
+offset array.
 
-## Time-FE policies
+## Time-FE heuristic helpers
 
-`sp[["gdppc_grwt"]]$policy$type` controls how a year-effect offset is drawn
-for each simulated trajectory:
+Replace `sp[["outcome"]]$time_fe` with the output of one of the helper
+functions to re-bake the draws under a different strategy before passing `sp`
+to `simulate_system()`.
 
-- **`"resample"`** (default) — sample uniformly from estimated year effects.
-- **`"distribution"`** — Normal draw; optionally set `$mean` and `$sd` (filled
-  from the effects if omitted).
-- **`"fixed"`** — constant `$value` for all trajectories.
+- **`fe_resample(block)`** (default) — sample from estimated year effects per
+  `(draw, inner_sim, step)`.
+- **`fe_distribution(block, sd = ..)`** — Normal draws; optionally fix `mean`
+  and `sd` (filled from effects per draw when omitted).
+- **`fe_fixed(block, value = 0)`** — constant offset for all trajectories.
+- **`fe_converge(block, to, path)`** — path-shaped convergence toward a target
+  (`"zero"`, `"mean"`, numeric, or character unit ids).
 
-One offset is drawn per trajectory and shared across all rows of that
-trajectory.
+All helpers accept `to`, `factor`, `path` (`"constant"` / `"linear"` /
+`"sigmoid"`), `mid`, `steep` arguments for fine-grained control.  They
+consume RNG at call time — `set.seed()` before the helper for reproducibility.
 
-```{r policy-override}
-sp[["gdppc_grwt"]]$policy <- list(type = "distribution", sd = 0.01)
+```{r tfe-distribution}
+set.seed(2)
+sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$time_fe <- fe_distribution(sp[["gdppc_grwt"]]$time_fe, sd = 0.01)
 res_dist <- simulate_system(fit, scenario_params = sp)
 nrow(res_dist)
 ```
 
+Converge the time-FE offset toward zero over the horizon:
+
+```{r tfe-converge, eval = FALSE}
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$time_fe <- fe_converge(sp[["gdppc_grwt"]]$time_fe,
+                                           to = 0, path = "linear")
+res_conv <- simulate_system(fit, scenario_params = sp)
+```
+
+## Unit-FE heuristic helpers
+
+`factor(unit)` models store a `unit_fe` block with `active = FALSE` by
+default (historical unit effects stay in the design matrix unchanged).
+Apply `fe_converge` or `fe_persist` (with non-default `to`/`path`) to
+activate explicit scenario control:
+
+```{r ufe-converge, eval = FALSE}
+# Converge unit-FE offsets to zero over the horizon (e.g. neutralise
+# country-specific intercepts by the end of the forecast window)
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$unit_fe <- fe_converge(sp[["gdppc_grwt"]]$unit_fe,
+                                           to = 0, path = "linear")
+res_ufe <- simulate_system(fit, scenario_params = sp)
+```
+
 ## Coefficient overrides (dynamic simulation parameters)
 
-`sp[["outcome"]]$coefficients[["<term>"]]` accepts:
+`coef_override(block, term, value)` bakes overrides into the coef block.
+`value` may be:
 
-- A **scalar** — constant across all forecast steps.
-- A **length-`horizon` numeric vector** — per-step trajectory.
+- A **scalar** — constant across all draws and forecast steps.
+- A **length-`horizon` numeric vector** — per-step, same across draws.
 - A **`function(h, beta_hat)`** — returns the override β* at step `h` given
   the per-draw fitted estimate.
 
-The term name must be one of `names(sp[[oc]]$estimates)` — the alias names
-from `get_coefficients()` (e.g. `lag_log_gdppc`, `lag_psecprop`).  Overrides
-are validated in `simulate_system()` and are **`linear`-only**
-(an error is thrown for other model types).
+The term name must be in `colnames(sp[[oc]]$coef$beta_by_draw)` — the alias
+names from `get_coefficients()` (e.g. `lag_log_gdppc`, `lag_psecprop`).
+Overrides are only supported for `linear` models; `coef_override()` errors
+immediately for other types.
 
 `predict.linear` swaps only the targeted coefficient(s) while the residual
 scale and prediction intervals are untouched, preserving forecast uncertainty.
 
 ```{r coef-override}
 # Function override: halve the autoregressive persistence of lag_log_gdppc
-sp[["gdppc_grwt"]]$coefficients[["lag_log_gdppc"]] <-
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$coef <- coef_override(
+  sp[["gdppc_grwt"]]$coef, "lag_log_gdppc",
   function(h, beta_hat) beta_hat * 0.5
-
+)
 res_ovr <- simulate_system(fit, scenario_params = sp)
 nrow(res_ovr)
 ```
@@ -149,8 +191,16 @@ Scalar example: pin the `lag_psecprop` coefficient to zero (testing exclusion
 of education):
 
 ```{r coef-scalar, eval = FALSE}
-sp[["gdppc_grwt"]]$coefficients[["lag_psecprop"]] <- 0
+sp[["gdppc_grwt"]]$coef <- coef_override(sp[["gdppc_grwt"]]$coef,
+                                          "lag_psecprop", 0)
 res_no_edu <- simulate_system(fit, scenario_params = sp)
+```
+
+Pass `value = NULL` to clear a previously applied override:
+
+```{r coef-clear, eval = FALSE}
+sp[["gdppc_grwt"]]$coef <- coef_override(sp[["gdppc_grwt"]]$coef,
+                                          "lag_psecprop", NULL)
 ```
 
 ## Mundlak between-effects

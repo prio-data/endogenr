@@ -124,8 +124,8 @@ coefs[coefs$outcome == "gdppc_grwt", c("term", "estimate")]
 ```
 
 The terms `lag_log_gdppc` and `lag_psecprop` match exactly what you would see
-in a plain `lm()` call — and they are the keys you use for coefficient
-overrides in `setup_param()`.
+in a plain `lm()` call — and they are the term names you pass to
+`coef_override()` (e.g. `coef_override(sp$gdppc_grwt$coef, "lag_log_gdppc", 0)`).
 
 ## Formula helper functions
 

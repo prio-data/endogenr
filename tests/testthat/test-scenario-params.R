@@ -1,14 +1,21 @@
-# Tests for TWFE scenario parameters (Steps 1-6) ----------------------------
+# Tests for the baked scenario-parameter framework ----------------------------
 #
 # Covers:
 #   1. hist_mean() semantics and .required_history registration
 #   2. mundlak_means() spec builder
 #   3. mundlak_means() updates in-sim (expanding and windowed)
-#   4. Time-FE blocker fix (factor(time) in linear model)
-#   5. Policy changes ensemble variance
-#   6. setup_param() overview and print
-#   7. Coefficient overrides (scalar, vector, function, guarded)
-#   8. No regression for non-scenario models
+#   4. Linear model with factor(time) simulates without error
+#   5. fe_resample (default) adds between-trajectory variance vs fe_fixed(0)
+#   6. setup_param() structure — new baked contract
+#   7. print.endogenr_scenario_params runs without error
+#   8. fe_distribution simulates without error
+#   9. Coefficient overrides (scalar, vector, function, guarded)
+#  10. Non-linear override errors in coef_override()
+#  11. No regression: scenario=NULL equals no scenario arg
+#  12. Determinism: same seed -> identical baked values
+#  13. Convergence: fe_converge shrinks values toward target
+#  14. Unit-FE persist identity: default == explicit fe_persist(active=FALSE)
+#  15. fe_converge on unit FE changes simulation results
 
 future::plan(future::sequential)
 
@@ -93,9 +100,6 @@ test_that("mundlak_means: validates window entries", {
 test_that("mundlak_means expanding mean updates during simulation", {
   skip_on_cran()
   dt <- sim_panel_ar1(units = 6L, n_time = 20L, seed = 42)
-  # Pre-populate m_x with expanding mean so validate_panel sees a non-NA
-  # initial state at test_start - 1 = 15; the deterministic model overwrites
-  # it each forecast step.
   dt[, m_x := hist_mean(x), by = unit]
 
   sys <- setup_system(
@@ -112,17 +116,14 @@ test_that("mundlak_means expanding mean updates during simulation", {
   fit <- fit_system(sys, nsim = 2L)
   res <- simulate_system(fit)
 
-  # Forecast rows should be finite
   fcast <- res[res$time >= 16]
   expect_false(any(is.na(fcast$y)))
 
-  # At time 16 the deterministic model has consumed x[1..16] (x at t=16 is
-  # available from the exogen model), so m_x[16] = mean(x[1..16]).
   t16 <- unique(res[res$time == 16, .(unit, m_x)])
   for (u in unique(dt$unit)) {
-    all_x <- dt[dt$unit == u, x]          # x[1..20]
-    expected_m_x <- mean(all_x[1:16])     # hist_mean at position 16
-    expect_true(all(abs(t16[t16$unit == u, ]$m_x - expected_m_x) < 1e-10))
+    all_x    <- dt[dt$unit == u, x]
+    expected <- mean(all_x[1:16])
+    expect_true(all(abs(t16[t16$unit == u, ]$m_x - expected) < 1e-10))
   }
 })
 
@@ -145,7 +146,6 @@ test_that("mundlak_means windowed (window = 3) matches trailing 3-obs mean", {
   fit <- fit_system(sys, nsim = 2L)
   res <- simulate_system(fit)
 
-  # At time 16 the trailing 3-obs mean of x[1..16] = mean(x[14:16])
   t16 <- unique(res[res$time == 16, .(unit, m_x)])
   for (u in unique(dt$unit)) {
     all_x <- dt[dt$unit == u, x]
@@ -174,9 +174,9 @@ test_that("linear model with factor(time) simulates without error", {
   expect_true(all(is.finite(fcast$y)))
 })
 
-# ── Policy changes ensemble variance ────────────────────────────────────────
+# ── fe_resample vs fe_fixed(0) ───────────────────────────────────────────────
 
-test_that("resample policy adds between-trajectory variance vs fixed(0)", {
+test_that("fe_resample adds between-trajectory variance relative to fe_fixed(0)", {
   skip_on_cran()
   dt  <- sim_panel_common_shock(units = 10L, n_time = 30L, seed = 2L)
   sys <- setup_system(
@@ -188,17 +188,16 @@ test_that("resample policy adds between-trajectory variance vs fixed(0)", {
   )
   fit <- fit_system(sys, nsim = 30L)
 
-  # Resample run (default)
+  # Default run: internal setup_param bakes fe_resample under caller's seed.
   set.seed(10)
-  res_rs  <- simulate_system(fit)
+  res_rs <- simulate_system(fit)
 
-  # Fixed-zero run
+  # Fixed-zero run: same simulation randomness, no time-FE variance.
   dp <- setup_param(fit)
-  dp$y$policy <- list(type = "fixed", value = 0)
+  dp$y$time_fe <- fe_fixed(dp$y$time_fe, value = 0)
   set.seed(10)
   res_fix <- simulate_system(fit, scenario_params = dp)
 
-  # For each forecast year, compute across-.sim variance of the unit-mean
   var_rs  <- vapply(25:27, function(yr) {
     vals <- tapply(res_rs[res_rs$time == yr, y],
                    res_rs[res_rs$time == yr, .sim], mean)
@@ -214,34 +213,43 @@ test_that("resample policy adds between-trajectory variance vs fixed(0)", {
   expect_true(any(var_rs > var_fix))
 })
 
-# ── setup_param overview ─────────────────────────────────────────────────────
+# ── setup_param structure — baked contract ───────────────────────────────────
 
-test_that("setup_param returns expected structure for a TWFE model", {
+test_that("setup_param returns baked structure for a TWFE model", {
   skip_on_cran()
-  dt  <- sim_panel_common_shock(units = 10L, n_time = 20L, seed = 3L)
-  sys <- setup_system(
+  nsim <- 3L; inner_sims <- 2L; horizon <- 4L
+  dt   <- sim_panel_common_shock(units = 10L, n_time = 20L, seed = 3L)
+  sys  <- setup_system(
     list(build_model("linear", formula = y ~ lag(y) + factor(time))),
     data        = dt,
-    train_start = 1, test_start = 16, horizon = 4,
+    train_start = 1, test_start = 16, horizon = horizon,
     groupvar    = "unit", timevar   = "time",
-    inner_sims  = 2L
+    inner_sims  = inner_sims
   )
-  fit <- fit_system(sys, nsim = 2L)
+  fit <- fit_system(sys, nsim = nsim)
   dp  <- setup_param(fit)
 
   expect_s3_class(dp, "endogenr_scenario_params")
   expect_true("y" %in% names(dp))
   expect_equal(dp$y$type, "linear")
 
-  # n_levels equals the unique factor(time) levels in the fitted lm.
-  # lag(y) drops time=1 from the fitting data, so levels = 2..(test_start-1).
+  # time_fe block
+  expect_equal(dp$y$time_fe$kind, "time")
+  expect_false(is.null(dp$y$time_fe$term))
   n_fit_levels <- length(unique(dt[dt$time >= 2 & dt$time < 16, time]))
-  expect_equal(dp$y$time_fe$n_levels, n_fit_levels)
+  expect_equal(length(dp$y$time_fe$levels), n_fit_levels)
 
-  expect_false(is.null(dp$y$time_fe))
-  expect_true(all(c("term", "timevar", "n_levels", "effects", "summary") %in%
-                    names(dp$y$time_fe)))
+  # Baked values shape: c(nsim, inner_sims, horizon)
+  expect_equal(dim(dp$y$time_fe$values), c(nsim, inner_sims, horizon))
+
+  # dims attribute
+  d <- attr(dp, "dims")
+  expect_equal(d$nsim, nsim)
+  expect_equal(d$inner_sims, inner_sims)
+  expect_equal(d$horizon, horizon)
 })
+
+# ── print runs without error ─────────────────────────────────────────────────
 
 test_that("print.endogenr_scenario_params runs without error", {
   skip_on_cran()
@@ -259,7 +267,9 @@ test_that("print.endogenr_scenario_params runs without error", {
   expect_no_error(capture.output(print(dp)))
 })
 
-test_that("distribution policy simulates without error", {
+# ── fe_distribution ──────────────────────────────────────────────────────────
+
+test_that("fe_distribution simulates without error", {
   skip_on_cran()
   dt  <- sim_panel_common_shock(units = 6L, n_time = 20L, seed = 5L)
   sys <- setup_system(
@@ -271,7 +281,7 @@ test_that("distribution policy simulates without error", {
   )
   fit <- fit_system(sys, nsim = 4L)
   dp  <- setup_param(fit)
-  dp$y$policy$type <- "distribution"
+  dp$y$time_fe <- fe_distribution(dp$y$time_fe, sd = 0.01)
 
   expect_no_error(simulate_system(fit, scenario_params = dp))
 })
@@ -298,17 +308,18 @@ test_that("scalar coefficient override: predict.linear matches hand-built check"
 
   dp <- setup_param(fit)
   v  <- 999
-  dp$y$coefficients$m_x <- v
+  dp$y$coef <- coef_override(dp$y$coef, "m_x", v)
 
   model <- Filter(function(m) !is.null(m$outcome) && m$outcome == "y",
                   fit$fitted_draws[[1L]])[[1L]]
   ctx   <- fit$ctx
   sd    <- fit$simulation_data
 
-  # Use t=14 (in-sample; all predictors populated): test_start=14 → h=1.
-  # This isolates the override mechanism from missing-data in forecast rows.
+  # Use the slice for draw 1 as the scenario argument to predict.linear
+  scen_slice <- endogenr:::.slice_scenario(dp, 1L)
+
   out_ov <- predict(model, data = sd, t = 14L, ctx = ctx,
-                    what = "expectation", scenario = dp, test_start = 14L)
+                    what = "expectation", scenario = scen_slice, test_start = 14L)
 
   # Hand-built reference: manually swap coefficient and predict
   fit_hand              <- model$fitted
@@ -344,18 +355,20 @@ test_that("length-horizon vector override yields per-step beta*", {
   fit   <- fit_system(sys, nsim = 2L)
   dp    <- setup_param(fit)
   betas <- c(10, 20, 30, 40)
-  dp$y$coefficients$m_x <- betas
+  dp$y$coef <- coef_override(dp$y$coef, "m_x", betas)
 
   model <- Filter(function(m) !is.null(m$outcome) && m$outcome == "y",
                   fit$fitted_draws[[1L]])[[1L]]
   ctx   <- fit$ctx
   sd    <- fit$simulation_data
 
+  scen_slice <- endogenr:::.slice_scenario(dp, 1L)
+
   # t=14 → h=1 (beta=10), t=15 → h=2 (beta=20); both in-sample, all populated.
   out1 <- predict(model, data = sd, t = 14L, ctx = ctx,
-                  what = "expectation", scenario = dp, test_start = 14L)
+                  what = "expectation", scenario = scen_slice, test_start = 14L)
   out2 <- predict(model, data = sd, t = 15L, ctx = ctx,
-                  what = "expectation", scenario = dp, test_start = 14L)
+                  what = "expectation", scenario = scen_slice, test_start = 14L)
 
   mk_ref <- function(b, t_val) {
     fc <- model$fitted
@@ -369,7 +382,6 @@ test_that("length-horizon vector override yields per-step beta*", {
 
   expect_true(isTRUE(all.equal(out1$y, ref1$y, tolerance = 1e-10)))
   expect_true(isTRUE(all.equal(out2$y, ref2$y, tolerance = 1e-10)))
-  # Different betas → different predictions
   expect_false(isTRUE(all.equal(ref1$y, ref2$y, tolerance = 1e-6)))
 })
 
@@ -391,7 +403,7 @@ test_that("function override is honoured at each step", {
   )
   fit   <- fit_system(sys, nsim = 2L)
   dp    <- setup_param(fit)
-  dp$y$coefficients$m_x <- function(h, beta_hat) beta_hat * (1 + h)
+  dp$y$coef <- coef_override(dp$y$coef, "m_x", function(h, beta_hat) beta_hat * (1 + h))
 
   model <- Filter(function(m) !is.null(m$outcome) && m$outcome == "y",
                   fit$fitted_draws[[1L]])[[1L]]
@@ -399,11 +411,13 @@ test_that("function override is honoured at each step", {
   sd    <- fit$simulation_data
   b0    <- stats::coef(model$fitted)[["m_x"]]
 
+  scen_slice <- endogenr:::.slice_scenario(dp, 1L)
+
   # h=1 at t=14 → beta* = b0 * 2; h=2 at t=15 → beta* = b0 * 3
   out_h1 <- predict(model, data = sd, t = 14L, ctx = ctx,
-                    what = "expectation", scenario = dp, test_start = 14L)
+                    what = "expectation", scenario = scen_slice, test_start = 14L)
   out_h2 <- predict(model, data = sd, t = 15L, ctx = ctx,
-                    what = "expectation", scenario = dp, test_start = 14L)
+                    what = "expectation", scenario = scen_slice, test_start = 14L)
 
   ref1 <- { fc <- model$fitted; fc$coefficients[["m_x"]] <- b0 * 2
              mm <- model; mm$fitted <- fc
@@ -418,7 +432,9 @@ test_that("function override is honoured at each step", {
   expect_true(isTRUE(all.equal(out_h2$y, ref2$y, tolerance = 1e-10)))
 })
 
-test_that("coefficient override on non-linear model errors in simulate_system", {
+# ── Non-linear override errors in coef_override() ────────────────────────────
+
+test_that("coef_override on non-linear model's coef block errors", {
   skip_on_cran()
   dt  <- sim_panel_ar1(units = 6L, n_time = 20L, seed = 9L)
   sys <- setup_system(
@@ -433,27 +449,15 @@ test_that("coefficient override on non-linear model errors in simulate_system", 
     inner_sims  = 2L
   )
   fit <- fit_system(sys, nsim = 2L)
+  dp  <- setup_param(fit)
 
-  # Manually craft a scenario_params-like object with coef override on glm
-  dp <- structure(
-    list(y = list(
-      type         = "glm_endogenr",
-      time_fe      = NULL,
-      policy       = list(type = "resample"),
-      coef_table   = NULL,
-      estimates    = c(`(Intercept)` = 0),
-      coefficients = list(`(Intercept)` = 0.5)
-    )),
-    class = "endogenr_scenario_params"
-  )
-
-  expect_error(simulate_system(fit, scenario_params = dp),
-               "only supported for `linear` models")
+  # dp$y$coef has linear = FALSE (it's a glm)
+  expect_error(coef_override(dp$y$coef, "(Intercept)", 0.5), "linear")
 })
 
 # ── No regression for non-scenario linear models ─────────────────────────────
 
-test_that("linear model without factor(time) and no overrides is unchanged by scenario=NULL", {
+test_that("linear model without FE and no overrides is unchanged by scenario=NULL", {
   skip_on_cran()
   dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 11L)
   sys <- setup_system(
@@ -474,4 +478,111 @@ test_that("linear model without factor(time) and no overrides is unchanged by sc
   res_sc   <- simulate_system(fit, scenario_params = NULL)
 
   expect_equal(res_base$y, res_sc$y)
+})
+
+# ── Determinism: same seed → identical baked values ──────────────────────────
+
+test_that("setup_param is deterministic under the same seed", {
+  skip_on_cran()
+  dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 12L)
+  sys <- setup_system(
+    list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = 3,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = 2L
+  )
+  fit <- fit_system(sys, nsim = 3L)
+
+  set.seed(1)
+  a <- setup_param(fit)
+  set.seed(1)
+  b <- setup_param(fit)
+
+  expect_identical(a$y$time_fe$values, b$y$time_fe$values)
+})
+
+# ── Convergence: fe_converge shrinks toward target ───────────────────────────
+
+test_that("fe_converge(to=0, path='linear') yields values shrinking toward 0", {
+  skip_on_cran()
+  dt  <- sim_panel_common_shock(units = 8L, n_time = 20L, seed = 13L)
+  sys <- setup_system(
+    list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = 4,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = 2L
+  )
+  fit <- fit_system(sys, nsim = 5L)
+  set.seed(1)
+  dp  <- setup_param(fit)
+  blk <- dp$y$time_fe
+
+  # Apply convergence toward 0
+  blk_conv <- fe_converge(blk, to = 0, path = "linear")
+
+  # Mean absolute value should decrease monotonically toward 0
+  h1_abs <- mean(abs(blk_conv$values[,, 1L]))
+  hH_abs <- mean(abs(blk_conv$values[,, 4L]))
+  expect_true(hH_abs < h1_abs)
+})
+
+# ── Unit-FE persist identity ─────────────────────────────────────────────────
+
+test_that("unit-FE model: default == explicit fe_persist (active=FALSE)", {
+  skip_on_cran()
+  dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 14L)
+  sys <- setup_system(
+    list(
+      build_model("exogen", formula = ~x),
+      build_model("linear", formula = y ~ lag(y) + x + factor(unit))
+    ),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = 3,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = 2L
+  )
+  fit <- fit_system(sys, nsim = 4L)
+
+  # Explicit params with default fe_persist (active = FALSE)
+  sp <- setup_param(fit)
+  expect_false(isTRUE(sp$y$unit_fe$active))
+
+  set.seed(7)
+  r0 <- simulate_system(fit)
+  set.seed(7)
+  r1 <- simulate_system(fit, scenario_params = setup_param(fit))
+
+  expect_equal(r0$y, r1$y)
+})
+
+# ── fe_converge on unit FE changes results ───────────────────────────────────
+
+test_that("fe_converge on unit FE changes simulation results vs default", {
+  skip_on_cran()
+  dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 15L)
+  sys <- setup_system(
+    list(
+      build_model("exogen", formula = ~x),
+      build_model("linear", formula = y ~ lag(y) + x + factor(unit))
+    ),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = 3,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = 2L
+  )
+  fit <- fit_system(sys, nsim = 4L)
+
+  dp <- setup_param(fit)
+  dp$y$unit_fe <- fe_converge(dp$y$unit_fe, to = 0, path = "linear")
+  expect_true(isTRUE(dp$y$unit_fe$active))
+
+  set.seed(7)
+  r_default  <- simulate_system(fit)
+  set.seed(7)
+  r_converge <- simulate_system(fit, scenario_params = dp)
+
+  # Convergence toward zero changes unit-FE contribution → results must differ
+  expect_false(isTRUE(all.equal(r_default$y, r_converge$y)))
 })

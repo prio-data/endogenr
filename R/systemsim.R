@@ -960,44 +960,41 @@ simulate_system <- function(fitted_system,
             call. = FALSE)
   }
 
-  # Validate scenario_params
+  # --- Validate scenario_params --------------------------------------------
   if (!is.null(scenario_params) &&
       !inherits(scenario_params, "endogenr_scenario_params")) {
     stop("`scenario_params` must be the output of setup_param() or NULL.",
          call. = FALSE)
   }
+
   if (!is.null(scenario_params)) {
+    # Dims compatibility: refuse a params object built for a different fit.
+    sp_dims <- attr(scenario_params, "dims")
+    if (!is.null(sp_dims)) {
+      sp_nsim <- as.integer(sp_dims$nsim)
+      sp_is   <- as.integer(sp_dims$inner_sims)
+      sp_h    <- as.integer(sp_dims$horizon)
+      fs_nsim <- as.integer(if (!is.null(fitted_system$nsim))
+                              fitted_system$nsim
+                            else length(fitted_system$fitted_draws))
+      if (!identical(sp_nsim, fs_nsim) ||
+          !identical(sp_is, as.integer(fitted_system$inner_sims)) ||
+          !identical(sp_h,  as.integer(fitted_system$horizon))) {
+        stop("scenario_params was built for a different fit; rebuild with setup_param().",
+             call. = FALSE)
+      }
+    }
+
+    # Linear-only guard: any coef override on a non-linear model is an error.
     for (oc in names(scenario_params)) {
-      ov <- scenario_params[[oc]]$coefficients
-      if (length(ov) == 0L) next
-      # Find producing model in fitted_system
-      mdl <- Filter(function(m) !is.null(m$outcome) && m$outcome == oc,
-                    fitted_system$fitted_models)
-      if (length(mdl) == 0L) {
-        stop("scenario_params has overrides for outcome '", oc,
-             "' but no such model was found in fitted_system.", call. = FALSE)
-      }
-      mdl <- mdl[[1L]]
-      type <- class(mdl)[1L]
-      if (type != "linear") {
-        stop("coefficient overrides are only supported for `linear` models; ",
-             "outcome '", oc, "' is ", type, ".", call. = FALSE)
-      }
-      valid_nms <- names(scenario_params[[oc]]$estimates)
-      for (nm in names(ov)) {
-        if (!nm %in% valid_nms) {
-          stop("'", nm, "' is not a valid coefficient name for outcome '", oc,
-               "'. Valid names: ", paste(valid_nms, collapse = ", "), ".",
-               call. = FALSE)
-        }
-        spec <- ov[[nm]]
-        ok <- is.function(spec) ||
-              (is.numeric(spec) && length(spec) == 1L) ||
-              (is.numeric(spec) && length(spec) == fitted_system$horizon)
-        if (!ok) {
-          stop("coefficient override for '", nm, "' in outcome '", oc,
-               "' must be a scalar, a length-", fitted_system$horizon,
-               " numeric vector, or a function(h, beta_hat).", call. = FALSE)
+      entry <- scenario_params[[oc]]
+      if (!is.null(entry$coef) && length(entry$coef$effective) > 0L) {
+        if (!isTRUE(entry$coef$linear)) {
+          mdl  <- Filter(function(m) !is.null(m$outcome) && m$outcome == oc,
+                         fitted_system$fitted_models)
+          type <- if (length(mdl) > 0L) class(mdl[[1L]])[1L] else "unknown"
+          stop("coefficient overrides are only supported for `linear` models; ",
+               "outcome '", oc, "' is ", type, ".", call. = FALSE)
         }
       }
     }
@@ -1006,8 +1003,22 @@ simulate_system <- function(fitted_system,
   nsim <- fitted_system$nsim
   if (is.null(nsim)) nsim <- length(fitted_system$fitted_draws)
 
+  # --- Default scenario: bake under caller's current RNG state --------------
+  # When scenario_params is NULL, build defaults (time-FE resample, unit-FE
+  # persist with active = FALSE) here.  An explicit object uses its pre-baked
+  # draws.  set.seed(); simulate_system(fit) therefore produces varied time-FE
+  # offsets deterministically, matching historical behaviour.
+  if (is.null(scenario_params)) scenario_params <- setup_param(fitted_system)
+
+  # Pre-slice scenario once per outer draw in the main process.  Workers
+  # receive the already-sliced per-draw scenario via the paired payload,
+  # avoiding broadcast of the full (nsim x ...) arrays to every worker.
+  scenario_slices <- lapply(seq_len(nsim), function(i)
+    .slice_scenario(scenario_params, i))
+
   # The (large) simulation grid and the predict-time context ride as globals so
-  # they ship once per worker; the per-iteration payload is one draw's models.
+  # they ship once per worker; the per-iteration payload is one draw's models
+  # plus its pre-sliced scenario.
   simulation_data <- fitted_system$simulation_data
   ctx <- fitted_system$ctx
   test_start <- fitted_system$test_start
@@ -1042,21 +1053,26 @@ simulate_system <- function(fitted_system,
     # Pre-slice window_fits by draw: draw_fits[[i]][[k]][[w]] is the fit for
     # draw i, refit spec k (in refit_idx order), window w. Building this list
     # in the main process is cheap (only references are copied, not the model
-    # objects themselves). Crucially, draw_fits is passed as the iterated X
-    # argument to future_lapply, so future.apply partitions it across workers
-    # rather than broadcasting the entire nsim store to every worker.
+    # objects themselves). Crucially, the paired payload is passed as the
+    # iterated X so future.apply partitions it across workers rather than
+    # broadcasting the entire nsim store to every worker.
     # window_fits and baseline are deliberately excluded from future.globals.
+    # Scenario FE/coef parameters are baked once per draw from that draw's
+    # forecast-origin fit and applied at every step; the per-step window refits
+    # still drive the neutralised base prediction.
     draw_fits <- lapply(seq_len(nsim), function(i)
       lapply(seq_along(refit_idx), function(k) {
         j <- refit_idx[k]
         lapply(seq_len(nwin), function(w) window_fits[[j]][[w]][[i]])
       }))
 
+    X_sliding <- lapply(seq_len(nsim), function(i)
+      list(dwf = draw_fits[[i]], scen = scenario_slices[[i]]))
+
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
       horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
-      models = models, refit_oc = refit_oc,
-      W = W, nwin = nwin, scenario = scenario_params
+      models = models, refit_oc = refit_oc, W = W, nwin = nwin
     )
     if (!is.null(fitted_system$globals)) {
       for (fn_name in names(fitted_system$globals)) {
@@ -1065,8 +1081,10 @@ simulate_system <- function(fitted_system,
     }
 
     simulation_results <- future.apply::future_lapply(
-      draw_fits,
-      function(dwf) {
+      X_sliding,
+      function(payload) {
+        dwf  <- payload$dwf
+        scen <- payload$scen
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         schedules <- list()
@@ -1077,7 +1095,7 @@ simulate_system <- function(fitted_system,
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
                                         execution_order, schedules = schedules,
-                                        scenario = scenario)
+                                        scenario = scen)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
@@ -1090,10 +1108,12 @@ simulate_system <- function(fitted_system,
   } else {
     fitted_draws <- fitted_system$fitted_draws
 
+    X_standard <- lapply(seq_len(nsim), function(i)
+      list(models = fitted_draws[[i]], scen = scenario_slices[[i]]))
+
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
-      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
-      scenario = scenario_params
+      horizon = horizon, execution_order = execution_order, inner_sims = inner_sims
     )
     if (!is.null(fitted_system$globals)) {
       for (fn_name in names(fitted_system$globals)) {
@@ -1102,12 +1122,14 @@ simulate_system <- function(fitted_system,
     }
 
     simulation_results <- future.apply::future_lapply(
-      fitted_draws,
-      function(models) {
+      X_standard,
+      function(payload) {
+        models <- payload$models
+        scen   <- payload$scen
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
-                                        execution_order, scenario = scenario)
+                                        execution_order, scenario = scen)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
