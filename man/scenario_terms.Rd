@@ -4,7 +4,7 @@
 \alias{scenario_terms}
 \alias{scenario_terms.default}
 \alias{scenario_terms.linear}
-\title{Retrieve time fixed-effect metadata for scenario draws}
+\title{Retrieve fixed-effect metadata for scenario construction}
 \usage{
 scenario_terms(model)
 
@@ -16,20 +16,25 @@ scenario_terms(model)
 \item{model}{A fitted endogenr model object.}
 }
 \value{
-A list with elements \code{term}, \code{timevar}, \code{ref_value}, and \code{effects},
-or \code{NULL} when no time fixed effect is present.
+A list with elements \code{time_fe} and \code{unit_fe} (each a metadata list
+or \code{NULL}).
 }
 \description{
-Returns the time-FE metadata list stored on a fitted model, or \code{NULL} when
-the model carries no time fixed effect. This is the per-model-type extension
-seam consumed by \code{\link[=setup_param]{setup_param()}}. Currently only \code{linear} models support
-time-FE scenario draws; all other model types return \code{NULL} via the default
-method. Add support for additional model types by implementing
-\verb{scenario_terms.<class>}.
+Returns a list with elements \code{time_fe} and \code{unit_fe}, each either a
+metadata list or \code{NULL}. This is the per-model-type extension seam consumed
+by \code{\link[=setup_param]{setup_param()}}. Currently only \code{linear} models carry FE metadata; all
+other types return \code{NULL} for both elements via the default method. Add
+support for additional types by implementing \verb{scenario_terms.<class>}.
 }
 \seealso{
 Other simulation:
+\code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_converge]{fe_converge()}},
+\code{\link[=fe_distribution]{fe_distribution()}},
+\code{\link[=fe_fixed]{fe_fixed()}},
+\code{\link[=fe_persist]{fe_persist()}},
+\code{\link[=fe_resample]{fe_resample()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},

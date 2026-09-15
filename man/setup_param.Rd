@@ -2,7 +2,7 @@
 % Please edit documentation in R/scenario_params.R
 \name{setup_param}
 \alias{setup_param}
-\title{Set up scenario parameters for a fitted endogenr system}
+\title{Set up precomputed scenario parameters for a fitted endogenr system}
 \usage{
 setup_param(fitted_system)
 }
@@ -10,53 +10,50 @@ setup_param(fitted_system)
 \item{fitted_system}{An \code{endogenr_fitted_system} from \code{\link[=fit_system]{fit_system()}}.}
 }
 \value{
-An \code{endogenr_scenario_params} object (named list keyed by outcome).
-An empty list is valid — simulation then finds nothing to configure.
+An \code{endogenr_scenario_params} object.
 }
 \description{
-Builds an editable list of scenario parameters, one entry per model outcome
-that carries adjustable parameters. Inspect the returned object before
-\code{\link[=simulate_system]{simulate_system()}} to see which coefficients and time-FE policies can be
-overridden.
+Builds an \code{endogenr_scenario_params} object keyed by model outcome (all
+models in the fitted system, including independent models). All stochastic
+parameters (time-FE draw trajectories) are \strong{baked at build time} using
+the current RNG state, so results are inspectable before
+\code{\link[=simulate_system]{simulate_system()}}.
 }
 \details{
-Each entry (keyed by outcome name) contains:
-
-\describe{
-\item{\code{type}}{Model type string (e.g. \code{"linear"}).}
-\item{\code{time_fe}}{\code{NULL}, or a list describing the time fixed effect:
-\code{term}, \code{timevar}, \code{n_levels}, \code{effects} (numeric vector of estimated
-year effects with baseline fixed at 0), and a \code{summary} vector of
-mean/sd/min/max.}
-\item{\code{policy}}{Time-FE draw policy. Set \verb{$type} to \code{"resample"} (the
-default; resample uniformly from estimated year effects),
-\code{"distribution"} (Normal fit; optionally set \verb{$mean} and \verb{$sd}), or
-\code{"fixed"} (constant; set \verb{$value}). Fields left \code{NULL} are filled from
-the estimated effects at simulation time. Consumed only when \code{time_fe}
-is non-\code{NULL}.}
-\item{\code{coef_table}}{A \code{data.frame} of non-FE coefficient estimates and
-standard errors, or \code{NULL}. Time-FE level rows are excluded (managed
-by \code{policy}).}
-\item{\code{estimates}}{Named numeric vector of overridable coefficient
-estimates. Names match those used as keys in \verb{$coefficients}.}
-\item{\code{coefficients}}{An empty \code{list()} for the user to fill with
-coefficient overrides. Each key is a coefficient name from \code{estimates};
-each value is one of:
+Default strategies applied at build time:
 \itemize{
-\item a scalar (constant across all forecast steps),
-\item a length-\code{horizon} numeric vector (per-step trajectory), or
-\item a \verb{function(h, beta_hat)} returning the override β* for forecast
-step \code{h} given the per-draw fitted estimate.
+\item \strong{Time FE} (\code{factor(timevar)}): \code{\link[=fe_resample]{fe_resample()}} — one independent
+draw per \verb{(outer draw, inner sim, forecast step)}.
+\item \strong{Unit FE} (\code{factor(unitvar)}): \code{\link[=fe_persist]{fe_persist()}} with \code{active = FALSE} — \code{factor(unit)} stays in the design matrix unchanged;
+equivalent to the current default behaviour.
 }
-Coefficient overrides are only supported for \code{linear} models;
-\code{\link[=simulate_system]{simulate_system()}} errors if they are set on any other model type.}
+
+Each entry contains:
+\describe{
+\item{\code{type}}{Model type string.}
+\item{\code{outcome}}{Outcome variable name.}
+\item{\code{independent}}{Logical.}
+\item{\code{adjustable}}{Logical: any non-NULL adjustable block present.}
+\item{\code{time_fe}}{\code{endogenr_fe_param} or \code{NULL}.}
+\item{\code{unit_fe}}{\code{endogenr_fe_param} or \code{NULL}.}
+\item{\code{coef}}{\code{endogenr_coef_param} or \code{NULL}.}
 }
+
+The returned object carries a \code{dims} attribute:
+\code{list(nsim, inner_sims, horizon, test_start, units, timevar, unitvar)}.
 }
 \seealso{
-\code{\link[=simulate_system]{simulate_system()}}, \code{\link[=scenario_terms]{scenario_terms()}}
+\code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=fe_persist]{fe_persist()}},
+\code{\link[=fe_converge]{fe_converge()}}, \code{\link[=coef_override]{coef_override()}}, \code{\link[=simulate_system]{simulate_system()}}
 
 Other simulation:
+\code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_converge]{fe_converge()}},
+\code{\link[=fe_distribution]{fe_distribution()}},
+\code{\link[=fe_fixed]{fe_fixed()}},
+\code{\link[=fe_persist]{fe_persist()}},
+\code{\link[=fe_resample]{fe_resample()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
