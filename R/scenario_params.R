@@ -347,18 +347,14 @@ fe_resample <- function(block, to = NULL, factor = 1, path = "constant",
     n_units <- length(dims$units)
     vals    <- array(NA_real_, dim = c(n_units, nsim, inner_sims, horizon))
     dimnames(vals)[[1L]] <- as.character(dims$units)
+    wfull <- array(rep(w, each = n_units * inner_sims),
+                   dim = c(n_units, inner_sims, horizon))
     for (i in seq_len(nsim)) {
-      pool <- block$effects_by_draw[[i]]
-      for (u_idx in seq_len(n_units)) {
-        B <- matrix(sample(pool, inner_sims * horizon, replace = TRUE),
-                    nrow = inner_sims, ncol = horizon)
-        for (h in seq_len(horizon)) {
-          vals[u_idx, i,, h] <- if (!is.null(t_val))
-            (1 - w[h]) * B[, h] + w[h] * t_val
-          else
-            B[, h] * (1 + (factor - 1) * w[h])
-        }
-      }
+      pool  <- block$effects_by_draw[[i]]
+      draws <- sample(pool, n_units * inner_sims * horizon, replace = TRUE)
+      P <- aperm(array(draws, dim = c(inner_sims, horizon, n_units)), c(3L, 1L, 2L))
+      vals[, i, , ] <- if (!is.null(t_val)) (1 - wfull) * P + wfull * t_val
+                       else                 P * (1 + (factor - 1) * wfull)
     }
     attr(vals, "per_trajectory") <- TRUE
   }
@@ -450,20 +446,16 @@ fe_distribution <- function(block, mean = NULL, sd = NULL, to = NULL,
     n_units <- length(dims$units)
     vals    <- array(NA_real_, dim = c(n_units, nsim, inner_sims, horizon))
     dimnames(vals)[[1L]] <- as.character(dims$units)
+    wfull <- array(rep(w, each = n_units * inner_sims),
+                   dim = c(n_units, inner_sims, horizon))
     for (i in seq_len(nsim)) {
       eff_i <- block$effects_by_draw[[i]]
       m_i   <- if (!is.null(mean)) mean else base::mean(eff_i)
       s_i   <- if (!is.null(sd))   sd   else stats::sd(eff_i)
-      for (u_idx in seq_len(n_units)) {
-        B <- matrix(stats::rnorm(inner_sims * horizon, m_i, s_i),
-                    nrow = inner_sims, ncol = horizon)
-        for (h in seq_len(horizon)) {
-          vals[u_idx, i,, h] <- if (!is.null(t_val))
-            (1 - w[h]) * B[, h] + w[h] * t_val
-          else
-            B[, h] * (1 + (factor - 1) * w[h])
-        }
-      }
+      draws <- stats::rnorm(n_units * inner_sims * horizon, m_i, s_i)
+      P <- aperm(array(draws, dim = c(inner_sims, horizon, n_units)), c(3L, 1L, 2L))
+      vals[, i, , ] <- if (!is.null(t_val)) (1 - wfull) * P + wfull * t_val
+                       else                 P * (1 + (factor - 1) * wfull)
     }
     attr(vals, "per_trajectory") <- TRUE
   }
@@ -1241,15 +1233,19 @@ setup_param <- function(fitted_system) {
       )
     } else NULL
 
-    entries[[oc]] <- list(
-      type        = type,
-      outcome     = oc,
-      independent = isTRUE(model$independent),
-      adjustable  = adjustable,
-      time_fe     = time_fe_blk,
-      unit_fe     = unit_fe_blk,
-      coef        = coef_blk
-    )
+    # Multi-outcome models (e.g. multi-column exogen) produce a vector `oc`;
+    # `[[<-` with a vector tries nested indexing, so iterate explicitly.
+    for (o in oc) {
+      entries[[o]] <- list(
+        type        = type,
+        outcome     = o,
+        independent = isTRUE(model$independent),
+        adjustable  = adjustable,
+        time_fe     = time_fe_blk,
+        unit_fe     = unit_fe_blk,
+        coef        = coef_blk
+      )
+    }
   }
 
   structure(entries, class = "endogenr_scenario_params", dims = dims)

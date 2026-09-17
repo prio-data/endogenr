@@ -87,3 +87,25 @@ test_that("random-window fits succeed on ragged data", {
   expect_true(all(is.finite(co$estimate)))
   expect_equal(data.table::uniqueN(co$.draw), 6L)
 })
+
+test_that("mundlak_time_means reproduces TWFE slopes on an unbalanced panel", {
+  d <- sim_panel_ragged(units = 8L, n_time = 30L, seed = 7,
+                        enter = c("5" = 8), exit = c("6" = 22))
+
+  # Constant complete-case unit mean of x (no NAs in DGP, so mean over all
+  # training rows equals the constant cc mean).
+  d[, m_x := mean(x), by = unit]
+
+  core <- y ~ x + m_x + factor(time)
+  tw   <- mundlak_time_means(d, core, groupvar = "unit", timevar = "time",
+                             test_start = 31L)
+
+  twm  <- lm(tw$formula, tw$data)
+  twfe <- lm(y ~ x + factor(unit) + factor(time), d)
+
+  expect_equal(
+    unname(coef(twm)["x"]),
+    unname(coef(twfe)["x"]),
+    tolerance = 1e-8
+  )
+})

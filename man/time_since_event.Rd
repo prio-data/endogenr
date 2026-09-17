@@ -35,6 +35,7 @@ Other formula_helpers:
 \code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},
 \code{\link[=intensity_decay]{intensity_decay()}},
-\code{\link[=materialize_formula]{materialize_formula()}}
+\code{\link[=materialize_formula]{materialize_formula()}},
+\code{\link[=mundlak_time_means]{mundlak_time_means()}}
 }
 \concept{formula_helpers}
