@@ -400,6 +400,169 @@ test_that("gamlss predict tolerates NA predictor rows (no 'logical subscript too
 })
 
 # ============================================================================
+# TIER 2 — TWFE / Mundlak scenarios (Tier 2: requires gamlss)
+# ============================================================================
+
+# ── Shared helper: tiny TWFE gamlss system ───────────────────────────────────
+
+.make_twfe_gamlss_fit <- function(units = 6L, n_time = 25L, nsim = 2L,
+                                  inner_sims = 2L, seed = 1L) {
+  dt <- .make_panel_gamlss(units = units, n_time = n_time, seed = seed)
+  sys <- setup_system(
+    list(
+      build_model("gamlss",
+                  formula = y ~ factor(unit) + factor(year) + lag(x),
+                  family  = gamlss.dist::NO()),
+      build_model("exogen", formula = ~x)
+    ),
+    data        = dt,
+    train_start = 1L, test_start = 22L, horizon = 4L,
+    groupvar    = "unit", timevar = "year", inner_sims = inner_sims
+  )
+  fit_system(sys, nsim = nsim)
+}
+
+
+test_that("TWFE gamlss fits and forecasts unseen years without error", {
+  skip_if_no_gamlss()
+
+  fit <- .make_twfe_gamlss_fit()
+  # Pre-fix: simulate_system would abort with
+  #   predictAll: "factor factor(year) has new levels 22"
+  expect_no_error(sim <- simulate_system(fit))
+
+  fc <- sim[sim$year >= 22L, ]
+  expect_gt(nrow(fc), 0L)
+  expect_false(anyNA(fc$y))
+  expect_true(all(is.finite(fc$y)))
+})
+
+
+test_that("scenario_terms.endogenr_gamlss returns non-NULL time_fe and unit_fe", {
+  skip_if_no_gamlss()
+
+  fit <- .make_twfe_gamlss_fit()
+  m   <- fit$fitted_models[[1L]]   # representative gamlss model
+
+  st <- scenario_terms(m)
+  expect_false(is.null(st$time_fe))
+  expect_false(is.null(st$unit_fe))
+  expect_equal(st$time_fe$term, "factor(year)")
+  expect_equal(st$unit_fe$term, "factor(unit)")
+})
+
+
+test_that("setup_param builds correct time_fe / unit_fe / coef blocks for gamlss TWFE", {
+  skip_if_no_gamlss()
+
+  fit <- .make_twfe_gamlss_fit(nsim = 2L, inner_sims = 2L)
+  sp  <- setup_param(fit)
+
+  oc  <- fit$fitted_models[[1L]]$outcome   # "y"
+
+  # time_fe block
+  tfe <- sp[[oc]]$time_fe
+  expect_false(is.null(tfe))
+  expect_equal(tfe$kind, "time")
+  expect_equal(dim(tfe$values), c(2L, 2L, 4L))   # c(nsim, inner_sims, horizon)
+
+  # unit_fe block
+  ufe <- sp[[oc]]$unit_fe
+  expect_false(is.null(ufe))
+  expect_equal(ufe$kind, "unit")
+
+  # coef block
+  coef_blk <- sp[[oc]]$coef
+  expect_false(is.null(coef_blk))
+  expect_true(isTRUE(coef_blk$overridable))
+})
+
+
+test_that("fe_fixed(time_fe, value=0) produces a different forecast than default resample", {
+  skip_if_no_gamlss()
+
+  fit <- .make_twfe_gamlss_fit()
+
+  # Default: time FE offsets are resampled from estimated year effects
+  set.seed(1L); fc_default <- simulate_system(fit)
+
+  # Fixed-zero: neutralise time FE contribution entirely
+  sp0 <- setup_param(fit)
+  sp0$y$time_fe <- fe_fixed(sp0$y$time_fe, value = 0)
+  set.seed(1L); fc_zero <- simulate_system(fit, scenario_params = sp0)
+
+  fc_def <- fc_default[fc_default$year >= 22L, "y"][[1L]]
+  fc_zer <- fc_zero[fc_zero$year >= 22L, "y"][[1L]]
+  expect_false(isTRUE(all.equal(fc_def, fc_zer)),
+               info = "FE offset is applied on the link scale: zeroing it changes forecast")
+})
+
+
+test_that("coef_override on gamlss mu term succeeds and shifts expectation on identity link", {
+  skip_if_no_gamlss()
+
+  # Simple model: NO() family (identity link) + lag(x), no FE
+  set.seed(7L)
+  dt <- .make_panel_gamlss(units = 4L, n_time = 25L, seed = 7L)
+  sys <- setup_system(
+    list(
+      build_model("gamlss", formula = y ~ lag(x), family = gamlss.dist::NO()),
+      build_model("exogen", formula = ~x)
+    ),
+    data        = dt,
+    train_start = 1L, test_start = 22L, horizon = 4L,
+    groupvar    = "unit", timevar = "year", inner_sims = 2L
+  )
+  fit <- fit_system(sys, nsim = 2L)
+  m   <- fit$fitted_models[[1L]]
+
+  # (a) coef_override succeeds
+  sp <- setup_param(fit)
+  expect_true(isTRUE(sp$y$coef$overridable))
+  expect_no_error(sp$y$coef <- coef_override(sp$y$coef, "lag_x", 0))
+
+  # (b) simulate_system runs without error
+  expect_no_error(fc_ov <- simulate_system(fit, scenario_params = sp))
+
+  # (c) forecast differs from un-overridden baseline
+  fc_base <- simulate_system(fit)
+  expect_false(isTRUE(all.equal(fc_base[fc_base$year >= 22L, "y"][[1L]],
+                                fc_ov[fc_ov$year >= 22L, "y"][[1L]])),
+               info = "coefficient override must change forecast")
+
+  # Numerical check: identity-link NO() => eta = mu.
+  # Override lag_x to 0: shift = (0 - beta) * lag_x_val, exact to 1e-6.
+  beta_lag_x <- stats::coef(m$fitted)[["lag_x"]]
+  oc_name    <- m$outcome   # "y"
+
+  dt_sim <- data.table::copy(dt)
+  dt_sim[, .sim := 1L]
+  sim_ctx <- panel_context(unit = "unit", time = "year", sim = ".sim")
+
+  # Manually constructed scenario slice matching .slice_scenario format
+  scen_ov <- stats::setNames(
+    list(list(
+      time_fe = NULL,
+      unit_fe = NULL,
+      coef    = list(effective = list(lag_x = rep(0, 4L)))
+    )),
+    oc_name
+  )
+
+  pred_base <- predict(m, data = dt_sim, t = 22L, ctx = sim_ctx,
+                       what = "expectation", scenario = NULL, test_start = 22L)
+  pred_over <- predict(m, data = dt_sim, t = 22L, ctx = sim_ctx,
+                       what = "expectation", scenario = scen_ov, test_start = 22L)
+
+  # lag(x) at t=22 is x at year=21; dt is keyed (unit, year)
+  lag_x_val      <- dt[year == 21L, x]   # one per unit, unit order
+  expected_delta <- (0 - beta_lag_x) * lag_x_val
+  actual_delta   <- pred_over[[oc_name]] - pred_base[[oc_name]]
+
+  expect_equal(actual_delta, expected_delta, tolerance = 1e-6)
+})
+
+# ============================================================================
 # TIER 3 — Calibration (slow)
 # ============================================================================
 

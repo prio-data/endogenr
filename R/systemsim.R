@@ -985,15 +985,15 @@ simulate_system <- function(fitted_system,
       }
     }
 
-    # Linear-only guard: any coef override on a non-linear model is an error.
+    # linear+gamlss guard: any coef override on an unsupported model type errors.
     for (oc in names(scenario_params)) {
       entry <- scenario_params[[oc]]
       if (!is.null(entry$coef) && length(entry$coef$effective) > 0L) {
-        if (!isTRUE(entry$coef$linear)) {
+        if (!isTRUE(entry$coef$overridable)) {
           mdl  <- Filter(function(m) !is.null(m$outcome) && m$outcome == oc,
                          fitted_system$fitted_models)
           type <- if (length(mdl) > 0L) class(mdl[[1L]])[1L] else "unknown"
-          stop("coefficient overrides are only supported for `linear` models; ",
+          stop("coefficient overrides are supported only for `linear` and `gamlss` models; ",
                "outcome '", oc, "' is ", type, ".", call. = FALSE)
         }
       }

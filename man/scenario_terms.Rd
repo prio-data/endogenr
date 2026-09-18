@@ -4,6 +4,7 @@
 \alias{scenario_terms}
 \alias{scenario_terms.default}
 \alias{scenario_terms.linear}
+\alias{scenario_terms.endogenr_gamlss}
 \title{Retrieve fixed-effect metadata for scenario construction}
 \usage{
 scenario_terms(model)
@@ -11,6 +12,8 @@ scenario_terms(model)
 \method{scenario_terms}{default}(model)
 
 \method{scenario_terms}{linear}(model)
+
+\method{scenario_terms}{endogenr_gamlss}(model)
 }
 \arguments{
 \item{model}{A fitted endogenr model object.}

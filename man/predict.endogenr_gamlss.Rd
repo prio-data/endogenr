@@ -4,7 +4,16 @@
 \alias{predict.endogenr_gamlss}
 \title{Predict method for gamlss models}
 \usage{
-\method{predict}{endogenr_gamlss}(model, data, t, ctx, what = "pi", ...)
+\method{predict}{endogenr_gamlss}(
+  model,
+  data,
+  t,
+  ctx,
+  what = "pi",
+  scenario = NULL,
+  test_start = NULL,
+  ...
+)
 }
 \arguments{
 \item{model}{An \code{endogenr_gamlss} endogenmodel.}

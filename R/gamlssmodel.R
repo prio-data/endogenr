@@ -383,6 +383,19 @@ gamlssmodel <- function(formula       = NULL,
   model$fitted      <- fitres$fitted
   model$gamlss_data <- fitres$frame  # EXACT frame; never replaced; passed as data= to predictAll
 
+  # ── mu fixed-effect detection (TWFE / TW-Mundlak) ─────────────────────────
+  # Detect factor(timevar) and factor(unitkey) in the mu formula only.
+  # mu.xlevels is the gamlss analogue of lm$xlevels.
+  mu_coefs       <- stats::coef(model$fitted)   # mu coefficients (named)
+  model$time_fe  <- tryCatch(
+    .detect_time_fe(mu_fit, mu_coefs, model$fitted$mu.xlevels, timevar),
+    error = function(e) NULL
+  )
+  model$unit_fe  <- tryCatch(
+    .detect_unit_fe(mu_fit, mu_coefs, model$fitted$mu.xlevels, grp_keys),
+    error = function(e) NULL
+  )
+
   # ── Coefficient + GOF fields for plot_coefficients() ─────────────────────
   # Best-effort only; NULL-safe because get_coefficients() skips NULL $coefs.
   model$coefs <- tryCatch({
@@ -458,7 +471,8 @@ gamlssmodel <- function(formula       = NULL,
 #'   one row per `(unit, sim)` at time `t`.
 #' @family simulation
 #' @export
-predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
+predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi",
+                                    scenario = NULL, test_start = NULL, ...) {
   idx      <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
 
@@ -478,15 +492,96 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
 
   if (nrow(mat) == 0L) return(result)
 
-  # Distribution-parameter prediction (predictAll) and draws happen inside
-  # draw_predictive.endogenr_gamlss; the family carries no
-  # parameter-uncertainty draw, so the engine path uses n_param = 0.
+  # --- Scenario: extract per-draw slices ------------------------------------
+  oc_scen       <- if (!is.null(scenario)) scenario[[model$outcome]] else NULL
+  time_fe_slice <- if (!is.null(oc_scen)) oc_scen$time_fe else NULL
+  unit_fe_slice <- if (!is.null(oc_scen)) oc_scen$unit_fe else NULL
+  eff_coef      <- if (!is.null(oc_scen) && !is.null(oc_scen$coef))
+                     oc_scen$coef$effective
+                   else list()
+  h             <- if (!is.null(test_start)) t - test_start + 1L else NULL
+
+  # --- Neutralise FE columns on a copy of mat --------------------------------
+  # When a time or unit FE slice is active, replace the factor column with its
+  # reference level so predictAll() contributes 0 for that contrast; the baked
+  # eta offset is added below (on the link scale).
+  pred_frame <- mat
+
+  if (!is.null(time_fe_slice)) {
+    pred_frame <- data.table::copy(mat)
+    data.table::set(pred_frame, j = time_fe_slice$var, value = time_fe_slice$ref)
+  }
+
+  if (!is.null(unit_fe_slice)) {
+    if (identical(pred_frame, mat)) pred_frame <- data.table::copy(mat)
+    ref_val   <- unit_fe_slice$ref
+    col_class <- class(mat[[unit_fe_slice$var]])[1L]
+    if (col_class == "integer")       ref_val <- as.integer(ref_val)
+    else if (col_class == "numeric")  ref_val <- as.numeric(ref_val)
+    data.table::set(pred_frame, j = unit_fe_slice$var, value = ref_val)
+  }
+
+  # --- Compute per-row eta offset (link scale) --------------------------------
+  # Non-NULL only when h is known and at least one scenario channel is active.
+  has_active_scenario <- !is.null(h) &&
+    (!is.null(time_fe_slice) || !is.null(unit_fe_slice) || length(eff_coef) > 0L)
+
+  eta_off <- if (has_active_scenario) {
+    off <- numeric(nrow(pred_frame))
+
+    # sim column — needed to index per-trajectory FE values
+    sim_col <- ctx_sim(ctx)
+    sim_ids <- if (!is.null(sim_col) && sim_col %in% names(pred_frame))
+                 pred_frame[[sim_col]]
+               else rep(1L, nrow(pred_frame))
+
+    # Time FE offset (baked on eta / link scale)
+    if (!is.null(time_fe_slice)) {
+      if (what == "pi") {
+        off <- off + time_fe_slice$offsets[sim_ids, h]
+      } else {
+        off <- off + mean(time_fe_slice$offsets[, h])
+      }
+    }
+
+    # Unit FE offset
+    if (!is.null(unit_fe_slice)) {
+      units_here <- as.character(mat[[unit_fe_slice$var]])
+      unit_idx   <- match(units_here, rownames(unit_fe_slice$eff))
+      if (what == "pi" && isTRUE(unit_fe_slice$per_trajectory)) {
+        off <- off + unit_fe_slice$eff[cbind(unit_idx, sim_ids,
+                                             rep(h, length(unit_idx)))]
+      } else {
+        off <- off + unit_fe_slice$eff[unit_idx, h]
+      }
+    }
+
+    # Coef overrides: delta on the mu linear predictor
+    if (length(eff_coef) > 0L) {
+      X  <- .gamlss_mu_designmatrix(model$fitted, pred_frame)
+      bh <- stats::coef(model$fitted)
+      for (nm in names(eff_coef)) {
+        if (!nm %in% colnames(X))
+          stop("coef override term '", nm, "' has no mu design column", call. = FALSE)
+        off <- off + (eff_coef[[nm]][[h]] - bh[[nm]]) * X[, nm]
+      }
+    }
+
+    off
+  } else NULL
+
+  # Distribution-parameter prediction and draws happen inside draw_predictive;
+  # the family carries no parameter-uncertainty draw, so n_param = 0.
   if (what == "expectation") {
     data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
+                    value = as.vector(
+                      draw_predictive(model, pred_frame, n_param = 0L, n_innov = 0L,
+                                      eta_offset = eta_off)))
   } else if (what == "pi") {
     data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 1L)))
+                    value = as.vector(
+                      draw_predictive(model, pred_frame, n_param = 0L, n_innov = 1L,
+                                      eta_offset = eta_off)))
   } else {
     stop("`what` must be either `pi` or `expectation`", call. = FALSE)
   }
@@ -496,7 +591,8 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi", ...) {
 
 #' @rdname draw_predictive
 #' @export
-draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
+draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_innov = 1L,
+                                            eta_offset = NULL, ...) {
   .check_draw_counts(n_param, n_innov)
   if (n_param > 0L) .warn_no_param_draw("gamlss")
 
@@ -530,9 +626,26 @@ draw_predictive.endogenr_gamlss <- function(model, newdata, n_param = 1L, n_inno
                        data = model$gamlss_data, type = "response")
   )
 
+  # Apply eta offset on the mu link scale when a scenario is active.
+  # eta_offset is length nrow(newdata); eta_offset[ok] aligns with df_ok rows.
+  if (!is.null(eta_offset)) {
+    lf    <- model$family$mu.linkfun
+    li    <- model$family$mu.linkinv
+    pa$mu <- li(lf(as.numeric(pa$mu)) + eta_offset[ok])
+  }
+
   for (k in seq_len(K)) {
     out[ok, k] <- if (n_innov == 0L) as.numeric(pa$mu)
                   else as.numeric(.gamlss_response_draw(model$fitted, pa, n_ok))
   }
   out
+}
+
+# Helper: reconstruct the mu design matrix for newdata using the fitted mu terms.
+# Used by predict.endogenr_gamlss for coefficient-override delta computation.
+.gamlss_mu_designmatrix <- function(fitted, newdata) {
+  tt <- stats::delete.response(fitted$mu.terms)
+  mf <- stats::model.frame(tt, data = as.data.frame(newdata),
+                            xlev = fitted$mu.xlevels)
+  stats::model.matrix(tt, mf)
 }

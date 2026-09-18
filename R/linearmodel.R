@@ -122,8 +122,10 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # coherent basis reconstruction at predict time.
   model$fitted  <- .lm_stage2_fit(fit_formula, pm$data, boot, subset, timevar)
   model$coefs   <- broom::tidy(model$fitted)
-  model$time_fe <- .detect_time_fe(fit_formula, model$fitted, timevar)
-  model$unit_fe <- .detect_unit_fe(fit_formula, model$fitted, grp_keys)
+  model$time_fe <- .detect_time_fe(fit_formula, stats::coef(model$fitted),
+                                   model$fitted$xlevels, timevar)
+  model$unit_fe <- .detect_unit_fe(fit_formula, stats::coef(model$fitted),
+                                   model$fitted$xlevels, grp_keys)
   model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
   model$required_history <- .required_history(model$formula)

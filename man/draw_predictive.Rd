@@ -18,7 +18,14 @@ draw_predictive(model, newdata, n_param = 1L, n_innov = 1L, ...)
 
 \method{draw_predictive}{default}(model, newdata, n_param = 1L, n_innov = 1L, ...)
 
-\method{draw_predictive}{endogenr_gamlss}(model, newdata, n_param = 1L, n_innov = 1L, ...)
+\method{draw_predictive}{endogenr_gamlss}(
+  model,
+  newdata,
+  n_param = 1L,
+  n_innov = 1L,
+  eta_offset = NULL,
+  ...
+)
 
 \method{draw_predictive}{glmmTMB_endogenr}(
   model,

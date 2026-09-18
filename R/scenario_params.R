@@ -8,7 +8,7 @@
 
 # Scan fit_formula for a term of the form factor(<timevar>). Extract the
 # estimated year effects from fitted_lm and return metadata, or NULL.
-.detect_time_fe <- function(fit_formula, fitted_lm, timevar) {
+.detect_time_fe <- function(fit_formula, coefs, xlevels, timevar) {
   term_labels <- attr(stats::terms(fit_formula), "term.labels")
 
   fe_label <- NULL
@@ -42,7 +42,7 @@
   }
 
   # xlevels for this term — present only when the model has been fitted
-  xl <- fitted_lm$xlevels[[fe_label]]
+  xl <- xlevels[[fe_label]]
   if (is.null(xl)) return(NULL)
 
   # Build effects vector: baseline (xl[1]) -> 0, remaining levels -> coefficient.
@@ -50,7 +50,7 @@
   effects <- stats::setNames(numeric(length(xl)), xl)
   for (lv in xl[-1L]) {
     nm  <- paste0(fe_label, lv)
-    val <- stats::coef(fitted_lm)[[nm]]
+    val <- coefs[[nm]]
     if (!is.null(val)) effects[[lv]] <- val
   }
   ref_value <- as.numeric(xl[1L])
@@ -70,7 +70,7 @@
 # matching key is used (single-key unit FE). Multi-key composite unit FE is
 # out of scope: if unit_keys has length > 1, the factor over any one key is
 # detected and the rest are left in the design unchanged.
-.detect_unit_fe <- function(fit_formula, fitted_lm, unit_keys) {
+.detect_unit_fe <- function(fit_formula, coefs, xlevels, unit_keys) {
   if (length(unit_keys) == 0L) return(NULL)
   term_labels <- attr(stats::terms(fit_formula), "term.labels")
 
@@ -107,14 +107,14 @@
     }
   }
 
-  xl <- fitted_lm$xlevels[[fe_label]]
+  xl <- xlevels[[fe_label]]
   if (is.null(xl)) return(NULL)
 
   # Build effects named by unit level; baseline (xl[1]) = 0.
   effects <- stats::setNames(numeric(length(xl)), xl)
   for (lv in xl[-1L]) {
     nm  <- paste0(fe_label, lv)
-    val <- stats::coef(fitted_lm)[[nm]]
+    val <- coefs[[nm]]
     if (!is.null(val)) effects[[lv]] <- val
   }
   ref_value <- xl[1L]  # character unit id (reference level)
@@ -181,6 +181,12 @@ scenario_terms.default <- function(model) list(time_fe = NULL, unit_fe = NULL)
 #' @rdname scenario_terms
 #' @exportS3Method scenario_terms linear
 scenario_terms.linear <- function(model) {
+  list(time_fe = model$time_fe, unit_fe = model$unit_fe)
+}
+
+#' @rdname scenario_terms
+#' @exportS3Method scenario_terms endogenr_gamlss
+scenario_terms.endogenr_gamlss <- function(model) {
   list(time_fe = model$time_fe, unit_fe = model$unit_fe)
 }
 
@@ -880,8 +886,8 @@ fe_converge <- function(block, to, path = "linear", mid = NULL, steep = 1) {
 #' res <- simulate_system(fit, scenario_params = sp)
 #' }
 coef_override <- function(block, term, value) {
-  if (!block$linear) {
-    stop("coefficient overrides are only supported for `linear` models",
+  if (!isTRUE(block$overridable)) {
+    stop("coefficient overrides are supported only for `linear` and `gamlss` models",
          call. = FALSE)
   }
   if (!term %in% colnames(block$beta_by_draw)) {
@@ -1225,6 +1231,7 @@ setup_param <- function(fitted_system) {
           estimates    = estimates,
           beta_by_draw = beta_mat,
           linear       = identical(type, "linear"),
+          overridable  = type %in% c("linear", "endogenr_gamlss"),
           dims         = dims,
           overrides    = list(),
           effective    = list()
