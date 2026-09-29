@@ -81,7 +81,7 @@ sp$y$time_fe <- fe_fixed(blk, value = mean(blk$effects),
 round(sp$y$time_fe$values[1, 1, ], 3)   # decreasing sequence
 
 # Compare ensemble variance: resample vs fixed zero
-set.seed(1); sp_rs  <- setup_param(fit)   # default fe_resample
+set.seed(1); sp_rs  <- setup_param(fit)   # default fe_ar
 sp_fix <- setup_param(fit)
 sp_fix$y$time_fe <- fe_fixed(sp_fix$y$time_fe, value = 0)
 set.seed(1); res_rs  <- simulate_system(fit)
@@ -95,6 +95,7 @@ set.seed(1); res_fix <- simulate_system(fit, scenario_params = sp_fix)
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_converge]{fe_converge()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_persist]{fe_persist()}},

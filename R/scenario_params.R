@@ -8,7 +8,10 @@
 
 # Scan fit_formula for a term of the form factor(<timevar>). Extract the
 # estimated year effects from fitted_lm and return metadata, or NULL.
-.detect_time_fe <- function(fit_formula, coefs, xlevels, timevar) {
+# `vcov` (optional) is the fit's coefficient covariance; when supplied, the
+# returned `vcov` is the L x L covariance of the year effects in xlevels order
+# (reference row/column and aliased entries = 0).
+.detect_time_fe <- function(fit_formula, coefs, xlevels, timevar, vcov = NULL) {
   term_labels <- attr(stats::terms(fit_formula), "term.labels")
 
   fe_label <- NULL
@@ -55,11 +58,24 @@
   }
   ref_value <- as.numeric(xl[1L])
 
+  V <- NULL
+  if (!is.null(vcov)) {
+    V    <- matrix(0, length(xl), length(xl), dimnames = list(xl, xl))
+    nms  <- paste0(fe_label, xl)
+    keep <- which(nms %in% rownames(vcov))
+    keep <- keep[keep > 1L]
+    if (length(keep) > 0L) {
+      V[keep, keep] <- as.matrix(vcov)[nms[keep], nms[keep], drop = FALSE]
+    }
+    V[!is.finite(V)] <- 0
+  }
+
   list(
     term      = fe_label,
     timevar   = timevar,
     ref_value = ref_value,
-    effects   = effects  # named by time level
+    effects   = effects,  # named by time level
+    vcov      = V         # L x L over levels, or NULL
   )
 }
 
@@ -233,20 +249,44 @@ scenario_terms.endogenr_gamlss <- function(model) {
        call. = FALSE)
 }
 
+# n x L matrix of perturbed year-effect series for outer draw i (columns in the
+# draw's own level order = chronological xlevels order). One MVN draw per row.
+.fe_time_perturbed <- function(block, i, n) {
+  mu <- block$effects_by_draw[[i]]
+  V  <- if (!is.null(block$vcov_by_draw)) block$vcov_by_draw[[i]] else NULL
+  if (is.null(V)) {
+    .warn_once(".endogenr_time_fe_no_vcov",
+      "Time fixed-effect covariance unavailable; time-FE draws use point estimates without parameter uncertainty.")
+    return(matrix(mu, nrow = n, ncol = length(mu), byrow = TRUE,
+                  dimnames = list(NULL, names(mu))))
+  }
+  out <- .cf_rmv(n, mu, V[names(mu), names(mu), drop = FALSE])
+  colnames(out) <- names(mu)
+  out
+}
+
 # --- Exported heuristic helpers: FE blocks -----------------------------------
 
 #' Fixed-effect heuristic: resample from estimated effects
 #'
 #' Re-bakes an FE block's `values` array by sampling with replacement from the
 #' per-draw pool of estimated effects, drawing independently for every
-#' `(outer draw, inner sim, forecast step)` combination.  This is the
-#' **default strategy applied to time fixed effects** by [setup_param()].
+#' `(outer draw, inner sim, forecast step)` combination.  [setup_param()]
+#' falls back to this strategy for time fixed effects when fewer than 3 year
+#' effects are estimated (the default is [fe_ar()]).
+#'
+#' @section Parameter uncertainty (time FE):
+#' For time fixed effects, each `(outer draw, inner sim)` trajectory first
+#' draws one perturbed year-effect series from `MVN(tau_hat, V_tau)` (the
+#' fitted estimates and their covariance); the trajectory's resampling pool is
+#' that perturbed series.  When the covariance is unavailable, the point
+#' estimates are used (with a one-time warning).
 #'
 #' @section Baked array shapes:
 #' \describe{
 #'   \item{Time FE (`kind = "time"`)}{`dim = c(nsim, inner_sims, horizon)`.
-#'     Each cell is one independent resample from the estimated year effects of
-#'     that outer draw.}
+#'     Each cell is one independent resample from the trajectory's perturbed
+#'     year effects.}
 #'   \item{Unit FE (`kind = "unit"`)}{`dim = c(n_units, nsim, inner_sims,
 #'     horizon)`, `attr(values, "per_trajectory") = TRUE`.  Each cell is an
 #'     independent draw from the pooled effects, assigned per unit × trajectory
@@ -307,7 +347,7 @@ scenario_terms.endogenr_gamlss <- function(model) {
 #'   groupvar = "unit", timevar = "time", inner_sims = 3L
 #' )
 #' fit <- fit_system(sys, nsim = 5L)
-#' set.seed(1); sp <- setup_param(fit)  # already uses fe_resample by default
+#' set.seed(1); sp <- setup_param(fit)  # default time-FE sampler is fe_ar()
 #' blk <- sp$y$time_fe
 #' dim(blk$values)       # c(5, 3, 4) = c(nsim, inner_sims, horizon)
 #'
@@ -338,9 +378,12 @@ fe_resample <- function(block, to = NULL, factor = 1, path = "constant",
   if (block$kind == "time") {
     vals <- array(NA_real_, dim = c(nsim, inner_sims, horizon))
     for (i in seq_len(nsim)) {
-      pool <- block$effects_by_draw[[i]]
-      B    <- matrix(sample(pool, inner_sims * horizon, replace = TRUE),
-                     nrow = inner_sims, ncol = horizon)
+      Tt <- .fe_time_perturbed(block, i, inner_sims)
+      # Index columns via sample.int: sample(x) on a length-1 pool means 1:x.
+      B  <- matrix(Tt[cbind(rep(seq_len(inner_sims), horizon),
+                            sample.int(ncol(Tt), inner_sims * horizon,
+                                       replace = TRUE))],
+                   nrow = inner_sims, ncol = horizon)
       for (h in seq_len(horizon)) {
         vals[i,, h] <- if (!is.null(t_val))
           (1 - w[h]) * B[, h] + w[h] * t_val
@@ -369,6 +412,128 @@ fe_resample <- function(block, to = NULL, factor = 1, path = "constant",
   block$active    <- TRUE
   block$heuristic <- list(strategy = "resample", to = to, factor = factor,
                           path = path, mid = mid, steep = steep)
+  block
+}
+
+#' Time fixed-effect heuristic: AR(1) forecast from the origin
+#'
+#' Re-bakes a time-FE block's `values` by treating the estimated year effects
+#' as a time series and forecasting it with an AR(1) that starts at the last
+#' training-year effect.  This is the **default strategy applied to time fixed
+#' effects** by [setup_param()] (when at least 3 year effects are estimated).
+#'
+#' @section Algorithm:
+#' For each `(outer draw, inner sim)` trajectory:
+#' \enumerate{
+#'   \item Draw one perturbed year-effect series
+#'     `tau_tilde ~ MVN(tau_hat, V_tau)` from the fitted estimates and their
+#'     covariance (point estimates, with a one-time warning, when the
+#'     covariance is unavailable).
+#'   \item Fit `tau_t = c + rho * tau_{t-1} + e_t` by OLS on that draw;
+#'     `rho` is clamped to `[-1, 1]` (a unit root, i.e. random walk with
+#'     drift, is the most persistent case).
+#'   \item Simulate forward from the last training-year effect, drawing the
+#'     innovations by bootstrap from the centred AR residuals.
+#'   \item If the training window ends before the forecast origin
+#'     (`test_start - 1`, e.g. random-window refits), the recursion is first
+#'     stepped through the gap years and only the forecast steps are kept.
+#' }
+#' The forecast offsets are then moved along `path` toward `to` or scaled by
+#' `factor` exactly as in [fe_resample()].  The fitted AR parameters are
+#' stored as `nsim x inner_sims` matrices in `heuristic$rho` and
+#' `heuristic$intercept`.
+#'
+#' @inheritParams fe_resample
+#' @param block A time-FE `endogenr_fe_param` (`kind = "time"`) from
+#'   [setup_param()].
+#'
+#' @return The same `endogenr_fe_param` block with `values`
+#'   (`c(nsim, inner_sims, horizon)`), `active = TRUE`, and `heuristic`
+#'   updated.
+#' @seealso [fe_resample()], [fe_distribution()], [fe_converge()],
+#'   [setup_param()], [simulate_system()]
+#' @family simulation
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' # (Reuse 'fit' and 'sp' from the fe_resample() example)
+#' blk <- sp$y$time_fe
+#' set.seed(42)
+#' sp$y$time_fe <- fe_ar(blk)
+#' summary(as.vector(sp$y$time_fe$heuristic$rho))
+#'
+#' # AR(1) baseline that converges linearly toward 0 over the horizon
+#' sp$y$time_fe <- fe_ar(blk, to = 0, path = "linear")
+#' res <- simulate_system(fit, scenario_params = sp)
+#' }
+fe_ar <- function(block, to = NULL, factor = 1, path = "constant",
+                  mid = NULL, steep = 1) {
+  if (!identical(block$kind, "time")) {
+    stop("fe_ar() supports time fixed effects only.", call. = FALSE)
+  }
+  if (any(lengths(block$effects_by_draw) < 3L)) {
+    stop("fe_ar() needs at least 3 estimated time effects per draw; use fe_resample().",
+         call. = FALSE)
+  }
+  dims       <- block$dims
+  nsim       <- dims$nsim
+  inner_sims <- dims$inner_sims
+  horizon    <- dims$horizon
+  w          <- .fe_weights(path, horizon, mid, steep)
+  t_val      <- if (!is.null(to)) .resolve_target(to, block$effects) else NULL
+  origin     <- dims$test_start - 1L
+
+  vals  <- array(NA_real_, dim = c(nsim, inner_sims, horizon))
+  rho_m <- matrix(NA_real_, nrow = nsim, ncol = inner_sims)
+  int_m <- matrix(NA_real_, nrow = nsim, ncol = inner_sims)
+  rows  <- seq_len(inner_sims)
+
+  for (i in seq_len(nsim)) {
+    Tt <- .fe_time_perturbed(block, i, inner_sims)
+    L  <- ncol(Tt)
+
+    # Years between the last estimated effect and the forecast origin.
+    last <- suppressWarnings(as.numeric(utils::tail(colnames(Tt), 1L)))
+    gap  <- origin - last
+    if (!is.finite(gap) || gap < 0) gap <- 0L
+
+    # AR(1) by OLS per trajectory; keep centred residuals for the bootstrap.
+    E <- matrix(NA_real_, nrow = inner_sims, ncol = L - 1L)
+    for (s in rows) {
+      x   <- Tt[s, -L]
+      y   <- Tt[s, -1L]
+      vx  <- stats::var(x)
+      rho <- if (vx > 0) stats::cov(x, y) / vx else 0
+      rho <- min(max(rho, -1), 1)
+      c0  <- mean(y - rho * x)
+      e   <- y - c0 - rho * x
+      E[s, ]      <- e - mean(e)
+      rho_m[i, s] <- rho
+      int_m[i, s] <- c0
+    }
+
+    B    <- matrix(NA_real_, nrow = inner_sims, ncol = horizon)
+    prev <- Tt[, L]
+    for (k in seq_len(gap + horizon)) {
+      prev <- int_m[i, ] + rho_m[i, ] * prev +
+        E[cbind(rows, sample.int(L - 1L, inner_sims, replace = TRUE))]
+      if (k > gap) B[, k - gap] <- prev
+    }
+
+    for (h in seq_len(horizon)) {
+      vals[i,, h] <- if (!is.null(t_val))
+        (1 - w[h]) * B[, h] + w[h] * t_val
+      else
+        B[, h] * (1 + (factor - 1) * w[h])
+    }
+  }
+
+  block$values    <- vals
+  block$active    <- TRUE
+  block$heuristic <- list(strategy = "ar1", to = to, factor = factor,
+                          path = path, mid = mid, steep = steep,
+                          rho = rho_m, intercept = int_m)
   block
 }
 
@@ -526,7 +691,7 @@ fe_distribution <- function(block, mean = NULL, sd = NULL, to = NULL,
 #' round(sp$y$time_fe$values[1, 1, ], 3)   # decreasing sequence
 #'
 #' # Compare ensemble variance: resample vs fixed zero
-#' set.seed(1); sp_rs  <- setup_param(fit)   # default fe_resample
+#' set.seed(1); sp_rs  <- setup_param(fit)   # default fe_ar
 #' sp_fix <- setup_param(fit)
 #' sp_fix$y$time_fe <- fe_fixed(sp_fix$y$time_fe, value = 0)
 #' set.seed(1); res_rs  <- simulate_system(fit)
@@ -678,11 +843,12 @@ fe_persist <- function(block, to = NULL, factor = 1, path = "constant",
 #'     different starting points, so cross-sectional variation in intercepts
 #'     persists early in the horizon and compresses toward the target late.}
 #'   \item{Time FE (`kind = "time"`)}{A single effect is drawn per
-#'     `(outer draw, inner sim)` from the per-draw pool and held constant
-#'     across steps as the baseline (unlike [fe_resample()], which draws
-#'     independently at every step).  This keeps each trajectory internally
-#'     consistent while still varying across trajectories.  The drawn baseline
-#'     then converges to `to` along `path`.}
+#'     `(outer draw, inner sim)` from that trajectory's pool — the year effects
+#'     perturbed once by `MVN(tau_hat, V_tau)` (see [fe_resample()]) — and held
+#'     constant across steps as the baseline (unlike [fe_resample()], which
+#'     draws independently at every step).  This keeps each trajectory
+#'     internally consistent while still varying across trajectories.  The
+#'     drawn baseline then converges to `to` along `path`.}
 #' }
 #'
 #' @section Target specification (`to`):
@@ -783,8 +949,9 @@ fe_converge <- function(block, to, path = "linear", mid = NULL, steep = 1) {
     inner_sims <- dims$inner_sims
     vals       <- array(NA_real_, dim = c(nsim, inner_sims, horizon))
     for (i in seq_len(nsim)) {
-      pool      <- block$effects_by_draw[[i]]
-      base_draw <- sample(pool, inner_sims, replace = TRUE)  # one per inner_sim
+      Tt        <- .fe_time_perturbed(block, i, inner_sims)
+      base_draw <- Tt[cbind(seq_len(inner_sims),
+                            sample.int(ncol(Tt), inner_sims, replace = TRUE))]
       for (h in seq_len(horizon)) {
         vals[i,, h] <- (1 - w[h]) * base_draw + w[h] * t_val
       }
@@ -948,10 +1115,12 @@ coef_override <- function(block, term, value) {
   lapply(scenario_params, function(entry) {
     # Time FE
     time_fe_s <- if (!is.null(entry$time_fe) && isTRUE(entry$time_fe$active)) {
+      v <- entry$time_fe$values
       list(
         var     = entry$time_fe$var,
         ref     = entry$time_fe$ref,
-        offsets = entry$time_fe$values[i, , ]  # c(inner_sims, horizon)
+        # drop = FALSE keeps c(inner_sims, horizon) when either is 1
+        offsets = array(v[i, , , drop = FALSE], dim = dim(v)[2:3])
       )
     } else NULL
 
@@ -959,7 +1128,10 @@ coef_override <- function(block, term, value) {
     unit_fe_s <- if (!is.null(entry$unit_fe) && isTRUE(entry$unit_fe$active)) {
       pt <- isTRUE(attr(entry$unit_fe$values, "per_trajectory"))
       eff <- if (pt) {
-        entry$unit_fe$values[, i, , ]   # c(n_units, inner_sims, horizon)
+        v <- entry$unit_fe$values
+        # c(n_units, inner_sims, horizon); rownames are looked up by predict
+        array(v[, i, , , drop = FALSE], dim = dim(v)[c(1L, 3L, 4L)],
+              dimnames = list(dimnames(v)[[1L]], NULL, NULL))
       } else {
         entry$unit_fe$values            # c(n_units, horizon), same for all draws
       }
@@ -994,10 +1166,12 @@ coef_override <- function(block, term, value) {
 #'
 #' @section Default strategies:
 #' \describe{
-#'   \item{Time FE (`factor(timevar)`)}{[fe_resample()] with `active = TRUE` —
-#'     one independent resample draw per `(outer draw, inner sim, forecast step)`
-#'     from the estimated year effects.  Baked as a
-#'     `c(nsim, inner_sims, horizon)` array.}
+#'   \item{Time FE (`factor(timevar)`)}{[fe_ar()] with `active = TRUE` — per
+#'     `(outer draw, inner sim)` trajectory, the year effects are perturbed by
+#'     their estimation covariance and forecast by an AR(1) from the last
+#'     training-year effect.  Falls back to [fe_resample()] when fewer than 3
+#'     year effects are estimated.  Baked as a `c(nsim, inner_sims, horizon)`
+#'     array.}
 #'   \item{Unit FE (`factor(unitvar)`)}{[fe_persist()] with `active = FALSE` —
 #'     `factor(unit)` stays in the design matrix unchanged.  Equivalent to
 #'     running without any scenario parameter; the baked `c(n_units, horizon)`
@@ -1017,8 +1191,9 @@ coef_override <- function(block, term, value) {
 #'   \item{`time_fe`}{An `endogenr_fe_param` or `NULL`.  Key sub-fields:
 #'     `kind` (`"time"`), `term` (e.g. `"factor(time)"`), `var`, `ref`,
 #'     `levels`, `effects` (named numeric, baseline = 0), `effects_by_draw`
-#'     (length-`nsim` list of per-draw effects), `dims`, `active`, `heuristic`,
-#'     `values` (baked array).}
+#'     (length-`nsim` list of per-draw effects), `vcov_by_draw` (length-`nsim`
+#'     list of per-draw effect covariances, `NULL` entries when unavailable),
+#'     `dims`, `active`, `heuristic`, `values` (baked array).}
 #'   \item{`unit_fe`}{An `endogenr_fe_param` or `NULL`.  Same structure as
 #'     `time_fe` but `kind = "unit"` and `values` is `c(n_units, horizon)`.}
 #'   \item{`coef`}{An `endogenr_coef_param` or `NULL`.  Key sub-fields:
@@ -1050,8 +1225,8 @@ coef_override <- function(block, term, value) {
 #' @param fitted_system An `endogenr_fitted_system` from [fit_system()].
 #'
 #' @return An `endogenr_scenario_params` object (S3 class).
-#' @seealso [fe_resample()], [fe_distribution()], [fe_fixed()], [fe_persist()],
-#'   [fe_converge()], [coef_override()], [simulate_system()]
+#' @seealso [fe_ar()], [fe_resample()], [fe_distribution()], [fe_fixed()],
+#'   [fe_persist()], [fe_converge()], [coef_override()], [simulate_system()]
 #' @family simulation
 #' @export
 #'
@@ -1066,7 +1241,7 @@ coef_override <- function(block, term, value) {
 #' )
 #' fit <- fit_system(sys, nsim = 5L)
 #'
-#' # Bake defaults (fe_resample for time FE) under a fixed seed
+#' # Bake defaults (fe_ar for time FE) under a fixed seed
 #' set.seed(1)
 #' sp <- setup_param(fit)
 #' print(sp)                          # human-readable summary
@@ -1074,7 +1249,7 @@ coef_override <- function(block, term, value) {
 #'
 #' # Inspect baked values
 #' dim(sp$y$time_fe$values)           # c(5, 3, 4) = c(nsim, inner_sims, horizon)
-#' sp$y$time_fe$heuristic$strategy    # "resample"
+#' sp$y$time_fe$heuristic$strategy    # "ar1"
 #' sp$y$coef$estimates                # named vector of representative β̂
 #'
 #' # Modify time-FE strategy: narrow Normal draws
@@ -1156,6 +1331,11 @@ setup_param <- function(fitted_system) {
         if (!is.null(m) && !is.null(m$time_fe)) m$time_fe$effects
         else time_fe_rep$effects
       })
+      vbd <- lapply(fitted_draws, function(draw) {
+        m <- find_draw_model(draw, oc)
+        if (!is.null(m) && !is.null(m$time_fe)) m$time_fe$vcov
+        else time_fe_rep$vcov
+      })
       blk <- structure(
         list(
           kind            = "time",
@@ -1165,6 +1345,7 @@ setup_param <- function(fitted_system) {
           levels          = names(time_fe_rep$effects),
           effects         = time_fe_rep$effects,
           effects_by_draw = ebd,
+          vcov_by_draw    = vbd,
           dims            = dims,
           active          = TRUE,
           heuristic       = NULL,
@@ -1172,7 +1353,8 @@ setup_param <- function(fitted_system) {
         ),
         class = "endogenr_fe_param"
       )
-      fe_resample(blk)  # default: resample independently per (sim, step)
+      # default: AR(1) from the origin; resample when the series is too short
+      if (all(lengths(ebd) >= 3L)) fe_ar(blk) else fe_resample(blk)
     } else NULL
 
     # -- Unit FE block ---------------------------------------------------------

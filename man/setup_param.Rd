@@ -22,10 +22,12 @@ inspectable and modifiable before calling \code{\link[=simulate_system]{simulate
 \section{Default strategies}{
 
 \describe{
-\item{Time FE (\code{factor(timevar)})}{\code{\link[=fe_resample]{fe_resample()}} with \code{active = TRUE} —
-one independent resample draw per \verb{(outer draw, inner sim, forecast step)}
-from the estimated year effects.  Baked as a
-\code{c(nsim, inner_sims, horizon)} array.}
+\item{Time FE (\code{factor(timevar)})}{\code{\link[=fe_ar]{fe_ar()}} with \code{active = TRUE} — per
+\verb{(outer draw, inner sim)} trajectory, the year effects are perturbed by
+their estimation covariance and forecast by an AR(1) from the last
+training-year effect.  Falls back to \code{\link[=fe_resample]{fe_resample()}} when fewer than 3
+year effects are estimated.  Baked as a \code{c(nsim, inner_sims, horizon)}
+array.}
 \item{Unit FE (\code{factor(unitvar)})}{\code{\link[=fe_persist]{fe_persist()}} with \code{active = FALSE} —
 \code{factor(unit)} stays in the design matrix unchanged.  Equivalent to
 running without any scenario parameter; the baked \code{c(n_units, horizon)}
@@ -47,8 +49,9 @@ system (e.g. \code{exogen}).}
 \item{\code{time_fe}}{An \code{endogenr_fe_param} or \code{NULL}.  Key sub-fields:
 \code{kind} (\code{"time"}), \code{term} (e.g. \code{"factor(time)"}), \code{var}, \code{ref},
 \code{levels}, \code{effects} (named numeric, baseline = 0), \code{effects_by_draw}
-(length-\code{nsim} list of per-draw effects), \code{dims}, \code{active}, \code{heuristic},
-\code{values} (baked array).}
+(length-\code{nsim} list of per-draw effects), \code{vcov_by_draw} (length-\code{nsim}
+list of per-draw effect covariances, \code{NULL} entries when unavailable),
+\code{dims}, \code{active}, \code{heuristic}, \code{values} (baked array).}
 \item{\code{unit_fe}}{An \code{endogenr_fe_param} or \code{NULL}.  Same structure as
 \code{time_fe} but \code{kind = "unit"} and \code{values} is \code{c(n_units, horizon)}.}
 \item{\code{coef}}{An \code{endogenr_coef_param} or \code{NULL}.  Key sub-fields:
@@ -91,7 +94,7 @@ sys <- setup_system(
 )
 fit <- fit_system(sys, nsim = 5L)
 
-# Bake defaults (fe_resample for time FE) under a fixed seed
+# Bake defaults (fe_ar for time FE) under a fixed seed
 set.seed(1)
 sp <- setup_param(fit)
 print(sp)                          # human-readable summary
@@ -99,7 +102,7 @@ attr(sp, "dims")                   # nsim / inner_sims / horizon / test_start
 
 # Inspect baked values
 dim(sp$y$time_fe$values)           # c(5, 3, 4) = c(nsim, inner_sims, horizon)
-sp$y$time_fe$heuristic$strategy    # "resample"
+sp$y$time_fe$heuristic$strategy    # "ar1"
 sp$y$coef$estimates                # named vector of representative β̂
 
 # Modify time-FE strategy: narrow Normal draws
@@ -127,12 +130,13 @@ identical(a$y$time_fe$values, b$y$time_fe$values)  # TRUE
 }
 }
 \seealso{
-\code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_fixed]{fe_fixed()}}, \code{\link[=fe_persist]{fe_persist()}},
-\code{\link[=fe_converge]{fe_converge()}}, \code{\link[=coef_override]{coef_override()}}, \code{\link[=simulate_system]{simulate_system()}}
+\code{\link[=fe_ar]{fe_ar()}}, \code{\link[=fe_resample]{fe_resample()}}, \code{\link[=fe_distribution]{fe_distribution()}}, \code{\link[=fe_fixed]{fe_fixed()}},
+\code{\link[=fe_persist]{fe_persist()}}, \code{\link[=fe_converge]{fe_converge()}}, \code{\link[=coef_override]{coef_override()}}, \code{\link[=simulate_system]{simulate_system()}}
 
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_converge]{fe_converge()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_fixed]{fe_fixed()}},

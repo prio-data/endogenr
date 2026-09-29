@@ -122,8 +122,10 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # coherent basis reconstruction at predict time.
   model$fitted  <- .lm_stage2_fit(fit_formula, pm$data, boot, subset, timevar)
   model$coefs   <- broom::tidy(model$fitted)
+  # vcov() must run before .strip_fit_data (it needs the fit's qr/model data).
   model$time_fe <- .detect_time_fe(fit_formula, stats::coef(model$fitted),
-                                   model$fitted$xlevels, timevar)
+                                   model$fitted$xlevels, timevar,
+                                   vcov = stats::vcov(model$fitted))
   model$unit_fe <- .detect_unit_fe(fit_formula, stats::coef(model$fitted),
                                    model$fitted$xlevels, grp_keys)
   model$gof     <- broom::glance(model$fitted)

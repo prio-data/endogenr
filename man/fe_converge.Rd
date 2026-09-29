@@ -41,11 +41,12 @@ is deterministic: \code{values} is \code{c(n_units, horizon)},
 different starting points, so cross-sectional variation in intercepts
 persists early in the horizon and compresses toward the target late.}
 \item{Time FE (\code{kind = "time"})}{A single effect is drawn per
-\verb{(outer draw, inner sim)} from the per-draw pool and held constant
-across steps as the baseline (unlike \code{\link[=fe_resample]{fe_resample()}}, which draws
-independently at every step).  This keeps each trajectory internally
-consistent while still varying across trajectories.  The drawn baseline
-then converges to \code{to} along \code{path}.}
+\verb{(outer draw, inner sim)} from that trajectory's pool — the year effects
+perturbed once by \code{MVN(tau_hat, V_tau)} (see \code{\link[=fe_resample]{fe_resample()}}) — and held
+constant across steps as the baseline (unlike \code{\link[=fe_resample]{fe_resample()}}, which
+draws independently at every step).  This keeps each trajectory
+internally consistent while still varying across trajectories.  The
+drawn baseline then converges to \code{to} along \code{path}.}
 }
 }
 
@@ -115,6 +116,7 @@ res2 <- simulate_system(fit2, scenario_params = sp2)
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_fixed]{fe_fixed()}},
 \code{\link[=fe_persist]{fe_persist()}},

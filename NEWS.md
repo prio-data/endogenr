@@ -131,7 +131,28 @@
   `abs(lag(outcome))`) drove a predictor to `Inf`/`NaN`. Default `NULL` leaves
   all behavior unchanged.
 
+- **`fe_ar()` — AR(1) time fixed effects with parameter uncertainty; new
+  default.** `setup_param()` (and `simulate_system()` without
+  `scenario_params`) now bakes time fixed effects (`factor(timevar)`) with
+  `fe_ar()`: per `(outer draw, inner sim)` trajectory it draws the year-effect
+  series once from `MVN(tau_hat, V_tau)`, fits an AR(1) by OLS (`rho` clamped
+  to `[-1, 1]`), and simulates forward from the last training-year effect by
+  residual bootstrap, stepping through any gap between a window's last year
+  and the forecast origin. Falls back to `fe_resample()` when fewer than 3
+  year effects are estimated. `fe_resample()` and `fe_converge()` (time FE)
+  now also resample from each trajectory's MVN-perturbed effects. The effect
+  covariance is recorded at fit time (`model$time_fe$vcov`; linear via
+  `vcov()`, gamlss from the stored `mu.qr`) and carried as
+  `time_fe$vcov_by_draw`; when unavailable, draws use the point estimates
+  and warn once. Time-FE draws under a fixed seed differ from earlier
+  versions.
+
 ## Bug fixes
+
+- **FE scenario slicing no longer fails with `inner_sims = 1` or
+  `horizon = 1`.** `.slice_scenario()` indexed the baked arrays without
+  `drop = FALSE`, so time- and per-trajectory unit-FE offsets lost a
+  dimension and simulation aborted with "incorrect number of dimensions".
 
 - **Execution order no longer drops variables whose names contain `"lag_"`.**
   The lag-vertex strip in `get_execution_order()` matched the substring

@@ -39,15 +39,25 @@ and pass to \code{\link[=simulate_system]{simulate_system()}}.
 \description{
 Re-bakes an FE block's \code{values} array by sampling with replacement from the
 per-draw pool of estimated effects, drawing independently for every
-\verb{(outer draw, inner sim, forecast step)} combination.  This is the
-\strong{default strategy applied to time fixed effects} by \code{\link[=setup_param]{setup_param()}}.
+\verb{(outer draw, inner sim, forecast step)} combination.  \code{\link[=setup_param]{setup_param()}}
+falls back to this strategy for time fixed effects when fewer than 3 year
+effects are estimated (the default is \code{\link[=fe_ar]{fe_ar()}}).
 }
+\section{Parameter uncertainty (time FE)}{
+
+For time fixed effects, each \verb{(outer draw, inner sim)} trajectory first
+draws one perturbed year-effect series from \code{MVN(tau_hat, V_tau)} (the
+fitted estimates and their covariance); the trajectory's resampling pool is
+that perturbed series.  When the covariance is unavailable, the point
+estimates are used (with a one-time warning).
+}
+
 \section{Baked array shapes}{
 
 \describe{
 \item{Time FE (\code{kind = "time"})}{\code{dim = c(nsim, inner_sims, horizon)}.
-Each cell is one independent resample from the estimated year effects of
-that outer draw.}
+Each cell is one independent resample from the trajectory's perturbed
+year effects.}
 \item{Unit FE (\code{kind = "unit"})}{\code{dim = c(n_units, nsim, inner_sims, horizon)}, \code{attr(values, "per_trajectory") = TRUE}.  Each cell is an
 independent draw from the pooled effects, assigned per unit × trajectory
 combination.  The full 4-D array can be memory-intensive for large panels;
@@ -90,7 +100,7 @@ sys <- setup_system(
   groupvar = "unit", timevar = "time", inner_sims = 3L
 )
 fit <- fit_system(sys, nsim = 5L)
-set.seed(1); sp <- setup_param(fit)  # already uses fe_resample by default
+set.seed(1); sp <- setup_param(fit)  # default time-FE sampler is fe_ar()
 blk <- sp$y$time_fe
 dim(blk$values)       # c(5, 3, 4) = c(nsim, inner_sims, horizon)
 
@@ -117,6 +127,7 @@ sp$y$time_fe <- fe_resample(blk, factor = 2, path = "linear")
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_converge]{fe_converge()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_fixed]{fe_fixed()}},

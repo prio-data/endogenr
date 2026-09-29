@@ -104,6 +104,7 @@ res <- simulate_system(fit, scenario_params = sp)
 
 Other simulation:
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_converge]{fe_converge()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_fixed]{fe_fixed()}},

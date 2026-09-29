@@ -198,6 +198,20 @@
 # Part 3: fit_model dispatch + gamlssmodel constructor
 # --------------------------------------------------------------------------
 
+# Covariance of the mu coefficients from the fit's stored QR (matches
+# summary(type = "qr") SEs). stats::vcov() on a gamlss fit refits the model and
+# fails on endogenr fits, so read mu.qr directly. NULL when unavailable.
+.gamlss_mu_vcov <- function(fit) {
+  tryCatch({
+    Qr <- fit$mu.qr
+    p1 <- seq_len(Qr$rank)
+    V  <- chol2inv(Qr$qr[p1, p1, drop = FALSE])
+    nm <- names(stats::coef(fit))[Qr$pivot[p1]]
+    dimnames(V) <- list(nm, nm)
+    V
+  }, error = function(e) NULL)
+}
+
 #' Stage-2 pooled gamlss fit on materialized data
 #'
 #' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
@@ -388,7 +402,8 @@ gamlssmodel <- function(formula       = NULL,
   # mu.xlevels is the gamlss analogue of lm$xlevels.
   mu_coefs       <- stats::coef(model$fitted)   # mu coefficients (named)
   model$time_fe  <- tryCatch(
-    .detect_time_fe(mu_fit, mu_coefs, model$fitted$mu.xlevels, timevar),
+    .detect_time_fe(mu_fit, mu_coefs, model$fitted$mu.xlevels, timevar,
+                    vcov = .gamlss_mu_vcov(model$fitted)),
     error = function(e) NULL
   )
   model$unit_fe  <- tryCatch(

@@ -27,6 +27,7 @@ S3 dispatch for \code{glmmTMB_spec} objects. Delegates to \code{\link[=glmmTMBmo
 Other simulation:
 \code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
 \code{\link[=fe_converge]{fe_converge()}},
 \code{\link[=fe_distribution]{fe_distribution()}},
 \code{\link[=fe_fixed]{fe_fixed()}},

@@ -174,9 +174,9 @@ test_that("linear model with factor(time) simulates without error", {
   expect_true(all(is.finite(fcast$y)))
 })
 
-# ── fe_resample vs fe_fixed(0) ───────────────────────────────────────────────
+# ── default time-FE sampler vs fe_fixed(0) ───────────────────────────────────
 
-test_that("fe_resample adds between-trajectory variance relative to fe_fixed(0)", {
+test_that("default time-FE sampler adds between-trajectory variance relative to fe_fixed(0)", {
   skip_on_cran()
   dt  <- sim_panel_common_shock(units = 10L, n_time = 30L, seed = 2L)
   sys <- setup_system(
@@ -188,7 +188,7 @@ test_that("fe_resample adds between-trajectory variance relative to fe_fixed(0)"
   )
   fit <- fit_system(sys, nsim = 30L)
 
-  # Default run: internal setup_param bakes fe_resample under caller's seed.
+  # Default run: internal setup_param bakes fe_ar under caller's seed.
   set.seed(10)
   res_rs <- simulate_system(fit)
 
@@ -585,4 +585,128 @@ test_that("fe_converge on unit FE changes simulation results vs default", {
 
   # Convergence toward zero changes unit-FE contribution → results must differ
   expect_false(isTRUE(all.equal(r_default$y, r_converge$y)))
+})
+
+# ── Time-FE parameter uncertainty + AR(1) sampler ────────────────────────────
+
+.twfe_fit <- function(inner_sims = 2L, horizon = 4L, nsim = 3L, seed = 21L) {
+  dt  <- sim_panel_common_shock(units = 10L, n_time = 20L, seed = seed)
+  sys <- setup_system(
+    list(build_model("linear", formula = y ~ lag(y) + factor(time))),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = horizon,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = inner_sims
+  )
+  fit_system(sys, nsim = nsim)
+}
+
+test_that("inner_sims = 1 or horizon = 1 does not drop FE slice dimensions", {
+  skip_on_cran()
+  for (args in list(list(inner_sims = 1L, horizon = 4L),
+                    list(inner_sims = 2L, horizon = 1L))) {
+    fit <- do.call(.twfe_fit, args)
+    set.seed(1)
+    expect_no_error(res <- simulate_system(fit))
+    fc <- res[res$time >= 16]
+    expect_true(nrow(fc) > 0L)
+    expect_true(all(is.finite(fc$y)))
+  }
+
+  dt  <- sim_panel_ar1(units = 8L, n_time = 20L, seed = 22L)
+  sys <- setup_system(
+    list(
+      build_model("exogen", formula = ~x),
+      build_model("linear", formula = y ~ lag(y) + x + factor(unit))
+    ),
+    data        = dt,
+    train_start = 1, test_start = 16, horizon = 3,
+    groupvar    = "unit", timevar   = "time",
+    inner_sims  = 1L
+  )
+  fit <- fit_system(sys, nsim = 2L)
+  set.seed(2)
+  sp <- setup_param(fit)
+  sp$y$unit_fe <- fe_resample(sp$y$unit_fe)
+  expect_no_error(res <- simulate_system(fit, scenario_params = sp))
+  expect_true(all(is.finite(res[res$time >= 16]$y)))
+
+  expect_error(fe_ar(sp$y$unit_fe), "supports time fixed effects only")
+})
+
+test_that("time-FE vcov matches lm standard errors with a zero reference row", {
+  skip_on_cran()
+  fit <- .twfe_fit(nsim = 1L)
+  m   <- fit$fitted_models[[1L]]
+  V   <- m$time_fe$vcov
+  lv  <- names(m$time_fe$effects)
+  expect_equal(dimnames(V), list(lv, lv))
+
+  se  <- m$coefs$std.error[match(paste0("factor(time)", lv[-1L]), m$coefs$term)]
+  expect_equal(unname(sqrt(diag(V))[-1L]), se, tolerance = 1e-8)
+  expect_true(all(V[1L, ] == 0))
+  expect_true(all(V[, 1L] == 0))
+})
+
+test_that("fe_ar continues the AR(1) recursion from the origin, stepping gaps", {
+  skip_on_cran()
+  fit <- .twfe_fit()
+  set.seed(3)
+  blk <- setup_param(fit)$y$time_fe
+  expect_identical(blk$heuristic$strategy, "ar1")
+  H   <- blk$dims$horizon
+  L   <- length(blk$effects_by_draw[[1L]])
+  tau <- numeric(L + H + 2L)
+  for (t in 2:length(tau)) tau[t] <- 1 + 0.5 * tau[t - 1L]
+
+  with_levels <- function(blk, lv) {
+    for (i in seq_along(blk$effects_by_draw)) {
+      blk$effects_by_draw[[i]] <- stats::setNames(tau[seq_len(L)], lv)
+      blk$vcov_by_draw[[i]]    <- matrix(0, L, L, dimnames = list(lv, lv))
+    }
+    blk
+  }
+
+  # Levels 2..15 end at the origin (test_start - 1 = 15): no gap.
+  b0  <- with_levels(blk, names(blk$effects_by_draw[[1L]]))
+  out <- fe_ar(b0)
+  expected <- tau[L + seq_len(H)]
+  for (i in seq_len(blk$dims$nsim)) for (s in seq_len(blk$dims$inner_sims)) {
+    expect_equal(out$values[i, s, ], expected, tolerance = 1e-8)
+  }
+  expect_equal(as.vector(out$heuristic$rho), rep(0.5, length(out$heuristic$rho)),
+               tolerance = 1e-8)
+
+  # Last level 13: two gap years (14, 15) are stepped before the forecast.
+  b2  <- with_levels(blk, as.character(seq(to = 13L, length.out = L)))
+  out <- fe_ar(b2)
+  expected <- tau[L + 2L + seq_len(H)]
+  for (i in seq_len(blk$dims$nsim)) for (s in seq_len(blk$dims$inner_sims)) {
+    expect_equal(out$values[i, s, ], expected, tolerance = 1e-8)
+  }
+})
+
+test_that("time-FE samplers draw parameter uncertainty from the effect vcov", {
+  skip_on_cran()
+  fit <- .twfe_fit()
+  set.seed(4)
+  blk <- setup_param(fit)$y$time_fe
+  lv  <- names(blk$effects_by_draw[[1L]])
+  L   <- length(lv)
+  blk$dims$inner_sims <- 400L
+
+  zero_eff <- stats::setNames(numeric(L), lv)
+  V <- diag(c(0, rep(0.25, L - 1L)))
+  dimnames(V) <- list(lv, lv)
+  for (i in seq_along(blk$effects_by_draw)) {
+    blk$effects_by_draw[[i]] <- zero_eff
+    blk$vcov_by_draw[[i]]    <- V
+  }
+  set.seed(1)
+  # Mixture: reference level (0) w.p. 1/L, else N(0, 0.25).
+  expect_equal(stats::sd(fe_resample(blk)$values), 0.5 * sqrt((L - 1) / L),
+               tolerance = 0.05)
+
+  for (i in seq_along(blk$vcov_by_draw)) blk$vcov_by_draw[[i]][] <- 0
+  expect_true(all(fe_ar(blk)$values == 0))
 })

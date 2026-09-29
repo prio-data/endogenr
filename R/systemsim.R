@@ -1004,7 +1004,7 @@ simulate_system <- function(fitted_system,
   if (is.null(nsim)) nsim <- length(fitted_system$fitted_draws)
 
   # --- Default scenario: bake under caller's current RNG state --------------
-  # When scenario_params is NULL, build defaults (time-FE resample, unit-FE
+  # When scenario_params is NULL, build defaults (time-FE AR(1), unit-FE
   # persist with active = FALSE) here.  An explicit object uses its pre-baked
   # draws.  set.seed(); simulate_system(fit) therefore produces varied time-FE
   # offsets deterministically, matching historical behaviour.
