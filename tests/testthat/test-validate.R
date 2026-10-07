@@ -168,6 +168,23 @@ test_that("validate_system_closure errors when an exogen variable is missing fro
   )
 })
 
+test_that("validate_system_closure hints TRUE/FALSE when T or F is referenced", {
+  models <- list(
+    build_model("exogen", formula = ~x),
+    build_model("deterministic", formula = y ~ I(quantile(x, 0.9, na.rm = T)))
+  )
+  expect_error(
+    validate_system_closure(models, c("gwcode", "year", "x", "y")),
+    "missing from the input data: T\\..*write TRUE/FALSE instead"
+  )
+
+  err <- tryCatch(
+    validate_system_closure(list(build_model("linear", formula = y ~ lag(z))),
+                            c("gwcode", "year", "y")),
+    error = conditionMessage)
+  expect_false(grepl("TRUE/FALSE", err, fixed = TRUE))
+})
+
 test_that("validate_system_closure handles independent models", {
   models <- list(
     build_model("exogen", formula = ~x),

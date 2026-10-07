@@ -166,6 +166,12 @@
   `drop = FALSE`, so time- and per-trajectory unit-FE offsets lost a
   dimension and simulation aborted with "incorrect number of dimensions".
 
+- **Clearer error for `T`/`F` shorthand in formulas.** `T` and `F` are
+  variables in R, not logical literals, so a formula such as
+  `y ~ I(quantile(x, 0.9, na.rm = T))` was rejected by
+  `validate_system_closure()` with an unexplained "missing from the input
+  data: T". The error now appends a note telling you to write `TRUE`/`FALSE`.
+
 - **Execution order no longer drops variables whose names contain `"lag_"`.**
   The lag-vertex strip in `get_execution_order()` matched the substring
   `"lag_"` anywhere in a vertex name, so an outcome named e.g. `flag_war`
