@@ -49,7 +49,7 @@
 #' | `gamlss` | none (warns once; `n_param` ignored) | family `r<FAM>` at predicted parameters |
 #' | `parametric_distribution` | MVN(estimate, vcov) per block | `r<dist>` at the drawn parameters; rejects `n_innov = 0` |
 #' | `univariate_fable` | none (warns once; `n_param` ignored) | coherent `fabletools::generate()` paths; rejects `n_innov = 0` |
-#' | `deterministic`, `exogen`, `spatial_lag` | — | no stochastic predictive distribution (error) |
+#' | `deterministic`, `cross_section`, `exogen`, `spatial_lag` | — | no stochastic predictive distribution (error) |
 #'
 #' @param model A fitted endogenmodel (from [fit_model()] / [fit_system()]).
 #' @param newdata A data.frame or data.table of prediction rows (see Details).
@@ -80,8 +80,8 @@ draw_predictive <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
 #' @export
 draw_predictive.default <- function(model, newdata, n_param = 1L, n_innov = 1L, ...) {
   stop("No draw_predictive method for class '", class(model)[1],
-       "': deterministic, exogen, and spatial_lag models have no stochastic ",
-       "predictive distribution.", call. = FALSE)
+       "': deterministic, cross_section, exogen, and spatial_lag models have ",
+       "no stochastic predictive distribution.", call. = FALSE)
 }
 
 # Validate the draw-count arguments shared by every method.

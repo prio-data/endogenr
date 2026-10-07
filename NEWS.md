@@ -2,6 +2,18 @@
 
 ## New features
 
+- **`build_model("cross_section", outcome ~ I(expr))` — per-period
+  cross-sectional aggregates.** `expr` is evaluated across all units at each
+  simulated time step, separately within each simulation draw (e.g. a
+  simulated productivity frontier
+  `front ~ I(quantile(lgdppc_l1, 0.9, na.rm = TRUE))`). A scalar result is
+  copied to every unit; a result with one value per unit (e.g. `rank(x)`) is
+  kept per unit; any other length errors. `deterministic` evaluates per unit,
+  so such aggregates previously failed with "variable lengths differ".
+  Time-series functions (`lag`, `diff`, rolling, cumulative) are rejected at
+  `build_model()` time; reference an already-lagged column instead.
+  `draw_predictive()` errors for `cross_section` like `deterministic`.
+
 - **`draw_predictive()` — unified predictive-draw interface.** One exported
   S3 generic, `draw_predictive(model, newdata, n_param, n_innov, ...)`,
   replaces the per-family draw logic (`getpi`, `getpi_glm`,

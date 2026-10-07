@@ -7,9 +7,10 @@
 build_model(type, formula, ..., bounds = NULL)
 }
 \arguments{
-\item{type}{One of \code{"deterministic"}, \code{"parametric_distribution"},
-\code{"linear"}, \code{"glm"}, \code{"exogen"}, \code{"univariate_fable"}, \code{"heterolm"},
-\code{"spatial_lag"}, \code{"glmmTMB"}, or \code{"gamlss"}.}
+\item{type}{One of \code{"deterministic"}, \code{"cross_section"},
+\code{"parametric_distribution"}, \code{"linear"}, \code{"glm"}, \code{"exogen"},
+\code{"univariate_fable"}, \code{"heterolm"}, \code{"spatial_lag"}, \code{"glmmTMB"}, or
+\code{"gamlss"}.}
 
 \item{formula}{An R formula. See the model-type section for the expected
 shape per type.}
@@ -43,6 +44,18 @@ internally by \code{\link[=fit_system]{fit_system()}}).
 \item{\code{"deterministic"}}{Two-sided formula \code{outcome ~ I(expr)}. The RHS
 must be wrapped in \code{I()}. Evaluated at each simulated time step \code{t}.
 No fitting; no extra arguments.}
+\item{\code{"cross_section"}}{Two-sided formula \code{outcome ~ I(expr)} with a
+single \code{I()} term. \code{expr} is evaluated across all units in the
+simulation at each simulated time step \code{t}, separately within each
+simulation draw. A scalar result (e.g.
+\code{quantile(x, 0.9, na.rm = TRUE)}, \code{mean(x)}) is copied to every unit; a
+result with one value per unit (e.g. \code{rank(x)}, \code{x - mean(x)}) is kept
+per unit. Time-series functions (\code{lag}, \code{diff}, rolling, cumulative) are
+not allowed; reference a lagged column produced by another model (e.g.
+\code{build_model("deterministic", x_l1 ~ I(lag(x)))}). Training-period
+values of the outcome column must already be in \code{data} (e.g.
+\code{data[, front := quantile(x, 0.9, na.rm = TRUE), by = year]}). No
+fitting; no extra arguments.}
 \item{\code{"parametric_distribution"}}{One-sided formula \code{~ var}. Pass
 \code{distribution = "norm"} (or any distribution name accepted by
 \code{\link[fitdistrplus:fitdist]{fitdistrplus::fitdist()}}). Extra arguments (\code{start}, \code{method},

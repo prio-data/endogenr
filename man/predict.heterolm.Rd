@@ -43,6 +43,7 @@ Other simulation:
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=fit_system]{fit_system()}},
+\code{\link[=predict.cross_section]{predict.cross_section()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
 \code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},

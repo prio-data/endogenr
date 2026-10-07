@@ -139,7 +139,7 @@ this scope so ensemble statistics are unchanged.
    \code{gamlss} \tab none (warns once; \code{n_param} ignored) \tab family \verb{r<FAM>} at predicted parameters \cr
    \code{parametric_distribution} \tab MVN(estimate, vcov) per block \tab \verb{r<dist>} at the drawn parameters; rejects \code{n_innov = 0} \cr
    \code{univariate_fable} \tab none (warns once; \code{n_param} ignored) \tab coherent \code{fabletools::generate()} paths; rejects \code{n_innov = 0} \cr
-   \code{deterministic}, \code{exogen}, \code{spatial_lag} \tab — \tab no stochastic predictive distribution (error) \cr
+   \code{deterministic}, \code{cross_section}, \code{exogen}, \code{spatial_lag} \tab — \tab no stochastic predictive distribution (error) \cr
 }
 
 }
@@ -160,6 +160,7 @@ Other simulation:
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=fit_system]{fit_system()}},
+\code{\link[=predict.cross_section]{predict.cross_section()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
 \code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},

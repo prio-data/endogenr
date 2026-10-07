@@ -443,7 +443,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 .fit_spec <- function(spec, sys, subset = NULL) {
   type <- spec$type
   model <- switch(type,
-    "deterministic" = fit_model(spec, ctx = sys$fit_ctx),
+    "deterministic" =, "cross_section" = fit_model(spec, ctx = sys$fit_ctx),
     "linear" =, "glm" =, "heterolm" =, "glmmTMB" =, "gamlss" =
       fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx, subset = subset),
     "exogen" = fit_model(spec, newdata = sys$full_data, ctx = sys$fit_ctx,
