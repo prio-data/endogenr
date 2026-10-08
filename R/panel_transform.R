@@ -103,6 +103,7 @@
   env$lead  <- .pt_positional_lead
   env$shift <- data.table::shift
   env$diff  <- .pt_positional_diff
+  env$center <- center
   env
 }
 
@@ -119,6 +120,55 @@
   NA_character_
 }
 
+# TRUE when `expr` contains a call to `fn` (bare or pkg::fn) anywhere.
+.pt_has_call <- function(expr, fn) {
+  if (!is.call(expr)) return(FALSE)
+  if (identical(.pt_call_name(expr), fn)) return(TRUE)
+  any(vapply(as.list(expr)[-1L], .pt_has_call, logical(1L), fn = fn))
+}
+
+# Split a center() call into head / x / center via center()'s signature.
+.pt_center_parts <- function(expr) {
+  m <- match.call(center, expr)
+  if (is.null(m$x)) {
+    stop("center() needs an expression to center, e.g. center(lag(x)).",
+         call. = FALSE)
+  }
+  list(head = expr[[1L]], x = m$x, center = m$center)
+}
+
+# Written form of a center() map entry without its stored constant:
+# center(lag(x), center = 3.2) -> center(lag(x)). Non-center exprs pass
+# through. Used for alias names and .rewrite_from_map() dedup keys.
+.pt_center_key_expr <- function(expr) {
+  if (!(is.call(expr) && identical(.pt_call_name(expr), "center"))) return(expr)
+  p <- .pt_center_parts(expr)
+  as.call(list(p$head, p$x))
+}
+
+# Pooled training mean of a center() term's argument; returns the stored call
+# center(x, center = <mean>). `x` is evaluated per unit in time order exactly
+# as .apply_ts_map() evaluates map entries, so lag()/rolling terms inside are
+# correct.
+.pt_center_with_mean <- function(expr, data, groupvar, timevar, env) {
+  p    <- .pt_center_parts(expr)
+  dt   <- data.table::as.data.table(data)
+  cols <- intersect(unique(c(groupvar, timevar, all.vars(p$x))), names(dt))
+  sub  <- dt[, cols, with = FALSE]
+  vals <- .apply_ts_map(list(.pt_center_value = p$x), sub, groupvar, timevar,
+                        env = env, copy = FALSE)[[".pt_center_value"]]
+  label <- paste(deparse(p$x), collapse = " ")
+  if (!is.numeric(vals)) {
+    stop("center(", label, "): the expression must be numeric.", call. = FALSE)
+  }
+  m <- mean(vals, na.rm = TRUE)
+  if (!is.finite(m)) {
+    stop("center(", label, "): no finite training-data mean ",
+         "(all values missing or non-finite).", call. = FALSE)
+  }
+  as.call(list(p$head, p$x, center = m))
+}
+
 # Recursively rewrite an expression, extracting maximal time-series
 # sub-expressions into `.pt#` symbols. `state` is an environment accumulator
 # carrying `$ts_fns` (the active name set), `$map` (named list `{.pt#: ts_expr}`),
@@ -130,9 +180,35 @@
 
   fname <- .pt_call_name(expr)
 
+  # center(): extract the whole call as one self-contained map entry (no
+  # recursion into the argument). panel_materialize() later bakes the
+  # training mean into the entry; `state$centers` records which slots need it.
+  if (identical(fname, "center")) {
+    p <- .pt_center_parts(expr)
+    if (!is.null(p$center)) {
+      stop("center(): do not supply `center`; endogenr computes the ",
+           "training-data mean when fitting.", call. = FALSE)
+    }
+    key_expr <- as.call(list(p$head, p$x))
+    key <- deparse(key_expr, width.cutoff = 500L)
+    existing <- state$keys[[key]]
+    if (!is.null(existing)) return(as.symbol(existing))
+    state$counter <- state$counter + 1L
+    sym <- paste0(".pt", state$counter)
+    state$map[[sym]]  <- key_expr
+    state$keys[[key]] <- sym
+    state$centers     <- c(state$centers, sym)
+    return(as.symbol(sym))
+  }
+
   # Time-series call: replace the whole expression with a `.pt#` symbol,
   # deduplicating identical sub-expressions by their deparse.
   if (!is.na(fname) && fname %in% state$ts_fns) {
+    if (.pt_has_call(expr, "center")) {
+      stop("center() cannot be used inside the time-series function ", fname,
+           "(); center the outer expression instead, e.g. center(lag(x)) ",
+           "rather than lag(center(x)).", call. = FALSE)
+    }
     key <- deparse(expr, width.cutoff = 500L)
     existing <- state$keys[[key]]
     if (!is.null(existing)) return(as.symbol(existing))
@@ -190,6 +266,8 @@
 #   * `data`    -- a copy of `data` with the `.pt#` columns added,
 #   * `formula` -- the rewritten formula (same environment as `formula`),
 #   * `map`     -- the named `{.pt#: ts_expr}` list.
+# `center()` terms are extracted with their training mean baked into the map
+# entry (`center(x, center = <mean>)`), so predict paths reapply the constant.
 #' @keywords internal
 panel_materialize <- function(formula, data, groupvar, timevar,
                               ts_fns = NULL) {
@@ -200,13 +278,22 @@ panel_materialize <- function(formula, data, groupvar, timevar,
   state$map     <- list()
   state$keys    <- list()
   state$counter <- 0L
+  state$centers <- character(0)
 
   lhs <- rlang::f_lhs(formula)
   rhs <- rlang::f_rhs(formula)
+  if (!is.null(lhs) && .pt_has_call(lhs, "center")) {
+    stop("center() is only supported on the right-hand side of a model formula.",
+         call. = FALSE)
+  }
   new_lhs <- if (is.null(lhs)) NULL else .rewrite_panel_formula(lhs, state)
   new_rhs <- .rewrite_panel_formula(rhs, state)
 
   rewritten <- rlang::new_formula(new_lhs, new_rhs, env = env)
+  for (sym in state$centers) {
+    state$map[[sym]] <- .pt_center_with_mean(state$map[[sym]], data,
+                                             groupvar, timevar, env)
+  }
   mat <- .apply_ts_map(state$map, data, groupvar, timevar, env)
 
   list(data = mat, formula = rewritten, map = state$map)
@@ -217,7 +304,8 @@ panel_materialize <- function(formula, data, groupvar, timevar,
 # Returns a named character vector `{".pt#" -> "lag_x"}`.
 .pt_make_aliases <- function(ts_map) {
   if (length(ts_map) == 0L) return(stats::setNames(character(0L), character(0L)))
-  exprs <- vapply(ts_map, deparse, character(1L), width.cutoff = 200L)
+  exprs <- vapply(ts_map, function(e) deparse(.pt_center_key_expr(e), width.cutoff = 200L),
+                  character(1L))
   dummy_df  <- stats::setNames(
     as.data.frame(rep(list(1L), length(exprs)), check.names = FALSE),
     exprs
@@ -257,13 +345,16 @@ panel_materialize <- function(formula, data, groupvar, timevar,
   state <- new.env(parent = emptyenv())
   state$ts_fns  <- union(.pt_ts_fns, ts_fns)
   state$map     <- ts_map
-  # Invert: deparse(expr) -> .pt# sym for dedup lookup
+  state$centers <- character(0)
+  # Invert: deparse(expr) -> .pt# sym for dedup lookup. center() entries are
+  # keyed without their stored constant so sub-formulas reuse the meaned slot.
   state$keys    <- if (length(ts_map) == 0L) {
     list()
   } else {
     stats::setNames(
       as.list(names(ts_map)),
-      vapply(ts_map, deparse, character(1L), width.cutoff = 500L)
+      vapply(ts_map, function(e) deparse(.pt_center_key_expr(e), width.cutoff = 500L),
+             character(1L))
     )
   }
   state$counter <- length(ts_map)

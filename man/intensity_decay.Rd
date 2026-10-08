@@ -31,6 +31,7 @@ intensity_decay(evt, fat, lambda = 0.3)
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
 \code{\link[=hist_mean]{hist_mean()}},

@@ -322,6 +322,30 @@ test_that("predict.gamlss_endogenr what='expectation' returns mu (no NA)", {
   expect_equal(nrow(pred_e), length(unique(dt$unit)))
 })
 
+test_that("gamlss center() shared by mu and sigma uses one meaned ts_map entry", {
+  skip_if_no_gamlss()
+
+  dt <- .make_panel_gamlss(units = 6L, n_time = 20L)
+  m <- gamlssmodel(
+    formula       = y ~ center(lag(x)),
+    sigma.formula = ~ center(lag(x)),
+    data          = dt[year <= 18L],
+    ctx           = panel_context(unit = "unit", time = "year")
+  )
+
+  centers <- Filter(function(e) identical(endogenr:::.pt_call_name(e), "center"),
+                    m$ts_map)
+  expect_length(centers, 1L)
+  expect_false(is.null(centers[[1L]]$center))
+
+  dt2 <- data.table::copy(dt)
+  dt2[, sim := 1L]
+  pred <- predict(m, data = dt2, t = 19L,
+                  ctx = panel_context(unit = "unit", time = "year", sim = "sim"),
+                  what = "expectation")
+  expect_false(anyNA(pred$y))
+})
+
 test_that("end-to-end: fit_system + simulate_system with gamlss spec", {
   skip_if_no_gamlss()
 
@@ -560,6 +584,93 @@ test_that("coef_override on gamlss mu term succeeds and shifts expectation on id
   actual_delta   <- pred_over[[oc_name]] - pred_base[[oc_name]]
 
   expect_equal(actual_delta, expected_delta, tolerance = 1e-6)
+})
+
+# ============================================================================
+# TIER 2 — time-grouped random intercepts (requires gamlss)
+# ============================================================================
+
+.make_time_re_gamlss_fit <- function(formula, nsim = 2L, inner_sims = 2L) {
+  dt <- .make_panel_gamlss(units = 6L, n_time = 25L)
+  set.seed(2)
+  dt[, y := y + stats::rnorm(25)[year]]   # shared year shock so tau-hat > 0
+  sys <- setup_system(
+    list(
+      build_model("gamlss", formula = formula, family = gamlss.dist::NO()),
+      build_model("exogen", formula = ~x)
+    ),
+    data        = dt,
+    train_start = 1L, test_start = 22L, horizon = 3L,
+    groupvar    = "unit", timevar = "year", inner_sims = inner_sims
+  )
+  list(fit = suppressWarnings(fit_system(sys, nsim = nsim)), data = dt)
+}
+
+test_that("gamlss re(random = ~1 | year) forecasts unseen years", {
+  skip_if_no_gamlss()
+
+  fit <- .make_time_re_gamlss_fit(y ~ lag(x) + re(random = ~1 | year))$fit
+  sim <- simulate_system(fit)
+  expect_false(anyNA(sim[sim$year >= 22L]$y))
+
+  sp <- setup_param(fit)
+  expect_true(isTRUE(sp$y$time_fe$random))
+  expect_equal(sp$y$time_fe$heuristic$strategy, "distribution")
+  expect_equal(dim(sp$y$time_fe$values), c(2L, 2L, 3L))
+})
+
+test_that("gamlss random(factor(year)) forecasts unseen years", {
+  skip_if_no_gamlss()
+
+  fit <- .make_time_re_gamlss_fit(y ~ lag(x) + random(factor(year)))$fit
+  sim <- suppressMessages(simulate_system(fit))
+  expect_false(anyNA(sim[sim$year >= 22L]$y))
+})
+
+test_that("new-year RE value b reproduces the model's prediction for a seen year with BLUP b", {
+  skip_if_no_gamlss()
+
+  res <- .make_time_re_gamlss_fit(y ~ lag(x) + re(random = ~1 | year))
+  fit <- res$fit
+  m   <- fit$fitted_models[[1L]]
+  b   <- m$time_fe$effects[["21"]]
+
+  sp <- setup_param(fit)
+  sp$y$time_fe <- fe_fixed(sp$y$time_fe, value = b)
+  scen <- endogenr:::.slice_scenario(sp, 1L)
+
+  dt_sim <- data.table::copy(res$data)
+  dt_sim[, .sim := 1L]
+  sim_ctx <- panel_context(unit = "unit", time = "year", sim = ".sim")
+
+  p <- predict(m, data = dt_sim, t = 22L, ctx = sim_ctx, what = "expectation",
+               scenario = scen, test_start = 22L)
+
+  # Reference: materialise as predict.endogenr_gamlss does, then predict the
+  # t = 22 rows as if they were the seen year 21 (whose BLUP is b).
+  mat <- endogenr:::.apply_ts_map(
+    m$ts_map,
+    endogenr:::.history_subset(dt_sim, "year", 22L, m$required_history),
+    c("unit", ".sim"), "year", env = rlang::f_env(m$mat_formula), copy = TRUE
+  )
+  endogenr:::.pt_apply_aliases(mat, m$pt_alias_map)
+  mat <- mat[year == 22L]
+  mat[, year := 21L]
+  ref <- draw_predictive(m, mat, n_param = 0L, n_innov = 0L)[, 1L]
+
+  expect_equal(p$y, ref, tolerance = 1e-8)
+})
+
+test_that("time-grouped random slope errors at fit", {
+  skip_if_no_gamlss()
+  expect_error(.make_time_re_gamlss_fit(y ~ lag(x) + re(random = ~x | year)),
+               "only random intercepts grouped by the time variable")
+})
+
+test_that("time variable used outside the RE term errors at fit", {
+  skip_if_no_gamlss()
+  expect_error(.make_time_re_gamlss_fit(y ~ year + re(random = ~1 | year)),
+               "enter the model only through")
 })
 
 # ============================================================================

@@ -19,10 +19,12 @@ fe_distribution(
 \item{block}{An \code{endogenr_fe_param} from \code{\link[=setup_param]{setup_param()}}.}
 
 \item{mean}{Scalar mean of the Normal distribution (default: per-draw mean
-of \code{effects_by_draw}, so it adapts to each bootstrap draw).}
+of \code{effects_by_draw}, so it adapts to each bootstrap draw; \code{0} for a
+time-grouped random-effect block).}
 
 \item{sd}{Scalar standard deviation of the Normal distribution (default:
-per-draw sd of \code{effects_by_draw}).  Set to a small value (e.g. \code{0}) to
+per-draw sd of \code{effects_by_draw}; the per-draw fitted random-effect SD for
+a time-grouped random-effect block).  Set to a small value (e.g. \code{0}) to
 produce near-constant offsets while keeping the Normal draw machinery.}
 
 \item{to}{Convergence target: \code{NULL} (no convergence), a numeric scalar,

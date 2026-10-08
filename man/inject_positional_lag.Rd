@@ -23,6 +23,7 @@ or requiring data.table/dplyr to be attached. The same bindings back the
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
 \code{\link[=hist_mean]{hist_mean()}},

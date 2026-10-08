@@ -212,6 +212,144 @@
   }, error = function(e) NULL)
 }
 
+# Classify one term-label expression as a random intercept grouped by the time
+# variable: "random" for random(<timevar>) / random(factor(<timevar>)), "re" for
+# re(random = ~1 | <timevar>), NULL otherwise. An explicit re(level = ...) is
+# left alone (it already predicts at population level for new groups).
+.gamlss_time_re_kind <- function(expr, timevar) {
+  if (!is.call(expr)) return(NULL)
+  fn <- deparse(expr[[1L]])
+  is_time <- function(e) is.symbol(e) && identical(as.character(e), timevar)
+
+  if (fn %in% c("random", "gamlss::random")) {
+    if (length(expr) < 2L) return(NULL)
+    a <- expr[[2L]]
+    if (is_time(a)) return("random")
+    if (is.call(a) && deparse(a[[1L]]) %in% c("factor", "stats::factor") &&
+        length(a) >= 2L && is_time(a[[2L]])) return("random")
+    return(NULL)
+  }
+
+  if (fn %in% c("re", "gamlss::re")) {
+    mc <- match.call(gamlss::re, expr)
+    if (!is.null(mc$level)) return(NULL)
+    rand <- mc$random
+    if (!is.call(rand) || !identical(rand[[1L]], as.name("~"))) return(NULL)
+    rhs <- rand[[length(rand)]]
+    if (!.glmmTMB_is_bar(rhs)) return(NULL)
+    if (!is_time(rhs[[3L]])) return(NULL)
+    if (!(is.numeric(rhs[[2L]]) && identical(as.numeric(rhs[[2L]]), 1))) {
+      stop(
+        "gamlss: only random intercepts grouped by the time variable can be ",
+        "forecast (use `re(random = ~1 | ", timevar, ")`); found `",
+        paste(deparse(expr, width.cutoff = 500L), collapse = " "), "`.",
+        call. = FALSE
+      )
+    }
+    return("re")
+  }
+
+  NULL
+}
+
+# Find a time-grouped random intercept in the mu formula (formula-only, so it
+# runs before the fit and misuse fails fast). Returns NULL when absent, else
+# list(label, kind). Errors on sigma/nu/tau placement, several such terms, or
+# the time variable entering the model elsewhere.
+.gamlss_find_time_re <- function(mu_fit, other_fits, timevar) {
+  labels_of <- function(f) attr(stats::terms(f), "term.labels")
+  kind_of   <- function(lbl) .gamlss_time_re_kind(str2lang(lbl), timevar)
+
+  for (nm in names(other_fits)) {
+    for (lbl in labels_of(other_fits[[nm]])) {
+      if (!is.null(kind_of(lbl))) {
+        stop(
+          "gamlss: time-grouped random effects are supported only in the mu ",
+          "formula (found `", lbl, "` in the ", nm, " formula).",
+          call. = FALSE
+        )
+      }
+    }
+  }
+
+  labels <- labels_of(mu_fit)
+  kinds  <- lapply(labels, kind_of)
+  hit    <- which(!vapply(kinds, is.null, logical(1L)))
+  if (length(hit) == 0L) return(NULL)
+  if (length(hit) > 1L) {
+    stop(
+      "gamlss: at most one time-grouped random effect is allowed in the mu ",
+      "formula; found: ", paste(labels[hit], collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+  label <- labels[[hit]]
+
+  others <- c(labels[-hit], unlist(lapply(other_fits, labels_of), use.names = FALSE))
+  for (lbl in others) {
+    if (timevar %in% all.vars(str2lang(lbl))) {
+      stop(
+        "gamlss: forecasting `", label, "` requires the time variable `",
+        timevar, "` to enter the model only through that term (found it in `",
+        lbl, "`).",
+        call. = FALSE
+      )
+    }
+  }
+
+  list(label = label, kind = kinds[[hit]])
+}
+
+# Extract the BLUPs and estimated SD of the term found by
+# .gamlss_find_time_re() from the fitted model. Returns a superset of the
+# .detect_time_fe() shape with `random = TRUE`, `re_sd` and `ref_effect` (the
+# BLUP at the reference level `ref_value`, the earliest training level).
+# Errors when the fit has no estimated random-effect variance.
+.gamlss_extract_time_re <- function(found, fitted, timevar) {
+  label <- found$label
+  kind  <- found$kind
+  w <- match(label, colnames(fitted$mu.s))
+  if (is.na(w)) w <- match(gsub(" ", "", label), gsub(" ", "", colnames(fitted$mu.s)))
+  if (is.na(w)) {
+    stop("gamlss: could not locate the fitted smoother for `", label, "`.",
+         call. = FALSE)
+  }
+  smo <- gamlss::getSmo(fitted, what = "mu", which = w)
+
+  if (kind == "re") {
+    r       <- nlme::ranef(smo)
+    effects <- stats::setNames(r[, "(Intercept)"], rownames(r))
+    re_sd   <- suppressWarnings(
+      as.numeric(nlme::VarCorr(smo)["(Intercept)", "StdDev"]))
+  } else {
+    effects <- stats::setNames(as.numeric(smo$coef), names(smo$coef))
+    re_sd   <- as.numeric(smo$sigb)
+  }
+
+  if (length(re_sd) != 1L || !is.finite(re_sd) || re_sd <= 0) {
+    stop(
+      "gamlss: `", label, "` has no estimated random-effect variance (fixed ",
+      "df/lambda?); forecasting new ", timevar, " levels needs it. Drop ",
+      "df/lambda or use re(random = ~1 | ", timevar, ").",
+      call. = FALSE
+    )
+  }
+
+  effects <- effects[order(as.numeric(names(effects)))]
+  ref     <- names(effects)[1L]
+
+  list(
+    term       = label,
+    timevar    = timevar,
+    ref_value  = as.numeric(ref),
+    effects    = effects,
+    vcov       = NULL,
+    random     = TRUE,
+    re_sd      = re_sd,
+    ref_effect = effects[[ref]]
+  )
+}
+
 #' Stage-2 pooled gamlss fit on materialized data
 #'
 #' File-level analogue of `.lm_stage2_fit()` — see that helper for why the
@@ -383,6 +521,13 @@ gamlssmodel <- function(formula       = NULL,
 
   class(model) <- c("endogenr_gamlss", class(model))
 
+  # Time-grouped random intercept (re(random = ~1 | year), random(factor(year)))
+  # takes the time_fe slot. Formula checks run before the fit so misuse fails
+  # fast, and outside tryCatch so the error reaches fit_system().
+  time_re_term <- .gamlss_find_time_re(
+    mu_fit, list(sigma = sigma_fit, nu = nu_fit, tau = tau_fit), timevar
+  )
+
   # ── Stage 2: fit ─────────────────────────────────────────────────────────
   # File-level helper — see .lm_stage2_fit for why this must not be a closure
   # stored on the model object (serialization payload).
@@ -401,7 +546,9 @@ gamlssmodel <- function(formula       = NULL,
   # Detect factor(timevar) and factor(unitkey) in the mu formula only.
   # mu.xlevels is the gamlss analogue of lm$xlevels.
   mu_coefs       <- stats::coef(model$fitted)   # mu coefficients (named)
-  model$time_fe  <- tryCatch(
+  time_re <- if (!is.null(time_re_term))
+    .gamlss_extract_time_re(time_re_term, model$fitted, timevar) else NULL
+  model$time_fe  <- if (!is.null(time_re)) time_re else tryCatch(
     .detect_time_fe(mu_fit, mu_coefs, model$fitted$mu.xlevels, timevar,
                     vcov = .gamlss_mu_vcov(model$fitted)),
     error = function(e) NULL
@@ -510,6 +657,10 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi",
   # --- Scenario: extract per-draw slices ------------------------------------
   oc_scen       <- if (!is.null(scenario)) scenario[[model$outcome]] else NULL
   time_fe_slice <- if (!is.null(oc_scen)) oc_scen$time_fe else NULL
+  # Time-grouped random intercept: predict at this fit's own reference level
+  # (always in its training frame) and add b_new - BLUP_ref on the eta scale.
+  time_re       <- if (!is.null(time_fe_slice) && isTRUE(model$time_fe$random))
+                     model$time_fe else NULL
   unit_fe_slice <- if (!is.null(oc_scen)) oc_scen$unit_fe else NULL
   eff_coef      <- if (!is.null(oc_scen) && !is.null(oc_scen$coef))
                      oc_scen$coef$effective
@@ -524,7 +675,9 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi",
 
   if (!is.null(time_fe_slice)) {
     pred_frame <- data.table::copy(mat)
-    data.table::set(pred_frame, j = time_fe_slice$var, value = time_fe_slice$ref)
+    ref_val    <- if (!is.null(time_re)) time_re$ref_value else time_fe_slice$ref
+    if (is.integer(mat[[time_fe_slice$var]])) ref_val <- as.integer(ref_val)
+    data.table::set(pred_frame, j = time_fe_slice$var, value = ref_val)
   }
 
   if (!is.null(unit_fe_slice)) {
@@ -557,6 +710,7 @@ predict.endogenr_gamlss <- function(model, data, t, ctx, what = "pi",
       } else {
         off <- off + mean(time_fe_slice$offsets[, h])
       }
+      if (!is.null(time_re)) off <- off - time_re$ref_effect
     }
 
     # Unit FE offset

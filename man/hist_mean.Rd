@@ -36,6 +36,7 @@ hist_mean(c(1, NA, 3))                     # c(1, 1, 2)
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},

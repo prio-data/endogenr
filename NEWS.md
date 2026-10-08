@@ -2,6 +2,31 @@
 
 ## New features
 
+- **`center()` — center formula terms on a stored training mean.** Use
+  `center(expr)` on the right-hand side of an estimated model formula
+  (`linear`, `glm`, `glmmTMB`, `gamlss`, `heterolm`, long-horizon), e.g.
+  `y ~ center(lag(x)) * z` where `x` is simulated by another model. At fit
+  time the pooled mean of `expr` (evaluated per unit in time order, over all
+  non-missing training values) is stored in the model's `ts_map`; every
+  forecast step subtracts that constant from the current simulated value and
+  never recomputes it. Coefficients are named `center_lag_x` etc. Errors for
+  `center()` on the LHS, inside time-series functions (`lag(center(x))`), and
+  in non-estimated model types.
+
+- **gamlss: forecasting time-grouped random intercepts.** A mu-formula
+  `re(random = ~1 | year)` or `random(factor(year))` (grouped by the time
+  variable) previously forecast every row as `NA`: `predictAll()` returns
+  `NA` for unseen levels. Now it is treated as a time-effect block in
+  `setup_param()`. Each new forecast year draws `N(0, τ̂²)` once per
+  (outer draw, inner sim, year), shared across units and added on the mu
+  link scale. `τ̂` is that draw's fitted random-effect SD. Override with
+  `fe_ar()`/`fe_fixed()`/`fe_converge()` on `sp$<outcome>$time_fe`.
+  `fe_distribution()` on these blocks defaults to mean `0` and the fitted
+  SD. Errors at `fit_system()` in these cases: time-grouped random slopes,
+  such terms in sigma/nu/tau, more than one such term, the time variable
+  also entering elsewhere (e.g. `factor(year)`, a linear `year`), and
+  `random()` with fixed `df`/`lambda`.
+
 - **`build_model("cross_section", outcome ~ I(expr))` — per-period
   cross-sectional aggregates.** `expr` is evaluated across all units at each
   simulated time step, separately within each simulation draw (e.g. a

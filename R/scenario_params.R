@@ -555,9 +555,11 @@ fe_ar <- function(block, to = NULL, factor = 1, path = "constant",
 #'
 #' @param block An `endogenr_fe_param` from [setup_param()].
 #' @param mean Scalar mean of the Normal distribution (default: per-draw mean
-#'   of `effects_by_draw`, so it adapts to each bootstrap draw).
+#'   of `effects_by_draw`, so it adapts to each bootstrap draw; `0` for a
+#'   time-grouped random-effect block).
 #' @param sd Scalar standard deviation of the Normal distribution (default:
-#'   per-draw sd of `effects_by_draw`).  Set to a small value (e.g. `0`) to
+#'   per-draw sd of `effects_by_draw`; the per-draw fitted random-effect SD for
+#'   a time-grouped random-effect block).  Set to a small value (e.g. `0`) to
 #'   produce near-constant offsets while keeping the Normal draw machinery.
 #' @inheritParams fe_resample
 #'
@@ -602,8 +604,8 @@ fe_distribution <- function(block, mean = NULL, sd = NULL, to = NULL,
     vals <- array(NA_real_, dim = c(nsim, inner_sims, horizon))
     for (i in seq_len(nsim)) {
       eff_i <- block$effects_by_draw[[i]]
-      m_i   <- if (!is.null(mean)) mean else base::mean(eff_i)
-      s_i   <- if (!is.null(sd))   sd   else stats::sd(eff_i)
+      m_i   <- if (!is.null(mean)) mean else if (isTRUE(block$random)) 0 else base::mean(eff_i)
+      s_i   <- if (!is.null(sd))   sd   else if (isTRUE(block$random)) block$re_sd_by_draw[[i]] else stats::sd(eff_i)
       B     <- matrix(stats::rnorm(inner_sims * horizon, m_i, s_i),
                       nrow = inner_sims, ncol = horizon)
       for (h in seq_len(horizon)) {
@@ -1336,6 +1338,11 @@ setup_param <- function(fitted_system) {
         if (!is.null(m) && !is.null(m$time_fe)) m$time_fe$vcov
         else time_fe_rep$vcov
       })
+      rsd <- if (isTRUE(time_fe_rep$random)) lapply(fitted_draws, function(draw) {
+        m <- find_draw_model(draw, oc)
+        if (!is.null(m) && !is.null(m$time_fe$re_sd)) m$time_fe$re_sd
+        else time_fe_rep$re_sd
+      }) else NULL
       blk <- structure(
         list(
           kind            = "time",
@@ -1346,6 +1353,8 @@ setup_param <- function(fitted_system) {
           effects         = time_fe_rep$effects,
           effects_by_draw = ebd,
           vcov_by_draw    = vbd,
+          random          = isTRUE(time_fe_rep$random),
+          re_sd_by_draw   = rsd,
           dims            = dims,
           active          = TRUE,
           heuristic       = NULL,
@@ -1353,8 +1362,10 @@ setup_param <- function(fitted_system) {
         ),
         class = "endogenr_fe_param"
       )
-      # default: AR(1) from the origin; resample when the series is too short
-      if (all(lengths(ebd) >= 3L)) fe_ar(blk) else fe_resample(blk)
+      # default: N(0, re_sd^2) for a time-grouped random intercept; otherwise
+      # AR(1) from the origin, resampling when the series is too short
+      if (isTRUE(blk$random)) fe_distribution(blk)
+      else if (all(lengths(ebd) >= 3L)) fe_ar(blk) else fe_resample(blk)
     } else NULL
 
     # -- Unit FE block ---------------------------------------------------------
@@ -1472,6 +1483,9 @@ print.endogenr_scenario_params <- function(x, ...) {
                   if (!is.null(heur)) heur$strategy else "?"))
       cat(sprintf("    effects: mean=%.3f, sd=%.3f, min=%.3f, max=%.3f\n",
                   smry["mean"], smry["sd"], smry["min"], smry["max"]))
+      if (isTRUE(tfe$random))
+        cat(sprintf("    random intercept: sd=%.3f (draw 1); new levels ~ N(0, sd^2)\n",
+                    tfe$re_sd_by_draw[[1L]]))
       if (!is.null(tfe$values)) {
         v <- tfe$values
         cat(sprintf("    values[nsim x inner_sims x horizon]: mean=%.3f, sd=%.3f\n",

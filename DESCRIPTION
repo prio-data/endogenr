@@ -32,6 +32,7 @@ Suggests:
     gamlss.dist,
     glmmTMB,
     heterolm,
+    nlme,
     progressr,
     sfdep,
     tidyr,

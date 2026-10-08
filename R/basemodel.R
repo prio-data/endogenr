@@ -160,6 +160,13 @@ build_model <- function(type, formula, ..., bounds = NULL) {
 
   if (identical(type, "cross_section")) .check_cross_section_formula(formula)
 
+  if (!type %in% c("linear", "glm", "glmmTMB", "gamlss", "heterolm") &&
+      .pt_has_call(formula, "center")) {
+    stop("center() is only supported in estimated model formulas (linear, glm, ",
+         "glmmTMB, gamlss, heterolm); `", type, "` models have no training step ",
+         "to compute the mean.", call. = FALSE)
+  }
+
   dots <- list(...)
 
   spec <- structure(

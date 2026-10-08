@@ -29,6 +29,7 @@ interaction terms.
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},

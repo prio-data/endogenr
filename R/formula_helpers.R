@@ -170,6 +170,49 @@ hist_mean <- function(x, window = Inf, min_obs = 1L) {
   out
 }
 
+#' Center a formula term on its training-data mean
+#'
+#' Use `center()` on the right-hand side of an estimated model formula to
+#' subtract a fixed training-data mean from an expression, e.g.
+#' `y ~ center(lag(x)) * z`. The mean is computed once per model when it is
+#' fitted and stored in the fitted model; at every simulated forecast step the
+#' stored constant is subtracted from the current (possibly simulated) value.
+#' The mean is never recomputed from forecast data.
+#'
+#' The mean is computed by evaluating `x` per unit, in time order, on the
+#' training data handed to the model (for [setup_system()]: all rows with
+#' `train_start <= time < test_start`, including train-only units), and then
+#' pooling over all non-missing values across units and periods. It is not
+#' restricted to a rolling `min_window` subset, nor to complete cases of the
+#' other formula terms.
+#'
+#' Restrictions:
+#' * Right-hand side only.
+#' * Not inside time-series functions: write `center(lag(x))`, not
+#'   `lag(center(x))`.
+#' * Only in estimated model types (`linear`, `glm`, `glmmTMB`, `gamlss`,
+#'   `heterolm`, and long-horizon models).
+#'
+#' @param x A numeric expression, e.g. `lag(x)` or `log(gdppc)`.
+#' @param center Filled in by endogenr at fit time; never supply it in a
+#'   formula.
+#'
+#' @return `x - center`.
+#' @family formula_helpers
+#' @export
+#'
+#' @examples
+#' center(c(1, 2, 3), center = 2)   # c(-1, 0, 1)
+center <- function(x, center) {
+  if (missing(center)) {
+    stop("center() is resolved by endogenr when an estimated model ",
+         "(linear, glm, glmmTMB, gamlss, heterolm, long-horizon) is fitted; ",
+         "it cannot be called directly or used in deterministic, cross_section, ",
+         "or other non-estimated model formulas.", call. = FALSE)
+  }
+  x - center
+}
+
 #' Build Mundlak between-effect deterministic specs
 #'
 #' Constructs a list of `deterministic` model specs that update the
