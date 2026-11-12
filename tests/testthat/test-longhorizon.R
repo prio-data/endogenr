@@ -96,7 +96,7 @@ test_that("get_lh_accuracy scores per (variant, unit, horizon)", {
   fc <- forecast_long_horizon(setup, dt, nsim = 30, inner_sims = 4)
   acc <- get_lh_accuracy(fc, dt, setup)
 
-  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler")
+  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs")
                   %in% names(acc)))
   expect_true(all(is.finite(acc$crps)))
   expect_true(all(acc$crps >= 0))
@@ -199,7 +199,7 @@ test_that("cv_long_horizon aggregates per (variant, unit, horizon) across folds"
   cv <- cv_long_horizon(dt, f, 1:2, "gwcode", "year",
                         test_starts = c(2008, 2010), nsim = 15, inner_sims = 3)
 
-  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler")
+  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs")
                   %in% names(cv)))
   expect_true(all(is.finite(cv$crps)))
 })
@@ -222,7 +222,7 @@ test_that("get_accuracy keeps per-unit default and adds a horizon mode", {
 
   a_default <- get_accuracy(sim, "y", truth, ctx)
   expect_false("horizon" %in% names(a_default))
-  expect_true(all(c("crps", "mae", "winkler") %in% names(a_default)))
+  expect_true(all(c("crps", "mae", "winkler", "logs") %in% names(a_default)))
 
   a_horizon <- get_accuracy(sim, "y", truth, ctx,
                             test_start = 2010, by = c("gwcode", "horizon"))

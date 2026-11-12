@@ -81,7 +81,7 @@ get_experiment_accuracy(exp_res, "gdppc", df)
 
 `systems` contains the base system (named `"model1"` automatically by
 `vary_model`) and the `"plus_edu"` variant.  `get_experiment_accuracy` returns
-one row per `.experiment` with mean CRPS, MAE, and Winkler scores.
+one row per `.experiment` with mean CRPS, MAE, Winkler, and log scores.
 
 **Parallelism axes:**  set `parallel = "experiments"` (default; maps the
 experiment grid in parallel, each experiment sequential) or

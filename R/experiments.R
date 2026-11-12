@@ -507,7 +507,7 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 
 #' Score a grid of system-simulation experiments
 #'
-#' Computes CRPS, MAE, and Winkler scores for every experiment in a
+#' Computes CRPS, MAE, Winkler, and log scores for every experiment in a
 #' [run_experiments()] result, returning one long `data.table` keyed by
 #' `.experiment`. Each experiment is scored against `truth` with its **own**
 #' `test_start`, so a grid that varies `test_start` is handled correctly (the
@@ -529,7 +529,7 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 #'
 #' @return A `data.table` with leading columns `.experiment` and any present
 #'   axis columns (`model`, `train_start`, `test_start`, `window_cfg`), the
-#'   `by` columns, and `crps`, `mae`, `winkler` — one block of rows per
+#'   `by` columns, and `crps`, `mae`, `winkler`, `logs` — one block of rows per
 #'   experiment.
 #' @seealso [run_experiments()], [get_accuracy()], [compare_approaches()]
 #' @family experiments

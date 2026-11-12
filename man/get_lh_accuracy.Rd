@@ -33,7 +33,7 @@ inferred from attributes on \code{lh_forecasts}.}
 }
 \value{
 A data.table with columns: \code{variant}, the unit column, \code{horizon},
-\code{crps}, \code{mae}, \code{winkler}.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}.
 }
 \description{
 Scores forecast draws against observed truth per \verb{(variant, unit, horizon)}

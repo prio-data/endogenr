@@ -123,8 +123,8 @@ acc
 plotsim(res, "gdppc", head(keep, 3L), df)
 ```
 
-`get_accuracy()` returns mean CRPS, MAE, and Winkler interval score
-(default coverage level 50 %) per grouping. Pass `by = "horizon"` to score
+`get_accuracy()` returns mean CRPS, MAE, Winkler interval score
+(default coverage level 50 %), and log score per grouping. Pass `by = "horizon"` to score
 per forecast step. `sim_to_dist()` converts the ensemble to summary quantiles
 for custom summaries.
 

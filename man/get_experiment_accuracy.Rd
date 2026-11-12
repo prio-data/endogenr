@@ -32,11 +32,11 @@ scoring; see \code{\link[=get_accuracy]{get_accuracy()}}.}
 \value{
 A \code{data.table} with leading columns \code{.experiment} and any present
 axis columns (\code{model}, \code{train_start}, \code{test_start}, \code{window_cfg}), the
-\code{by} columns, and \code{crps}, \code{mae}, \code{winkler} — one block of rows per
+\code{by} columns, and \code{crps}, \code{mae}, \code{winkler}, \code{logs} — one block of rows per
 experiment.
 }
 \description{
-Computes CRPS, MAE, and Winkler scores for every experiment in a
+Computes CRPS, MAE, Winkler, and log scores for every experiment in a
 \code{\link[=run_experiments]{run_experiments()}} result, returning one long \code{data.table} keyed by
 \code{.experiment}. Each experiment is scored against \code{truth} with its \strong{own}
 \code{test_start}, so a grid that varies \code{test_start} is handled correctly (the

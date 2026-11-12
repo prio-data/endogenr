@@ -235,7 +235,7 @@ test_that("get_experiment_accuracy scores per experiment with its own test_start
 
   expect_s3_class(acc, "data.table")
   expect_true(all(c(".experiment", "gwcode", "horizon",
-                    "crps", "mae", "winkler") %in% names(acc)))
+                    "crps", "mae", "winkler", "logs") %in% names(acc)))
   expect_setequal(unique(acc$.experiment), c("test2010", "test2015"))
 
   # Horizon is relative to each experiment's own test_start: both experiments

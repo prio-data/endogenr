@@ -644,7 +644,7 @@ test_that("get_accuracy computes CRPS, MAE, and Winkler scores", {
   acc <- get_accuracy(forecast_res, "y", truth, ctx)
 
   expect_s3_class(acc, "data.table")
-  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+  expect_true(all(c("crps", "mae", "winkler", "logs") %in% names(acc)))
   expect_true(all(acc$crps >= 0, na.rm = TRUE))
   expect_true(all(acc$mae >= 0, na.rm = TRUE))
 })
@@ -692,7 +692,7 @@ test_that("get_accuracy infers ctx from simulation_results attributes", {
   acc <- get_accuracy(forecast_res, "y", truth)
 
   expect_s3_class(acc, "data.table")
-  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+  expect_true(all(c("crps", "mae", "winkler", "logs") %in% names(acc)))
 })
 
 test_that("get_accuracy infers ctx from truth attributes when results lack them", {
@@ -724,7 +724,7 @@ test_that("get_accuracy infers ctx from truth attributes when results lack them"
   acc <- get_accuracy(forecast_res, "y", truth)
 
   expect_s3_class(acc, "data.table")
-  expect_true(all(c("crps", "mae", "winkler") %in% names(acc)))
+  expect_true(all(c("crps", "mae", "winkler", "logs") %in% names(acc)))
 })
 
 test_that("plotsim infers ctx from attributes", {

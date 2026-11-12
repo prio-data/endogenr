@@ -9,6 +9,8 @@
 test_that(".score_draws returns NA for NA truth or all-NA draws", {
   expect_true(is.na(.score_draws(list(stats::rnorm(50)), NA_real_)$crps))
   expect_true(is.na(.score_draws(list(rep(NA_real_, 50)), 1)$crps))
+  expect_true(is.na(.score_draws(list(stats::rnorm(50)), NA_real_)$logs))
+  expect_true(is.na(.score_draws(list(rep(NA_real_, 50)), 1)$logs))
 })
 
 test_that(".score_draws CRPS is non-negative and equals MAE for a point mass", {
@@ -21,6 +23,21 @@ test_that(".score_draws CRPS is non-negative and equals MAE for a point mass", {
   pm <- .score_draws(list(rep(3, 100)), 5)
   expect_equal(pm$crps, pm$mae)
   expect_equal(pm$crps, 2)
+})
+
+test_that(".score_draws log score matches scoringRules and handles degenerate draws", {
+  set.seed(1)
+  d <- stats::rnorm(500)
+  expect_equal(.score_draws(list(d), 0.2)$logs,
+               scoringRules::logs_sample(0.2, d))
+
+  # Only 1 non-NA draw: KDE impossible, so logs alone is NA.
+  one <- .score_draws(list(c(NA, 1)), 1)
+  expect_true(is.na(one$logs))
+  expect_false(is.na(one$crps))
+
+  # Point mass away from truth: raw Inf is kept.
+  expect_equal(.score_draws(list(rep(3, 100)), 5)$logs, Inf)
 })
 
 test_that(".score_draws Winkler penalty triggers only outside the interval", {

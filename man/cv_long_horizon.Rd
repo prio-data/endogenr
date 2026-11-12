@@ -54,7 +54,7 @@ names, passed to \code{\link[=setup_long_horizon]{setup_long_horizon()}} (see \c
 }
 \value{
 A data.table with columns: \code{variant}, the unit column, \code{horizon},
-\code{crps}, \code{mae}, \code{winkler}, averaged across all folds.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}, averaged across all folds.
 }
 \description{
 Runs the full pipeline — \code{\link[=setup_long_horizon]{setup_long_horizon()}} + \code{\link[=forecast_long_horizon]{forecast_long_horizon()}} —

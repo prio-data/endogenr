@@ -2,6 +2,15 @@
 
 ## New features
 
+- **Log score in accuracy outputs.** `get_accuracy()`, `get_lh_accuracy()`,
+  `cv_long_horizon()`, and `get_experiment_accuracy()` now also return a
+  `logs` column: the mean log score from `scoringRules::logs_sample()`
+  (kernel density estimate of the draws; lower is better). It is `NA` for
+  cells with fewer than 2 non-missing draws. It is infinite for point-mass
+  forecasts (e.g. `deterministic` outcomes) or truths far outside the draws,
+  so group means can be `Inf`/`NaN`. Existing columns are unchanged; `logs`
+  is appended last.
+
 - **`center()` — center formula terms on a stored training mean.** Use
   `center(expr)` on the right-hand side of an estimated model formula
   (`linear`, `glm`, `glmmTMB`, `gamlss`, `heterolm`, long-horizon), e.g.

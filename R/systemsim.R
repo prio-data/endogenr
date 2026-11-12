@@ -1194,14 +1194,17 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 
 # Internal NA-safe scoring kernel shared by get_accuracy() and
 # get_lh_accuracy(). Scores a list of draw vectors against a truth vector,
-# returning CRPS, MAE, and Winkler scores. NA truth or an empty (all-NA) draw
-# vector yields NA for that row.
+# returning CRPS, MAE, Winkler, and log scores (scoringRules::logs_sample,
+# KDE-based). NA truth or an empty (all-NA) draw vector yields NA for that row;
+# the log score is also NA when fewer than 2 non-NA draws remain. Non-finite
+# log scores (point-mass draws, truth far outside the draws) are kept as-is.
 .score_draws <- function(draws, y, level = 50) {
   alpha <- 1 - level / 100
   n <- length(draws)
   crps <- rep(NA_real_, n)
   mae  <- rep(NA_real_, n)
   winkler <- rep(NA_real_, n)
+  logs <- rep(NA_real_, n)
   for (i in seq_len(n)) {
     d <- draws[[i]]
     d <- d[!is.na(d)]
@@ -1215,20 +1218,27 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
                else if (yi > hi) (2 / alpha) * (yi - hi)
                else 0
     winkler[i] <- (hi - lo) + penalty
+    if (length(d) >= 2L) logs[i] <- scoringRules::logs_sample(y = yi, dat = d)
   }
-  list(crps = crps, mae = mae, winkler = winkler)
+  list(crps = crps, mae = mae, winkler = winkler, logs = logs)
 }
 
 #' Calculate probabilistic accuracy scores for simulations
 #'
-#' Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
-#' observed truth. Uses [scoringRules::crps_sample()] for CRPS computation.
+#' Computes CRPS, MAE, Winkler, and log scores by comparing simulation draws
+#' against observed truth. Uses [scoringRules::crps_sample()] for CRPS and
+#' [scoringRules::logs_sample()] (kernel density estimate of the draws) for the
+#' log score.
 #'
 #' By default scores are aggregated per unit. Pass `test_start` to add a
 #' `horizon` column (`time - test_start + 1`) and `by` to control the grouping
 #' (e.g. `by = c(groupvar, "horizon")` for a per-(unit, horizon) breakdown that
 #' lines up with [get_lh_accuracy()] and [compare_approaches()]). `transform`
 #' applies a function to both draws and truth before scoring.
+#'
+#' The log score is `NA` for cells with fewer than 2 non-missing draws, and is
+#' infinite for degenerate (point-mass) or far-off forecasts, so group means
+#' can be `Inf`/`NaN`.
 #'
 #' @param simulation_results A data.table from [simulate_system()], filtered to
 #'   the forecast period.
@@ -1249,7 +1259,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #'   scoring (score on a transformed scale).
 #'
 #' @return A data.table of scores, one row per group in `by`, with columns
-#'   `crps`, `mae`, `winkler`.
+#'   `crps`, `mae`, `winkler`, `logs`.
 #' @family postprocess
 #' @export
 get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
@@ -1298,7 +1308,8 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
 
   # Score per (unit, time) with the shared NA-safe kernel
   sc <- .score_draws(scored$draws, scored$.truth, level)
-  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler)]
+  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler,
+                logs = sc$logs)]
 
   # Optional horizon dimension
   if (!is.null(test_start)) {
@@ -1308,7 +1319,8 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
   # Aggregate
   result <- scored[, .(crps = mean(crps, na.rm = TRUE),
                        mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE)), by = group_by]
+                       winkler = mean(winkler, na.rm = TRUE),
+                       logs = mean(logs, na.rm = TRUE)), by = group_by]
   return(result)
 }
 

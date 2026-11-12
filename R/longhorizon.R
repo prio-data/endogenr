@@ -514,7 +514,7 @@ forecast_long_horizon <- function(lh_setup, data, test_start = NULL,
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #'
 #' @return A data.table with columns: `variant`, the unit column, `horizon`,
-#'   `crps`, `mae`, `winkler`.
+#'   `crps`, `mae`, `winkler`, `logs`.
 #' @family long_horizon
 #' @export
 get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
@@ -598,11 +598,13 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
   }
 
   sc <- .score_draws(scored$.draws, scored$.truth_score, level)
-  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler)]
+  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler,
+                logs = sc$logs)]
 
   result <- scored[, .(crps = mean(crps, na.rm = TRUE),
                        mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE)),
+                       winkler = mean(winkler, na.rm = TRUE),
+                       logs = mean(logs, na.rm = TRUE)),
                    by = c("variant", groupvar, "horizon")]
   return(result)
 }
@@ -634,7 +636,7 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
 #'   names, passed to [setup_long_horizon()] (see [fit_lh_model()]).
 #'
 #' @return A data.table with columns: `variant`, the unit column, `horizon`,
-#'   `crps`, `mae`, `winkler`, averaged across all folds.
+#'   `crps`, `mae`, `winkler`, `logs`, averaged across all folds.
 #' @family long_horizon
 #' @export
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
