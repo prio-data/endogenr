@@ -1196,10 +1196,12 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 
 # Internal NA-safe scoring kernel shared by get_accuracy() and
 # get_lh_accuracy(). Scores a list of draw vectors against a truth vector,
-# returning CRPS, MAE, Winkler, and log scores (scoringRules::logs_sample,
-# KDE-based). NA truth or an empty (all-NA) draw vector yields NA for that row;
-# the log score is also NA when fewer than 2 non-NA draws remain. Non-finite
-# log scores (point-mass draws, truth far outside the draws) are kept as-is.
+# returning CRPS, MAE, Winkler, log scores (scoringRules::logs_sample,
+# KDE-based) and Dawid-Sebastiani scores (scoringRules::dss_sample). NA truth
+# or an empty (all-NA) draw vector yields NA for that row; the log score and
+# DSS are also NA when fewer than 2 non-NA draws remain. Non-finite log scores
+# (point-mass draws, truth far outside the draws) are kept as-is, as is the NaN
+# DSS of zero-variance draws.
 .score_draws <- function(draws, y, level = 50) {
   alpha <- 1 - level / 100
   n <- length(draws)
@@ -1207,6 +1209,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
   mae  <- rep(NA_real_, n)
   winkler <- rep(NA_real_, n)
   logs <- rep(NA_real_, n)
+  dss  <- rep(NA_real_, n)
   for (i in seq_len(n)) {
     d <- draws[[i]]
     d <- d[!is.na(d)]
@@ -1220,17 +1223,44 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
                else if (yi > hi) (2 / alpha) * (yi - hi)
                else 0
     winkler[i] <- (hi - lo) + penalty
-    if (length(d) >= 2L) logs[i] <- scoringRules::logs_sample(y = yi, dat = d)
+    if (length(d) >= 2L) {
+      logs[i] <- scoringRules::logs_sample(y = yi, dat = d)
+      dss[i]  <- scoringRules::dss_sample(y = yi, dat = d)
+    }
   }
-  list(crps = crps, mae = mae, winkler = winkler, logs = logs)
+  list(crps = crps, mae = mae, winkler = winkler, logs = logs, dss = dss)
+}
+
+# Validate the per-cell cap used by logs_capped.
+.check_logs_cap <- function(logs_cap) {
+  if (!is.numeric(logs_cap) || length(logs_cap) != 1L || is.na(logs_cap)) {
+    stop("`logs_cap` must be a single non-missing number.", call. = FALSE)
+  }
+  invisible(logs_cap)
+}
+
+# Group-level summaries of per-cell scores (columns crps, mae, winkler, logs,
+# dss on `scored`). logs_capped / logs_median / logs_n_inf stay informative
+# when individual log scores are Inf (point-mass draws, KDE underflow).
+.aggregate_scores <- function(scored, by, logs_cap) {
+  scored[, .(crps        = mean(crps, na.rm = TRUE),
+             mae         = mean(mae, na.rm = TRUE),
+             winkler     = mean(winkler, na.rm = TRUE),
+             logs        = mean(logs, na.rm = TRUE),
+             logs_capped = mean(pmin(logs, logs_cap), na.rm = TRUE),
+             logs_median = stats::median(logs, na.rm = TRUE),
+             logs_n_inf  = sum(is.infinite(logs)),
+             dss         = mean(dss, na.rm = TRUE)),
+         by = by]
 }
 
 #' Calculate probabilistic accuracy scores for simulations
 #'
-#' Computes CRPS, MAE, Winkler, and log scores by comparing simulation draws
-#' against observed truth. Uses [scoringRules::crps_sample()] for CRPS and
-#' [scoringRules::logs_sample()] (kernel density estimate of the draws) for the
-#' log score.
+#' Computes CRPS, MAE, Winkler, log and Dawid-Sebastiani scores by comparing
+#' simulation draws against observed truth. Uses [scoringRules::crps_sample()]
+#' for CRPS, [scoringRules::logs_sample()] (kernel density estimate of the
+#' draws) for the log score, and [scoringRules::dss_sample()] (mean and
+#' variance of the draws) for the Dawid-Sebastiani score.
 #'
 #' By default scores are aggregated per unit. Pass `test_start` to add a
 #' `horizon` column (`time - test_start + 1`) and `by` to control the grouping
@@ -1239,8 +1269,15 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #' applies a function to both draws and truth before scoring.
 #'
 #' The log score is `NA` for cells with fewer than 2 non-missing draws, and is
-#' infinite for degenerate (point-mass) or far-off forecasts, so group means
-#' can be `Inf`/`NaN`.
+#' infinite for degenerate (point-mass) or far-off forecasts, so the group mean
+#' `logs` can be `Inf`/`NaN`. Robust companions: `logs_capped` averages
+#' per-cell log scores after capping them from above at `logs_cap` (an `Inf`
+#' cell costs exactly `logs_cap`; the cap is upper only, so a `-Inf` cell from
+#' a point mass hitting the truth stays `-Inf`), `logs_median` is the median
+#' per-cell log score, and `logs_n_inf` counts infinite (`+Inf` or `-Inf`)
+#' cells (integer, 0 when none). `dss` is finite for any non-degenerate draws;
+#' point-mass cells give `NaN`. `NA`/`NaN` cells are dropped from every
+#' summary.
 #'
 #' @param simulation_results A data.table from [simulate_system()], filtered to
 #'   the forecast period.
@@ -1259,14 +1296,19 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #'   the unit column. Including `"horizon"` requires `test_start`.
 #' @param transform Function or NULL. Applied to both draws and truth before
 #'   scoring (score on a transformed scale).
+#' @param logs_cap Numeric. Upper cap applied to each per-cell log score before
+#'   averaging into `logs_capped` (default 10); an infinite cell then costs
+#'   exactly `logs_cap`.
 #'
 #' @return A data.table of scores, one row per group in `by`, with columns
-#'   `crps`, `mae`, `winkler`, `logs`.
+#'   `crps`, `mae`, `winkler`, `logs`, `logs_capped`, `logs_median`,
+#'   `logs_n_inf`, `dss`.
 #' @family postprocess
 #' @export
 get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
                          sim_var = ".sim", level = 50, test_start = NULL,
-                         by = NULL, transform = NULL) {
+                         by = NULL, transform = NULL, logs_cap = 10) {
+  .check_logs_cap(logs_cap)
   if (is.null(ctx)) {
     ctx <- .infer_ctx(simulation_results, truth)
     if (is.null(ctx)) {
@@ -1311,7 +1353,7 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
   # Score per (unit, time) with the shared NA-safe kernel
   sc <- .score_draws(scored$draws, scored$.truth, level)
   scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler,
-                logs = sc$logs)]
+                logs = sc$logs, dss = sc$dss)]
 
   # Optional horizon dimension
   if (!is.null(test_start)) {
@@ -1319,11 +1361,7 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
   }
 
   # Aggregate
-  result <- scored[, .(crps = mean(crps, na.rm = TRUE),
-                       mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE),
-                       logs = mean(logs, na.rm = TRUE)), by = group_by]
-  return(result)
+  .aggregate_scores(scored, group_by, logs_cap)
 }
 
 #' Plot simulations for selected outcome and units

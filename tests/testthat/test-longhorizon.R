@@ -96,7 +96,8 @@ test_that("get_lh_accuracy scores per (variant, unit, horizon)", {
   fc <- forecast_long_horizon(setup, dt, nsim = 30, inner_sims = 4)
   acc <- get_lh_accuracy(fc, dt, setup)
 
-  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs")
+  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs",
+                    "logs_capped", "logs_median", "logs_n_inf", "dss")
                   %in% names(acc)))
   expect_true(all(is.finite(acc$crps)))
   expect_true(all(acc$crps >= 0))
@@ -199,7 +200,8 @@ test_that("cv_long_horizon aggregates per (variant, unit, horizon) across folds"
   cv <- cv_long_horizon(dt, f, 1:2, "gwcode", "year",
                         test_starts = c(2008, 2010), nsim = 15, inner_sims = 3)
 
-  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs")
+  expect_true(all(c("variant", "gwcode", "horizon", "crps", "mae", "winkler", "logs",
+                    "logs_capped", "logs_median", "logs_n_inf", "dss")
                   %in% names(cv)))
   expect_true(all(is.finite(cv$crps)))
 })

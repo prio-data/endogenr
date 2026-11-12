@@ -2,7 +2,7 @@
 % Please edit documentation in R/longhorizon.R
 \name{get_lh_accuracy}
 \alias{get_lh_accuracy}
-\title{Compute CRPS, MAE, and Winkler accuracy scores for long-horizon forecasts}
+\title{Compute accuracy scores for long-horizon forecasts}
 \usage{
 get_lh_accuracy(
   lh_forecasts,
@@ -10,7 +10,8 @@ get_lh_accuracy(
   lh_setup = NULL,
   scale = c("native", "model"),
   inverse = NULL,
-  level = 50
+  level = 50,
+  logs_cap = 10
 )
 }
 \arguments{
@@ -30,10 +31,15 @@ inferred from attributes on \code{lh_forecasts}.}
 \code{scale = "native"} for variants with a non-identity LHS.}
 
 \item{level}{Numeric. Coverage level for the Winkler score (default 50).}
+
+\item{logs_cap}{Numeric. Upper cap on per-cell log scores behind
+\code{logs_capped} (default 10); see \code{\link[=get_accuracy]{get_accuracy()}}.}
 }
 \value{
 A data.table with columns: \code{variant}, the unit column, \code{horizon},
-\code{crps}, \code{mae}, \code{winkler}, \code{logs}.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}, \code{logs_capped}, \code{logs_median},
+\code{logs_n_inf}, \code{dss}. See \code{\link[=get_accuracy]{get_accuracy()}} for the robust log-score
+columns.
 }
 \description{
 Scores forecast draws against observed truth per \verb{(variant, unit, horizon)}

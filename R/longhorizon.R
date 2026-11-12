@@ -473,7 +473,7 @@ forecast_long_horizon <- function(lh_setup, data, test_start = NULL,
 }
 
 
-#' Compute CRPS, MAE, and Winkler accuracy scores for long-horizon forecasts
+#' Compute accuracy scores for long-horizon forecasts
 #'
 #' Scores forecast draws against observed truth per `(variant, unit, horizon)`
 #' using the same NA-safe kernel as [get_accuracy()]. The output shares the
@@ -512,15 +512,20 @@ forecast_long_horizon <- function(lh_setup, data, test_start = NULL,
 #'   `NULL`. Inverse of the LHS transform applied to the draws under
 #'   `scale = "native"` for variants with a non-identity LHS.
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
+#' @param logs_cap Numeric. Upper cap on per-cell log scores behind
+#'   `logs_capped` (default 10); see [get_accuracy()].
 #'
 #' @return A data.table with columns: `variant`, the unit column, `horizon`,
-#'   `crps`, `mae`, `winkler`, `logs`.
+#'   `crps`, `mae`, `winkler`, `logs`, `logs_capped`, `logs_median`,
+#'   `logs_n_inf`, `dss`. See [get_accuracy()] for the robust log-score
+#'   columns.
 #' @family long_horizon
 #' @export
 get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
                             scale = c("native", "model"),
-                            inverse = NULL, level = 50) {
+                            inverse = NULL, level = 50, logs_cap = 10) {
   scale <- match.arg(scale)
+  .check_logs_cap(logs_cap)
 
   if (!data.table::is.data.table(lh_forecasts)) {
     lh_forecasts <- data.table::as.data.table(lh_forecasts)
@@ -599,14 +604,9 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
 
   sc <- .score_draws(scored$.draws, scored$.truth_score, level)
   scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler,
-                logs = sc$logs)]
+                logs = sc$logs, dss = sc$dss)]
 
-  result <- scored[, .(crps = mean(crps, na.rm = TRUE),
-                       mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE),
-                       logs = mean(logs, na.rm = TRUE)),
-                   by = c("variant", groupvar, "horizon")]
-  return(result)
+  .aggregate_scores(scored, c("variant", groupvar, "horizon"), logs_cap)
 }
 
 
@@ -634,16 +634,20 @@ get_lh_accuracy <- function(lh_forecasts, truth, lh_setup = NULL,
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #' @param ts_fns Character vector or NULL. Extra within-unit time-series function
 #'   names, passed to [setup_long_horizon()] (see [fit_lh_model()]).
+#' @param logs_cap Numeric; see [get_lh_accuracy()].
 #'
 #' @return A data.table with columns: `variant`, the unit column, `horizon`,
-#'   `crps`, `mae`, `winkler`, `logs`, averaged across all folds.
+#'   `crps`, `mae`, `winkler`, `logs`, `logs_capped`, `logs_median`,
+#'   `logs_n_inf`, `dss`, averaged across all folds.
 #' @family long_horizon
 #' @export
 cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
                             test_starts, boot = NULL, nsim = 500L,
                             inner_sims = 10L, scale = c("native", "model"),
-                            inverse = NULL, level = 50, ts_fns = NULL) {
+                            inverse = NULL, level = 50, ts_fns = NULL,
+                            logs_cap = 10) {
   scale <- match.arg(scale)
+  .check_logs_cap(logs_cap)
   formulas <- .name_formulas(formulas)
   all_forecasts <- list()
 
@@ -670,7 +674,8 @@ cv_long_horizon <- function(data, formulas, horizons, groupvar, timevar,
   # All folds share group/time/formulas; the last fold's setup carries that
   # metadata (rbindlist drops the stamped attributes).
   get_lh_accuracy(combined, truth, lh_setup = lh_setup,
-                  scale = scale, inverse = inverse, level = level)
+                  scale = scale, inverse = inverse, level = level,
+                  logs_cap = logs_cap)
 }
 
 

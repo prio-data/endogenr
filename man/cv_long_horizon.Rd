@@ -17,7 +17,8 @@ cv_long_horizon(
   scale = c("native", "model"),
   inverse = NULL,
   level = 50,
-  ts_fns = NULL
+  ts_fns = NULL,
+  logs_cap = 10
 )
 }
 \arguments{
@@ -51,10 +52,13 @@ as the \code{test_start} for its fold.}
 
 \item{ts_fns}{Character vector or NULL. Extra within-unit time-series function
 names, passed to \code{\link[=setup_long_horizon]{setup_long_horizon()}} (see \code{\link[=fit_lh_model]{fit_lh_model()}}).}
+
+\item{logs_cap}{Numeric; see \code{\link[=get_lh_accuracy]{get_lh_accuracy()}}.}
 }
 \value{
 A data.table with columns: \code{variant}, the unit column, \code{horizon},
-\code{crps}, \code{mae}, \code{winkler}, \code{logs}, averaged across all folds.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}, \code{logs_capped}, \code{logs_median},
+\code{logs_n_inf}, \code{dss}, averaged across all folds.
 }
 \description{
 Runs the full pipeline — \code{\link[=setup_long_horizon]{setup_long_horizon()}} + \code{\link[=forecast_long_horizon]{forecast_long_horizon()}} —

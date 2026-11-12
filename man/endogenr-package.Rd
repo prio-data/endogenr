@@ -56,6 +56,8 @@ at the call site.
 the whole prior series, so \code{.required_history()} reports \code{Inf} for them.
 \item Winkler \code{level = 50} default in \code{\link[=get_accuracy]{get_accuracy()}} (\code{R/systemsim.R}) - a
 50\% interval is an unusual reporting default.
+\item \code{logs_cap = 10} default in \code{\link[=get_accuracy]{get_accuracy()}} / \code{\link[=get_lh_accuracy]{get_lh_accuracy()}}
+(\code{R/systemsim.R}, \code{R/longhorizon.R}) - per-cell cap behind \code{logs_capped}.
 \item \code{est_mb > 1000} memory-warning threshold in \code{prepare_simulation_data()}
 (\code{R/systemsim.R}).
 \item Hard-coded ribbon quantiles \code{c(.05, .5, .95)} in \code{\link[=plotsim]{plotsim()}} and

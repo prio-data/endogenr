@@ -13,7 +13,8 @@ get_accuracy(
   level = 50,
   test_start = NULL,
   by = NULL,
-  transform = NULL
+  transform = NULL,
+  logs_cap = 10
 )
 }
 \arguments{
@@ -42,16 +43,22 @@ the unit column. Including \code{"horizon"} requires \code{test_start}.}
 
 \item{transform}{Function or NULL. Applied to both draws and truth before
 scoring (score on a transformed scale).}
+
+\item{logs_cap}{Numeric. Upper cap applied to each per-cell log score before
+averaging into \code{logs_capped} (default 10); an infinite cell then costs
+exactly \code{logs_cap}.}
 }
 \value{
 A data.table of scores, one row per group in \code{by}, with columns
-\code{crps}, \code{mae}, \code{winkler}, \code{logs}.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}, \code{logs_capped}, \code{logs_median},
+\code{logs_n_inf}, \code{dss}.
 }
 \description{
-Computes CRPS, MAE, Winkler, and log scores by comparing simulation draws
-against observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS and
-\code{\link[scoringRules:logs_sample]{scoringRules::logs_sample()}} (kernel density estimate of the draws) for the
-log score.
+Computes CRPS, MAE, Winkler, log and Dawid-Sebastiani scores by comparing
+simulation draws against observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}}
+for CRPS, \code{\link[scoringRules:logs_sample]{scoringRules::logs_sample()}} (kernel density estimate of the
+draws) for the log score, and \code{\link[scoringRules:dss_sample]{scoringRules::dss_sample()}} (mean and
+variance of the draws) for the Dawid-Sebastiani score.
 }
 \details{
 By default scores are aggregated per unit. Pass \code{test_start} to add a
@@ -61,8 +68,15 @@ lines up with \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} and \code{\link[
 applies a function to both draws and truth before scoring.
 
 The log score is \code{NA} for cells with fewer than 2 non-missing draws, and is
-infinite for degenerate (point-mass) or far-off forecasts, so group means
-can be \code{Inf}/\code{NaN}.
+infinite for degenerate (point-mass) or far-off forecasts, so the group mean
+\code{logs} can be \code{Inf}/\code{NaN}. Robust companions: \code{logs_capped} averages
+per-cell log scores after capping them from above at \code{logs_cap} (an \code{Inf}
+cell costs exactly \code{logs_cap}; the cap is upper only, so a \code{-Inf} cell from
+a point mass hitting the truth stays \code{-Inf}), \code{logs_median} is the median
+per-cell log score, and \code{logs_n_inf} counts infinite (\code{+Inf} or \code{-Inf})
+cells (integer, 0 when none). \code{dss} is finite for any non-degenerate draws;
+point-mass cells give \code{NaN}. \code{NA}/\code{NaN} cells are dropped from every
+summary.
 }
 \seealso{
 Other postprocess:

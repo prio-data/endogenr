@@ -45,6 +45,8 @@
 #'     the whole prior series, so `.required_history()` reports `Inf` for them.
 #'   \item Winkler `level = 50` default in [get_accuracy()] (`R/systemsim.R`) - a
 #'     50% interval is an unusual reporting default.
+#'   \item `logs_cap = 10` default in [get_accuracy()] / [get_lh_accuracy()]
+#'     (`R/systemsim.R`, `R/longhorizon.R`) - per-cell cap behind `logs_capped`.
 #'   \item `est_mb > 1000` memory-warning threshold in `prepare_simulation_data()`
 #'     (`R/systemsim.R`).
 #'   \item Hard-coded ribbon quantiles `c(.05, .5, .95)` in [plotsim()] and

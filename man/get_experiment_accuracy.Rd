@@ -10,7 +10,8 @@ get_experiment_accuracy(
   truth,
   by = NULL,
   level = 50,
-  transform = NULL
+  transform = NULL,
+  logs_cap = 10
 )
 }
 \arguments{
@@ -28,12 +29,14 @@ group, time, and outcome columns.}
 
 \item{transform}{Function or \code{NULL}. Applied to both draws and truth before
 scoring; see \code{\link[=get_accuracy]{get_accuracy()}}.}
+
+\item{logs_cap}{Numeric; see \code{\link[=get_accuracy]{get_accuracy()}}.}
 }
 \value{
 A \code{data.table} with leading columns \code{.experiment} and any present
 axis columns (\code{model}, \code{train_start}, \code{test_start}, \code{window_cfg}), the
-\code{by} columns, and \code{crps}, \code{mae}, \code{winkler}, \code{logs} — one block of rows per
-experiment.
+\code{by} columns, and \code{crps}, \code{mae}, \code{winkler}, \code{logs}, \code{logs_capped},
+\code{logs_median}, \code{logs_n_inf}, \code{dss} — one block of rows per experiment.
 }
 \description{
 Computes CRPS, MAE, Winkler, and log scores for every experiment in a

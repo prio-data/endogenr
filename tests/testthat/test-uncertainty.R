@@ -40,6 +40,37 @@ test_that(".score_draws log score matches scoringRules and handles degenerate dr
   expect_equal(.score_draws(list(rep(3, 100)), 5)$logs, Inf)
 })
 
+test_that(".score_draws DSS matches scoringRules and is NA/NaN like logs", {
+  set.seed(1)
+  d <- stats::rnorm(500)
+  expect_equal(.score_draws(list(d), 0.2)$dss, scoringRules::dss_sample(0.2, d))
+  expect_true(is.na(.score_draws(list(c(NA, 1)), 1)$dss))
+  expect_true(is.nan(.score_draws(list(rep(3, 100)), 5)$dss))
+})
+
+test_that("get_accuracy robust log-score columns survive an Inf cell", {
+  set.seed(1)
+  d2 <- stats::rnorm(200); d3 <- stats::rnorm(200)
+  sim <- data.table::data.table(
+    gwcode = 1L,
+    year   = rep(2010:2012, each = 200),
+    y      = c(rep(3, 200), d2, d3),
+    .sim   = rep(1:200, 3)
+  )
+  truth <- data.table::data.table(gwcode = 1L, year = 2010:2012, y = c(5, 0, 0.5))
+  ctx <- panel_context("gwcode", "year")
+  acc <- get_accuracy(sim, "y", truth, ctx, logs_cap = 10)
+
+  cell <- c(scoringRules::logs_sample(0, d2), scoringRules::logs_sample(0.5, d3))
+  expect_equal(acc$logs, Inf)                       # raw mean unchanged
+  expect_identical(acc$logs_n_inf, 1L)
+  expect_equal(acc$logs_capped, mean(c(10, cell)))  # Inf cell costs exactly the cap
+  expect_equal(acc$logs_median, max(cell))          # median of (Inf, a, b)
+  expect_equal(acc$dss, mean(c(scoringRules::dss_sample(0, d2),
+                               scoringRules::dss_sample(0.5, d3))))  # NaN point-mass cell dropped
+  expect_error(get_accuracy(sim, "y", truth, ctx, logs_cap = NA), "logs_cap")
+})
+
 test_that(".score_draws Winkler penalty triggers only outside the interval", {
   set.seed(1)
   d <- stats::rnorm(5000)

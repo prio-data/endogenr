@@ -532,16 +532,18 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 #' @param level Numeric. Coverage level for the Winkler score (default 50).
 #' @param transform Function or `NULL`. Applied to both draws and truth before
 #'   scoring; see [get_accuracy()].
+#' @param logs_cap Numeric; see [get_accuracy()].
 #'
 #' @return A `data.table` with leading columns `.experiment` and any present
 #'   axis columns (`model`, `train_start`, `test_start`, `window_cfg`), the
-#'   `by` columns, and `crps`, `mae`, `winkler`, `logs` — one block of rows per
-#'   experiment.
+#'   `by` columns, and `crps`, `mae`, `winkler`, `logs`, `logs_capped`,
+#'   `logs_median`, `logs_n_inf`, `dss` — one block of rows per experiment.
 #' @seealso [run_experiments()], [get_accuracy()], [compare_approaches()]
 #' @family experiments
 #' @export
 get_experiment_accuracy <- function(experiment_results, outcome, truth,
-                                    by = NULL, level = 50, transform = NULL) {
+                                    by = NULL, level = 50, transform = NULL,
+                                    logs_cap = 10) {
   if (!data.table::is.data.table(experiment_results)) {
     experiment_results <- data.table::as.data.table(experiment_results)
   }
@@ -585,7 +587,7 @@ get_experiment_accuracy <- function(experiment_results, outcome, truth,
     sub <- .dt_rows(sub, sub[[time_col]] >= ts)  # forecast window only
     acc <- get_accuracy(sub, outcome = outcome, truth = truth, ctx = ctx,
                         level = level, test_start = ts, by = by,
-                        transform = transform)
+                        transform = transform, logs_cap = logs_cap)
     acc[, .experiment := lab]
     for (col in axis_cols) {
       data.table::set(acc, j = col, value = sub[[col]][1L])
