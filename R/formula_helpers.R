@@ -217,7 +217,9 @@ center <- function(x, center) {
 #'
 #' Constructs a list of `deterministic` model specs that update the
 #' Mundlak-style within-group running means (`m_*` columns) each simulation
-#' step via [hist_mean()]. Append the result with `c()` into a model system.
+#' step via [hist_mean()]. Place the result directly inside the model-system
+#' `list()`; nested spec lists are flattened by [setup_system()],
+#' [run_experiments()] and [vary_model()].
 #'
 #' Each source column and each `m_*` output column must be present in the
 #' input data before [setup_system()]. Purely-derived output columns may be
@@ -237,20 +239,21 @@ center <- function(x, center) {
 #' @param bounds Optional two-element numeric vector `c(lower, upper)` applied
 #'   to all output columns, or `NULL` (no clamping).
 #'
-#' @return A list of `deterministic` model specs ready to `c()` into a system.
+#' @return A list of `deterministic` model specs, one per output column. It can
+#'   be placed directly inside a model-system `list()`.
 #' @family build
 #' @export
 #'
 #' @examples
 #' \dontrun{
 #' sys <- setup_system(
-#'   c(
-#'     exogen(~x),
+#'   list(
+#'     build_model("exogen", formula = ~x),
 #'     mundlak_means("x"),
 #'     build_model("linear", formula = y ~ lag(y) + m_x)
 #'   ),
 #'   data = dt, train_start = 1, test_start = 25, horizon = 5,
-#'   groupvar = "unit", timevar = "time"
+#'   groupvar = "unit", timevar = "time", inner_sims = 2L
 #' )
 #' }
 mundlak_means <- function(vars, window = Inf, prefix = "m_", min_obs = 1L,

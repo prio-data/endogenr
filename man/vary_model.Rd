@@ -7,7 +7,8 @@
 vary_model(base, variants)
 }
 \arguments{
-\item{base}{A model system: a list of specs from \code{\link[=build_model]{build_model()}}.}
+\item{base}{A model system: a list of specs from \code{\link[=build_model]{build_model()}}, optionally
+containing nested lists of specs (e.g. from \code{\link[=mundlak_means]{mundlak_means()}}).}
 
 \item{variants}{A named list of overrides. Each entry is either a single
 \code{\link[=build_model]{build_model()}} spec or a list of specs; every spec replaces the base spec

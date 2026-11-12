@@ -95,6 +95,44 @@ test_that("mundlak_means: validates window entries", {
   expect_error(mundlak_means("x", window = "a"), "`window`")
 })
 
+test_that("model systems accept nested spec lists (mundlak_means inside list())", {
+  dt <- sim_panel_ar1(units = 6L, n_time = 20L, seed = 42)
+  dt[, m_x := hist_mean(x), by = unit]
+  dt[, z := x]
+  dt[, m_z := hist_mean(z, window = 3), by = unit]
+  sys <- setup_system(
+    list(
+      build_model("exogen", formula = ~x),
+      build_model("deterministic", formula = z ~ I(x)),
+      mundlak_means(c("x", "z"), window = c(m_x = Inf, m_z = 3)),
+      build_model("linear", formula = y ~ lag(y) + m_x + m_z)
+    ),
+    data = dt, train_start = 1, test_start = 16, horizon = 4,
+    groupvar = "unit", timevar = "time", inner_sims = 2L
+  )
+  expect_length(sys$specs, 5L)
+  expect_true(all(vapply(sys$specs, inherits, logical(1), "endogenr_spec")))
+  expect_setequal(vapply(sys$specs, .spec_outcome, character(1)),
+                  c("x", "z", "m_x", "m_z", "y"))
+})
+
+test_that("nested spec lists: non-spec leaves are rejected", {
+  expect_error(.flatten_specs(list(build_model("exogen", formula = ~x), list("m_x"))),
+               "only build_model\\(\\) specs")
+})
+
+test_that("run_experiments/vary_model accept nested spec lists", {
+  sys <- list(build_model("exogen", formula = ~x),
+              mundlak_means(c("x", "z")),
+              build_model("linear", formula = y ~ lag(y) + m_x))
+  norm <- .normalize_models(sys)
+  expect_named(norm, "model1")
+  expect_length(norm$model1, 4L)
+  v <- vary_model(sys, list(e1 = build_model("linear", formula = y ~ lag(y) + m_z)))
+  expect_length(v$e1, 4L)
+  expect_identical(deparse(v$e1[[4L]]$formula), "y ~ lag(y) + m_z")
+})
+
 # ── Mundlak means update in-sim ─────────────────────────────────────────────
 
 test_that("mundlak_means expanding mean updates during simulation", {

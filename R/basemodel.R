@@ -176,6 +176,20 @@ build_model <- function(type, formula, ..., bounds = NULL) {
   spec
 }
 
+# Internal: flatten a model system that may contain nested lists of specs
+# (e.g. the list returned by mundlak_means()) into a flat list of
+# endogenr_spec objects. An already-flat system is returned unchanged, so
+# element names are preserved in the common case.
+.flatten_specs <- function(x, what = "`models`") {
+  if (inherits(x, "endogenr_spec")) return(list(x))
+  if (!is.list(x)) {
+    stop(what, " must contain only build_model() specs or (nested) lists of ",
+         "them, e.g. from mundlak_means().", call. = FALSE)
+  }
+  if (all(vapply(x, inherits, logical(1), "endogenr_spec"))) return(x)
+  unlist(lapply(unname(x), .flatten_specs, what = what), recursive = FALSE)
+}
+
 
 #' Fit a model from a specification
 #'

@@ -25,12 +25,15 @@ unnamed. Default \code{"m_"}.}
 to all output columns, or \code{NULL} (no clamping).}
 }
 \value{
-A list of \code{deterministic} model specs ready to \code{c()} into a system.
+A list of \code{deterministic} model specs, one per output column. It can
+be placed directly inside a model-system \code{list()}.
 }
 \description{
 Constructs a list of \code{deterministic} model specs that update the
 Mundlak-style within-group running means (\verb{m_*} columns) each simulation
-step via \code{\link[=hist_mean]{hist_mean()}}. Append the result with \code{c()} into a model system.
+step via \code{\link[=hist_mean]{hist_mean()}}. Place the result directly inside the model-system
+\code{list()}; nested spec lists are flattened by \code{\link[=setup_system]{setup_system()}},
+\code{\link[=run_experiments]{run_experiments()}} and \code{\link[=vary_model]{vary_model()}}.
 }
 \details{
 Each source column and each \verb{m_*} output column must be present in the
@@ -41,13 +44,13 @@ NA-filled; source columns must be model-produced or panel keys
 \examples{
 \dontrun{
 sys <- setup_system(
-  c(
-    exogen(~x),
+  list(
+    build_model("exogen", formula = ~x),
     mundlak_means("x"),
     build_model("linear", formula = y ~ lag(y) + m_x)
   ),
   data = dt, train_start = 1, test_start = 25, horizon = 5,
-  groupvar = "unit", timevar = "time"
+  groupvar = "unit", timevar = "time", inner_sims = 2L
 )
 }
 }

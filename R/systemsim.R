@@ -222,7 +222,9 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #' user-defined functions referenced by formulas (e.g. closure helpers) are
 #' visible on parallel workers in both [fit_system()] and [simulate_system()].
 #'
-#' @param models A list of model specs created by [build_model()].
+#' @param models A list of model specs created by [build_model()]. Elements
+#'   may also be lists of specs (e.g. from [mundlak_means()]); they are
+#'   flattened in order.
 #' @param data A data.frame, data.table, or tsibble. Must contain all
 #'   variables referenced by model formulas, plus `groupvar`, `timevar`, and
 #'   future exogenous data through `test_start + horizon - 1`.
@@ -277,7 +279,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   train <- .dt_rows(data, data[[timevar]] < test_start)
 
   # Extract model outcomes for validation
-  specs <- models
+  specs <- .flatten_specs(models)
   model_outcomes <- vapply(specs, .spec_outcome, character(1))
 
   # Validate panel integrity

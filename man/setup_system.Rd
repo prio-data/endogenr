@@ -18,7 +18,9 @@ setup_system(
 )
 }
 \arguments{
-\item{models}{A list of model specs created by \code{\link[=build_model]{build_model()}}.}
+\item{models}{A list of model specs created by \code{\link[=build_model]{build_model()}}. Elements
+may also be lists of specs (e.g. from \code{\link[=mundlak_means]{mundlak_means()}}); they are
+flattened in order.}
 
 \item{data}{A data.frame, data.table, or tsibble. Must contain all
 variables referenced by model formulas, plus \code{groupvar}, \code{timevar}, and
