@@ -29,10 +29,13 @@ interaction terms.
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
+\code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},
 \code{\link[=intensity_decay]{intensity_decay()}},
 \code{\link[=materialize_formula]{materialize_formula()}},
+\code{\link[=mundlak_time_means]{mundlak_time_means()}},
 \code{\link[=time_since_event]{time_since_event()}}
 }
 \concept{formula_helpers}

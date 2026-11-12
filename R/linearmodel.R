@@ -122,6 +122,12 @@ linearmodel <- function(formula = NULL, boot = NULL, data = NULL, ctx = NULL,
   # coherent basis reconstruction at predict time.
   model$fitted  <- .lm_stage2_fit(fit_formula, pm$data, boot, subset, timevar)
   model$coefs   <- broom::tidy(model$fitted)
+  # vcov() must run before .strip_fit_data (it needs the fit's qr/model data).
+  model$time_fe <- .detect_time_fe(fit_formula, stats::coef(model$fitted),
+                                   model$fitted$xlevels, timevar,
+                                   vcov = stats::vcov(model$fitted))
+  model$unit_fe <- .detect_unit_fe(fit_formula, stats::coef(model$fitted),
+                                   model$fitted$xlevels, grp_keys)
   model$gof     <- broom::glance(model$fitted)
   model$outcome <- parse_formula(model)$outcome
   model$required_history <- .required_history(model$formula)
@@ -206,7 +212,8 @@ draw_predictive.linear <- function(model, newdata, n_param = 1L, n_innov = 1L,
 #' @return A data.table with key + index + outcome columns.
 #' @family simulation
 #' @export
-predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
+predict.linear <- function(model, data, t, ctx, what = "pi", scenario = NULL,
+                           test_start = NULL, ...) {
   idx      <- ctx_time(ctx)
   all_keys <- ctx_keys(ctx)
 
@@ -229,13 +236,102 @@ predict.linear <- function(model, data, t, ctx, what = "pi", ...) {
   result_cols <- c(all_keys, idx, model$outcome)
   result      <- mat[, ..result_cols]
 
+  # --- Scenario: extract per-draw slices ------------------------------------
+  # `scenario` is a named-by-outcome list built by .slice_scenario(); each
+  # entry has time_fe, unit_fe, coef sub-lists (all NULL-able). No lazy draws.
+  oc_scen       <- if (!is.null(scenario)) scenario[[model$outcome]] else NULL
+  time_fe_slice <- if (!is.null(oc_scen)) oc_scen$time_fe else NULL
+  unit_fe_slice <- if (!is.null(oc_scen)) oc_scen$unit_fe else NULL
+  eff_coef      <- if (!is.null(oc_scen) && !is.null(oc_scen$coef))
+                     oc_scen$coef$effective
+                   else list()
+
+  # Forecast step h — needed whenever any baked FE or coef offsets are applied.
+  h <- if (!is.null(test_start)) t - test_start + 1L else NULL
+
+  # --- Scenario: time-FE and unit-FE neutralisation -------------------------
+  # When a slice is active we neutralise the relevant column to its reference
+  # level so predict.lm contributes 0 for that factor contrast; the baked
+  # offset is added below.  Unit-FE with active = FALSE leaves factor(unit) in
+  # the design matrix unchanged (identity; no neutralisation performed).
+  pred_frame <- mat
+
+  if (!is.null(time_fe_slice)) {
+    pred_frame <- data.table::copy(mat)
+    data.table::set(pred_frame, j = time_fe_slice$var, value = time_fe_slice$ref)
+  }
+
+  if (!is.null(unit_fe_slice)) {
+    if (identical(pred_frame, mat)) pred_frame <- data.table::copy(mat)
+    # Coerce reference value to column type (xlevels stores character; column
+    # may be integer or numeric).
+    ref_val   <- unit_fe_slice$ref
+    col_class <- class(mat[[unit_fe_slice$var]])[1L]
+    if (col_class == "integer") ref_val <- as.integer(ref_val)
+    else if (col_class == "numeric") ref_val <- as.numeric(ref_val)
+    data.table::set(pred_frame, j = unit_fe_slice$var, value = ref_val)
+  }
+
+  # --- Scenario: coefficient overrides (baked) ------------------------------
+  # Swap targeted entries of a copied lm$coefficients; predict.lm reads them
+  # for the linear predictor while se.fit / residual.scale come from $qr /
+  # $residuals (retained by .strip_fit_data), so uncertainty is preserved.
+  model_pred <- model
+  if (length(eff_coef) > 0L && !is.null(h)) {
+    cf <- stats::coef(model$fitted)
+    for (nm in names(eff_coef)) {
+      cf[[nm]] <- eff_coef[[nm]][[h]]
+    }
+    fit_over              <- model$fitted
+    fit_over$coefficients <- cf
+    model_pred            <- model
+    model_pred$fitted     <- fit_over
+  }
+
+  # --- Draw and add baked FE offsets ----------------------------------------
   if (what == "expectation") {
-    data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 0L, n_innov = 0L)))
+    vals <- as.vector(
+      draw_predictive(model_pred, pred_frame, n_param = 0L, n_innov = 0L)
+    )
+    if (!is.null(time_fe_slice) && !is.null(h)) {
+      # Average over inner sims at step h (deterministic expectation).
+      vals <- vals + mean(time_fe_slice$offsets[, h])
+    }
+    if (!is.null(unit_fe_slice) && !is.null(h)) {
+      # Deterministic unit effects (per_trajectory = FALSE assumed here).
+      units_here <- as.character(mat[[unit_fe_slice$var]])
+      unit_idx   <- match(units_here, rownames(unit_fe_slice$eff))
+      vals       <- vals + unit_fe_slice$eff[unit_idx, h]
+    }
+    data.table::set(result, j = model$outcome, value = vals)
+
   } else if (what == "pi") {
-    data.table::set(result, j = model$outcome,
-                    value = as.vector(draw_predictive(model, mat, n_param = 1L, n_innov = 1L,
-                                                      param_scope = "row")))
+    sim_col <- ctx_sim(ctx)
+    sim_ids <- if (!is.null(sim_col) && sim_col %in% names(pred_frame))
+                 pred_frame[[sim_col]]
+               else rep(1L, nrow(pred_frame))
+    vals <- as.vector(
+      draw_predictive(model_pred, pred_frame, n_param = 1L, n_innov = 1L,
+                      param_scope = "row")
+    )
+    if (!is.null(time_fe_slice) && !is.null(h)) {
+      # offsets: c(inner_sims, horizon); pick offset for each row's sim at step h.
+      vals <- vals + time_fe_slice$offsets[sim_ids, h]
+    }
+    if (!is.null(unit_fe_slice) && !is.null(h)) {
+      units_here <- as.character(mat[[unit_fe_slice$var]])
+      unit_idx   <- match(units_here, rownames(unit_fe_slice$eff))
+      if (isTRUE(unit_fe_slice$per_trajectory)) {
+        # eff: c(n_units, inner_sims, horizon); vectorised lookup.
+        vals <- vals + unit_fe_slice$eff[cbind(unit_idx, sim_ids,
+                                               rep(h, length(unit_idx)))]
+      } else {
+        # eff: c(n_units, horizon); deterministic.
+        vals <- vals + unit_fe_slice$eff[unit_idx, h]
+      }
+    }
+    data.table::set(result, j = model$outcome, value = vals)
+
   } else {
     stop("`what` must be either `pi` or `expectation`")
   }

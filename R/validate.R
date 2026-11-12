@@ -201,9 +201,18 @@ validate_system_closure <- function(models, data_columns, keys = NULL) {
   all_formula_vars <- unique(all_formula_vars)
   missing_in_data <- setdiff(all_formula_vars, data_columns)
   if (length(missing_in_data) > 0) {
+    # T/F are base bindings, not literals, so all.vars() reports them as variables.
+    tf <- intersect(missing_in_data, c("T", "F"))
+    hint <- if (length(tf) > 0L) {
+      paste0(" Note: ", paste(tf, collapse = "/"),
+             " in a formula is parsed as a variable, not a logical constant; ",
+             "write TRUE/FALSE instead (e.g. na.rm = TRUE).")
+    } else {
+      ""
+    }
     stop("The following variables are referenced by model formulas but missing ",
          "from the input data: ", paste(missing_in_data, collapse = ", "),
-         ". Add them as columns (use NA for purely derived outputs).",
+         ". Add them as columns (use NA for purely derived outputs).", hint,
          call. = FALSE)
   }
 

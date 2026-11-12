@@ -28,6 +28,18 @@ new_endogenmodel <- function(formula){
 #'   \item{`"deterministic"`}{Two-sided formula `outcome ~ I(expr)`. The RHS
 #'     must be wrapped in `I()`. Evaluated at each simulated time step `t`.
 #'     No fitting; no extra arguments.}
+#'   \item{`"cross_section"`}{Two-sided formula `outcome ~ I(expr)` with a
+#'     single `I()` term. `expr` is evaluated across all units in the
+#'     simulation at each simulated time step `t`, separately within each
+#'     simulation draw. A scalar result (e.g.
+#'     `quantile(x, 0.9, na.rm = TRUE)`, `mean(x)`) is copied to every unit; a
+#'     result with one value per unit (e.g. `rank(x)`, `x - mean(x)`) is kept
+#'     per unit. Time-series functions (`lag`, `diff`, rolling, cumulative) are
+#'     not allowed; reference a lagged column produced by another model (e.g.
+#'     `build_model("deterministic", x_l1 ~ I(lag(x)))`). Training-period
+#'     values of the outcome column must already be in `data` (e.g.
+#'     `data[, front := quantile(x, 0.9, na.rm = TRUE), by = year]`). No
+#'     fitting; no extra arguments.}
 #'   \item{`"parametric_distribution"`}{One-sided formula `~ var`. Pass
 #'     `distribution = "norm"` (or any distribution name accepted by
 #'     [fitdistrplus::fitdist()]). Extra arguments (`start`, `method`,
@@ -94,9 +106,10 @@ new_endogenmodel <- function(formula){
 #'     column forward, or group by a panel key. Requires the `gamlss` package.}
 #' }
 #'
-#' @param type One of `"deterministic"`, `"parametric_distribution"`,
-#'   `"linear"`, `"glm"`, `"exogen"`, `"univariate_fable"`, `"heterolm"`,
-#'   `"spatial_lag"`, `"glmmTMB"`, or `"gamlss"`.
+#' @param type One of `"deterministic"`, `"cross_section"`,
+#'   `"parametric_distribution"`, `"linear"`, `"glm"`, `"exogen"`,
+#'   `"univariate_fable"`, `"heterolm"`, `"spatial_lag"`, `"glmmTMB"`, or
+#'   `"gamlss"`.
 #' @param formula An R formula. See the model-type section for the expected
 #'   shape per type.
 #' @param ... Model-specific arguments. See the model-type section.
@@ -130,9 +143,9 @@ new_endogenmodel <- function(formula){
 #'   build_model("exogen", formula = ~population)
 #' )
 build_model <- function(type, formula, ..., bounds = NULL) {
-  valid_types <- c("deterministic", "parametric_distribution", "linear", "glm",
-                   "exogen", "univariate_fable", "heterolm", "spatial_lag",
-                   "glmmTMB", "gamlss")
+  valid_types <- c("deterministic", "cross_section", "parametric_distribution",
+                   "linear", "glm", "exogen", "univariate_fable", "heterolm",
+                   "spatial_lag", "glmmTMB", "gamlss")
   if (!type %in% valid_types) {
     stop("Unknown model type: ", type)
   }
@@ -145,6 +158,15 @@ build_model <- function(type, formula, ..., bounds = NULL) {
     }
   }
 
+  if (identical(type, "cross_section")) .check_cross_section_formula(formula)
+
+  if (!type %in% c("linear", "glm", "glmmTMB", "gamlss", "heterolm") &&
+      .pt_has_call(formula, "center")) {
+    stop("center() is only supported in estimated model formulas (linear, glm, ",
+         "glmmTMB, gamlss, heterolm); `", type, "` models have no training step ",
+         "to compute the mean.", call. = FALSE)
+  }
+
   dots <- list(...)
 
   spec <- structure(
@@ -152,6 +174,20 @@ build_model <- function(type, formula, ..., bounds = NULL) {
     class = c(paste0(type, "_spec"), "endogenr_spec")
   )
   spec
+}
+
+# Internal: flatten a model system that may contain nested lists of specs
+# (e.g. the list returned by mundlak_means()) into a flat list of
+# endogenr_spec objects. An already-flat system is returned unchanged, so
+# element names are preserved in the common case.
+.flatten_specs <- function(x, what = "`models`") {
+  if (inherits(x, "endogenr_spec")) return(list(x))
+  if (!is.list(x)) {
+    stop(what, " must contain only build_model() specs or (nested) lists of ",
+         "them, e.g. from mundlak_means().", call. = FALSE)
+  }
+  if (all(vapply(x, inherits, logical(1), "endogenr_spec"))) return(x)
+  unlist(lapply(unname(x), .flatten_specs, what = what), recursive = FALSE)
 }
 
 

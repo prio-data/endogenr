@@ -26,7 +26,9 @@ run_experiments(
 
 \item{models}{Either a single model system (a list of \code{\link[=build_model]{build_model()}} specs)
 or a named list of such systems. \code{\link[=vary_model]{vary_model()}} is the ergonomic way to
-build the named list by swapping individual specs.}
+build the named list by swapping individual specs. Systems may contain
+nested lists of specs (e.g. from \code{\link[=mundlak_means]{mundlak_means()}}); a list whose top level
+contains no spec at all is read as a list of systems.}
 
 \item{train_start}{Integer scalar or vector of training starts to cross.}
 

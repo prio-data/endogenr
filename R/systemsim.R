@@ -145,7 +145,7 @@ process_independent_models <- function(simulation_data, models, ctx, test_start,
 #' @return The simulation_data data.table, updated by reference.
 #' @keywords internal
 process_dependent_models <- function(simulation_data, models, ctx, test_start, horizon,
-                                     execution_order, schedules = NULL) {
+                                     execution_order, schedules = NULL, scenario = NULL) {
   dependent_models <- models[vapply(models, function(x) !x$independent, logical(1))]
   outcomes <- vapply(dependent_models, function(x) parse_formula(x)$outcome, character(1))
   names(dependent_models) <- outcomes
@@ -163,7 +163,8 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
       model <- if (!is.null(schedules[[model_name]])) schedules[[model_name]][[h]]
                else dependent_models[[model_name]]
       pred <- tryCatch(
-        predict(model, t = t, data = simulation_data, ctx = ctx),
+        predict(model, t = t, data = simulation_data, ctx = ctx,
+                scenario = scenario, test_start = test_start),
         error = function(e) {
           stop("Prediction failed for model '", model_name,
                "' at time step ", t, ": ",
@@ -221,7 +222,9 @@ process_dependent_models <- function(simulation_data, models, ctx, test_start, h
 #' user-defined functions referenced by formulas (e.g. closure helpers) are
 #' visible on parallel workers in both [fit_system()] and [simulate_system()].
 #'
-#' @param models A list of model specs created by [build_model()].
+#' @param models A list of model specs created by [build_model()]. Elements
+#'   may also be lists of specs (e.g. from [mundlak_means()]); they are
+#'   flattened in order.
 #' @param data A data.frame, data.table, or tsibble. Must contain all
 #'   variables referenced by model formulas, plus `groupvar`, `timevar`, and
 #'   future exogenous data through `test_start + horizon - 1`.
@@ -276,7 +279,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
   train <- .dt_rows(data, data[[timevar]] < test_start)
 
   # Extract model outcomes for validation
-  specs <- models
+  specs <- .flatten_specs(models)
   model_outcomes <- vapply(specs, .spec_outcome, character(1))
 
   # Validate panel integrity
@@ -442,7 +445,7 @@ setup_system <- function(models, data, train_start, test_start, horizon, groupva
 .fit_spec <- function(spec, sys, subset = NULL) {
   type <- spec$type
   model <- switch(type,
-    "deterministic" = fit_model(spec, ctx = sys$fit_ctx),
+    "deterministic" =, "cross_section" = fit_model(spec, ctx = sys$fit_ctx),
     "linear" =, "glm" =, "heterolm" =, "glmmTMB" =, "gamlss" =
       fit_model(spec, data = sys$train_data, ctx = sys$fit_ctx, subset = subset),
     "exogen" = fit_model(spec, newdata = sys$full_data, ctx = sys$fit_ctx,
@@ -927,6 +930,7 @@ fit_system <- function(system_setup, nsim = 1L,
 simulate_system <- function(fitted_system,
                             window_policy = c("latest", "equal", "decay"),
                             decay = 0.5, weights = NULL,
+                            scenario_params = NULL,
                             parallel = FALSE, ncores = 6) {
   if (!inherits(fitted_system, "endogenr_fitted_system")) {
     stop("`fitted_system` must be the output of fit_system().", call. = FALSE)
@@ -958,11 +962,65 @@ simulate_system <- function(fitted_system,
             call. = FALSE)
   }
 
+  # --- Validate scenario_params --------------------------------------------
+  if (!is.null(scenario_params) &&
+      !inherits(scenario_params, "endogenr_scenario_params")) {
+    stop("`scenario_params` must be the output of setup_param() or NULL.",
+         call. = FALSE)
+  }
+
+  if (!is.null(scenario_params)) {
+    # Dims compatibility: refuse a params object built for a different fit.
+    sp_dims <- attr(scenario_params, "dims")
+    if (!is.null(sp_dims)) {
+      sp_nsim <- as.integer(sp_dims$nsim)
+      sp_is   <- as.integer(sp_dims$inner_sims)
+      sp_h    <- as.integer(sp_dims$horizon)
+      fs_nsim <- as.integer(if (!is.null(fitted_system$nsim))
+                              fitted_system$nsim
+                            else length(fitted_system$fitted_draws))
+      if (!identical(sp_nsim, fs_nsim) ||
+          !identical(sp_is, as.integer(fitted_system$inner_sims)) ||
+          !identical(sp_h,  as.integer(fitted_system$horizon))) {
+        stop("scenario_params was built for a different fit; rebuild with setup_param().",
+             call. = FALSE)
+      }
+    }
+
+    # linear+gamlss guard: any coef override on an unsupported model type errors.
+    for (oc in names(scenario_params)) {
+      entry <- scenario_params[[oc]]
+      if (!is.null(entry$coef) && length(entry$coef$effective) > 0L) {
+        if (!isTRUE(entry$coef$overridable)) {
+          mdl  <- Filter(function(m) !is.null(m$outcome) && m$outcome == oc,
+                         fitted_system$fitted_models)
+          type <- if (length(mdl) > 0L) class(mdl[[1L]])[1L] else "unknown"
+          stop("coefficient overrides are supported only for `linear` and `gamlss` models; ",
+               "outcome '", oc, "' is ", type, ".", call. = FALSE)
+        }
+      }
+    }
+  }
+
   nsim <- fitted_system$nsim
   if (is.null(nsim)) nsim <- length(fitted_system$fitted_draws)
 
+  # --- Default scenario: bake under caller's current RNG state --------------
+  # When scenario_params is NULL, build defaults (time-FE AR(1), unit-FE
+  # persist with active = FALSE) here.  An explicit object uses its pre-baked
+  # draws.  set.seed(); simulate_system(fit) therefore produces varied time-FE
+  # offsets deterministically, matching historical behaviour.
+  if (is.null(scenario_params)) scenario_params <- setup_param(fitted_system)
+
+  # Pre-slice scenario once per outer draw in the main process.  Workers
+  # receive the already-sliced per-draw scenario via the paired payload,
+  # avoiding broadcast of the full (nsim x ...) arrays to every worker.
+  scenario_slices <- lapply(seq_len(nsim), function(i)
+    .slice_scenario(scenario_params, i))
+
   # The (large) simulation grid and the predict-time context ride as globals so
-  # they ship once per worker; the per-iteration payload is one draw's models.
+  # they ship once per worker; the per-iteration payload is one draw's models
+  # plus its pre-sliced scenario.
   simulation_data <- fitted_system$simulation_data
   ctx <- fitted_system$ctx
   test_start <- fitted_system$test_start
@@ -997,21 +1055,26 @@ simulate_system <- function(fitted_system,
     # Pre-slice window_fits by draw: draw_fits[[i]][[k]][[w]] is the fit for
     # draw i, refit spec k (in refit_idx order), window w. Building this list
     # in the main process is cheap (only references are copied, not the model
-    # objects themselves). Crucially, draw_fits is passed as the iterated X
-    # argument to future_lapply, so future.apply partitions it across workers
-    # rather than broadcasting the entire nsim store to every worker.
+    # objects themselves). Crucially, the paired payload is passed as the
+    # iterated X so future.apply partitions it across workers rather than
+    # broadcasting the entire nsim store to every worker.
     # window_fits and baseline are deliberately excluded from future.globals.
+    # Scenario FE/coef parameters are baked once per draw from that draw's
+    # forecast-origin fit and applied at every step; the per-step window refits
+    # still drive the neutralised base prediction.
     draw_fits <- lapply(seq_len(nsim), function(i)
       lapply(seq_along(refit_idx), function(k) {
         j <- refit_idx[k]
         lapply(seq_len(nwin), function(w) window_fits[[j]][[w]][[i]])
       }))
 
+    X_sliding <- lapply(seq_len(nsim), function(i)
+      list(dwf = draw_fits[[i]], scen = scenario_slices[[i]]))
+
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
       horizon = horizon, execution_order = execution_order, inner_sims = inner_sims,
-      models = models, refit_oc = refit_oc,
-      W = W, nwin = nwin
+      models = models, refit_oc = refit_oc, W = W, nwin = nwin
     )
     if (!is.null(fitted_system$globals)) {
       for (fn_name in names(fitted_system$globals)) {
@@ -1020,8 +1083,10 @@ simulate_system <- function(fitted_system,
     }
 
     simulation_results <- future.apply::future_lapply(
-      draw_fits,
-      function(dwf) {
+      X_sliding,
+      function(payload) {
+        dwf  <- payload$dwf
+        scen <- payload$scen
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
         schedules <- list()
@@ -1031,7 +1096,8 @@ simulate_system <- function(fitted_system,
           schedules[[refit_oc[k]]] <- lapply(seq_len(horizon), function(h) dwf[[k]][[wsel[h]]])
         }
         sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
-                                        execution_order, schedules = schedules)
+                                        execution_order, schedules = schedules,
+                                        scenario = scen)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
@@ -1044,6 +1110,9 @@ simulate_system <- function(fitted_system,
   } else {
     fitted_draws <- fitted_system$fitted_draws
 
+    X_standard <- lapply(seq_len(nsim), function(i)
+      list(models = fitted_draws[[i]], scen = scenario_slices[[i]]))
+
     future_globals <- list(
       simulation_data = simulation_data, ctx = ctx, test_start = test_start,
       horizon = horizon, execution_order = execution_order, inner_sims = inner_sims
@@ -1055,11 +1124,14 @@ simulate_system <- function(fitted_system,
     }
 
     simulation_results <- future.apply::future_lapply(
-      fitted_draws,
-      function(models) {
+      X_standard,
+      function(payload) {
+        models <- payload$models
+        scen   <- payload$scen
         sim <- data.table::copy(simulation_data)
         sim <- process_independent_models(sim, models, ctx, test_start, horizon, inner_sims)
-        sim <- process_dependent_models(sim, models, ctx, test_start, horizon, execution_order)
+        sim <- process_dependent_models(sim, models, ctx, test_start, horizon,
+                                        execution_order, scenario = scen)
         .tc <- ctx_time(ctx); sim <- .dt_rows(sim, sim[[.tc]] >= test_start)
         p()
         sim
@@ -1124,14 +1196,17 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 
 # Internal NA-safe scoring kernel shared by get_accuracy() and
 # get_lh_accuracy(). Scores a list of draw vectors against a truth vector,
-# returning CRPS, MAE, and Winkler scores. NA truth or an empty (all-NA) draw
-# vector yields NA for that row.
+# returning CRPS, MAE, Winkler, and log scores (scoringRules::logs_sample,
+# KDE-based). NA truth or an empty (all-NA) draw vector yields NA for that row;
+# the log score is also NA when fewer than 2 non-NA draws remain. Non-finite
+# log scores (point-mass draws, truth far outside the draws) are kept as-is.
 .score_draws <- function(draws, y, level = 50) {
   alpha <- 1 - level / 100
   n <- length(draws)
   crps <- rep(NA_real_, n)
   mae  <- rep(NA_real_, n)
   winkler <- rep(NA_real_, n)
+  logs <- rep(NA_real_, n)
   for (i in seq_len(n)) {
     d <- draws[[i]]
     d <- d[!is.na(d)]
@@ -1145,20 +1220,27 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
                else if (yi > hi) (2 / alpha) * (yi - hi)
                else 0
     winkler[i] <- (hi - lo) + penalty
+    if (length(d) >= 2L) logs[i] <- scoringRules::logs_sample(y = yi, dat = d)
   }
-  list(crps = crps, mae = mae, winkler = winkler)
+  list(crps = crps, mae = mae, winkler = winkler, logs = logs)
 }
 
 #' Calculate probabilistic accuracy scores for simulations
 #'
-#' Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
-#' observed truth. Uses [scoringRules::crps_sample()] for CRPS computation.
+#' Computes CRPS, MAE, Winkler, and log scores by comparing simulation draws
+#' against observed truth. Uses [scoringRules::crps_sample()] for CRPS and
+#' [scoringRules::logs_sample()] (kernel density estimate of the draws) for the
+#' log score.
 #'
 #' By default scores are aggregated per unit. Pass `test_start` to add a
 #' `horizon` column (`time - test_start + 1`) and `by` to control the grouping
 #' (e.g. `by = c(groupvar, "horizon")` for a per-(unit, horizon) breakdown that
 #' lines up with [get_lh_accuracy()] and [compare_approaches()]). `transform`
 #' applies a function to both draws and truth before scoring.
+#'
+#' The log score is `NA` for cells with fewer than 2 non-missing draws, and is
+#' infinite for degenerate (point-mass) or far-off forecasts, so group means
+#' can be `Inf`/`NaN`.
 #'
 #' @param simulation_results A data.table from [simulate_system()], filtered to
 #'   the forecast period.
@@ -1179,7 +1261,7 @@ sim_to_dist <- function(simulation_results, outputs, ctx = NULL, sim_var = ".sim
 #'   scoring (score on a transformed scale).
 #'
 #' @return A data.table of scores, one row per group in `by`, with columns
-#'   `crps`, `mae`, `winkler`.
+#'   `crps`, `mae`, `winkler`, `logs`.
 #' @family postprocess
 #' @export
 get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
@@ -1228,7 +1310,8 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
 
   # Score per (unit, time) with the shared NA-safe kernel
   sc <- .score_draws(scored$draws, scored$.truth, level)
-  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler)]
+  scored[, `:=`(crps = sc$crps, mae = sc$mae, winkler = sc$winkler,
+                logs = sc$logs)]
 
   # Optional horizon dimension
   if (!is.null(test_start)) {
@@ -1238,7 +1321,8 @@ get_accuracy <- function(simulation_results, outcome, truth, ctx = NULL,
   # Aggregate
   result <- scored[, .(crps = mean(crps, na.rm = TRUE),
                        mae = mean(mae, na.rm = TRUE),
-                       winkler = mean(winkler, na.rm = TRUE)), by = group_by]
+                       winkler = mean(winkler, na.rm = TRUE),
+                       logs = mean(logs, na.rm = TRUE)), by = group_by]
   return(result)
 }
 

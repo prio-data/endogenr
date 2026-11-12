@@ -2,6 +2,52 @@
 
 ## New features
 
+- **Log score in accuracy outputs.** `get_accuracy()`, `get_lh_accuracy()`,
+  `cv_long_horizon()`, and `get_experiment_accuracy()` now also return a
+  `logs` column: the mean log score from `scoringRules::logs_sample()`
+  (kernel density estimate of the draws; lower is better). It is `NA` for
+  cells with fewer than 2 non-missing draws. It is infinite for point-mass
+  forecasts (e.g. `deterministic` outcomes) or truths far outside the draws,
+  so group means can be `Inf`/`NaN`. Existing columns are unchanged; `logs`
+  is appended last.
+
+- **`center()` — center formula terms on a stored training mean.** Use
+  `center(expr)` on the right-hand side of an estimated model formula
+  (`linear`, `glm`, `glmmTMB`, `gamlss`, `heterolm`, long-horizon), e.g.
+  `y ~ center(lag(x)) * z` where `x` is simulated by another model. At fit
+  time the pooled mean of `expr` (evaluated per unit in time order, over all
+  non-missing training values) is stored in the model's `ts_map`; every
+  forecast step subtracts that constant from the current simulated value and
+  never recomputes it. Coefficients are named `center_lag_x` etc. Errors for
+  `center()` on the LHS, inside time-series functions (`lag(center(x))`), and
+  in non-estimated model types.
+
+- **gamlss: forecasting time-grouped random intercepts.** A mu-formula
+  `re(random = ~1 | year)` or `random(factor(year))` (grouped by the time
+  variable) previously forecast every row as `NA`: `predictAll()` returns
+  `NA` for unseen levels. Now it is treated as a time-effect block in
+  `setup_param()`. Each new forecast year draws `N(0, τ̂²)` once per
+  (outer draw, inner sim, year), shared across units and added on the mu
+  link scale. `τ̂` is that draw's fitted random-effect SD. Override with
+  `fe_ar()`/`fe_fixed()`/`fe_converge()` on `sp$<outcome>$time_fe`.
+  `fe_distribution()` on these blocks defaults to mean `0` and the fitted
+  SD. Errors at `fit_system()` in these cases: time-grouped random slopes,
+  such terms in sigma/nu/tau, more than one such term, the time variable
+  also entering elsewhere (e.g. `factor(year)`, a linear `year`), and
+  `random()` with fixed `df`/`lambda`.
+
+- **`build_model("cross_section", outcome ~ I(expr))` — per-period
+  cross-sectional aggregates.** `expr` is evaluated across all units at each
+  simulated time step, separately within each simulation draw (e.g. a
+  simulated productivity frontier
+  `front ~ I(quantile(lgdppc_l1, 0.9, na.rm = TRUE))`). A scalar result is
+  copied to every unit; a result with one value per unit (e.g. `rank(x)`) is
+  kept per unit; any other length errors. `deterministic` evaluates per unit,
+  so such aggregates previously failed with "variable lengths differ".
+  Time-series functions (`lag`, `diff`, rolling, cumulative) are rejected at
+  `build_model()` time; reference an already-lagged column instead.
+  `draw_predictive()` errors for `cross_section` like `deterministic`.
+
 - **`draw_predictive()` — unified predictive-draw interface.** One exported
   S3 generic, `draw_predictive(model, newdata, n_param, n_innov, ...)`,
   replaces the per-family draw logic (`getpi`, `getpi_glm`,
@@ -131,7 +177,34 @@
   `abs(lag(outcome))`) drove a predictor to `Inf`/`NaN`. Default `NULL` leaves
   all behavior unchanged.
 
+- **`fe_ar()` — AR(1) time fixed effects with parameter uncertainty; new
+  default.** `setup_param()` (and `simulate_system()` without
+  `scenario_params`) now bakes time fixed effects (`factor(timevar)`) with
+  `fe_ar()`: per `(outer draw, inner sim)` trajectory it draws the year-effect
+  series once from `MVN(tau_hat, V_tau)`, fits an AR(1) by OLS (`rho` clamped
+  to `[-1, 1]`), and simulates forward from the last training-year effect by
+  residual bootstrap, stepping through any gap between a window's last year
+  and the forecast origin. Falls back to `fe_resample()` when fewer than 3
+  year effects are estimated. `fe_resample()` and `fe_converge()` (time FE)
+  now also resample from each trajectory's MVN-perturbed effects. The effect
+  covariance is recorded at fit time (`model$time_fe$vcov`; linear via
+  `vcov()`, gamlss from the stored `mu.qr`) and carried as
+  `time_fe$vcov_by_draw`; when unavailable, draws use the point estimates
+  and warn once. Time-FE draws under a fixed seed differ from earlier
+  versions.
+
 ## Bug fixes
+
+- **FE scenario slicing no longer fails with `inner_sims = 1` or
+  `horizon = 1`.** `.slice_scenario()` indexed the baked arrays without
+  `drop = FALSE`, so time- and per-trajectory unit-FE offsets lost a
+  dimension and simulation aborted with "incorrect number of dimensions".
+
+- **Clearer error for `T`/`F` shorthand in formulas.** `T` and `F` are
+  variables in R, not logical literals, so a formula such as
+  `y ~ I(quantile(x, 0.9, na.rm = T))` was rejected by
+  `validate_system_closure()` with an unexplained "missing from the input
+  data: T". The error now appends a note telling you to write `TRUE`/`FALSE`.
 
 - **Execution order no longer drops variables whose names contain `"lag_"`.**
   The lag-vertex strip in `get_execution_order()` matched the substring

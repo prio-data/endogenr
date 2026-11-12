@@ -23,6 +23,7 @@ the spec's class. Called internally by \code{\link[=fit_system]{fit_system()}}.
 Other build:
 \code{\link[=build_model]{build_model()}},
 \code{\link[=get_execution_order]{get_execution_order()}},
-\code{\link[=get_train_window]{get_train_window()}}
+\code{\link[=get_train_window]{get_train_window()}},
+\code{\link[=mundlak_means]{mundlak_means()}}
 }
 \concept{build}

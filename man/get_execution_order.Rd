@@ -32,6 +32,7 @@ get_execution_order(g)
 Other build:
 \code{\link[=build_model]{build_model()}},
 \code{\link[=fit_model]{fit_model()}},
-\code{\link[=get_train_window]{get_train_window()}}
+\code{\link[=get_train_window]{get_train_window()}},
+\code{\link[=mundlak_means]{mundlak_means()}}
 }
 \concept{build}

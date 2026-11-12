@@ -18,7 +18,9 @@ setup_system(
 )
 }
 \arguments{
-\item{models}{A list of model specs created by \code{\link[=build_model]{build_model()}}.}
+\item{models}{A list of model specs created by \code{\link[=build_model]{build_model()}}. Elements
+may also be lists of specs (e.g. from \code{\link[=mundlak_means]{mundlak_means()}}); they are
+flattened in order.}
 
 \item{data}{A data.frame, data.table, or tsibble. Must contain all
 variables referenced by model formulas, plus \code{groupvar}, \code{timevar}, and
@@ -108,7 +110,14 @@ res <- simulate_system(fit)
 \code{\link[=validate_panel]{validate_panel()}}, \code{\link[=validate_system_closure]{validate_system_closure()}}
 
 Other simulation:
+\code{\link[=coef_override]{coef_override()}},
 \code{\link[=draw_predictive]{draw_predictive()}},
+\code{\link[=fe_ar]{fe_ar()}},
+\code{\link[=fe_converge]{fe_converge()}},
+\code{\link[=fe_distribution]{fe_distribution()}},
+\code{\link[=fe_fixed]{fe_fixed()}},
+\code{\link[=fe_persist]{fe_persist()}},
+\code{\link[=fe_resample]{fe_resample()}},
 \code{\link[=fit_model.exogen_spec]{fit_model.exogen_spec()}},
 \code{\link[=fit_model.gamlss_spec]{fit_model.gamlss_spec()}},
 \code{\link[=fit_model.glmmTMB_spec]{fit_model.glmmTMB_spec()}},
@@ -116,6 +125,7 @@ Other simulation:
 \code{\link[=fit_model.parametric_distribution_spec]{fit_model.parametric_distribution_spec()}},
 \code{\link[=fit_model.univariate_fable_spec]{fit_model.univariate_fable_spec()}},
 \code{\link[=fit_system]{fit_system()}},
+\code{\link[=predict.cross_section]{predict.cross_section()}},
 \code{\link[=predict.deterministic]{predict.deterministic()}},
 \code{\link[=predict.endogenr_gamlss]{predict.endogenr_gamlss()}},
 \code{\link[=predict.exogen]{predict.exogen()}},
@@ -125,6 +135,8 @@ Other simulation:
 \code{\link[=predict.linear]{predict.linear()}},
 \code{\link[=predict.parametric_distribution]{predict.parametric_distribution()}},
 \code{\link[=predict.univariate_fable]{predict.univariate_fable()}},
+\code{\link[=scenario_terms]{scenario_terms()}},
+\code{\link[=setup_param]{setup_param()}},
 \code{\link[=simulate_system]{simulate_system()}}
 }
 \concept{simulation}

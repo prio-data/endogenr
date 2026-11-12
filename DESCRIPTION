@@ -32,13 +32,16 @@ Suggests:
     gamlss.dist,
     glmmTMB,
     heterolm,
+    nlme,
     progressr,
     sfdep,
     tidyr,
     actuar,
     tsibble,
     tweedie,
-    zoo
+    zoo,
+    knitr,
+    rmarkdown
 Remotes:
     kvelleby/poldat,
     vdeminstitute/vdemdata,
@@ -46,4 +49,5 @@ Remotes:
 Depends:
     R (>= 3.5)
 LazyData: true
-Config/roxygen2/version: 8.0.0
+Config/roxygen2/version: 8.1.0
+VignetteBuilder: knitr

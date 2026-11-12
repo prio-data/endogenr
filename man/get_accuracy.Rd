@@ -45,11 +45,13 @@ scoring (score on a transformed scale).}
 }
 \value{
 A data.table of scores, one row per group in \code{by}, with columns
-\code{crps}, \code{mae}, \code{winkler}.
+\code{crps}, \code{mae}, \code{winkler}, \code{logs}.
 }
 \description{
-Computes CRPS, MAE, and Winkler scores by comparing simulation draws against
-observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS computation.
+Computes CRPS, MAE, Winkler, and log scores by comparing simulation draws
+against observed truth. Uses \code{\link[scoringRules:crps_sample]{scoringRules::crps_sample()}} for CRPS and
+\code{\link[scoringRules:logs_sample]{scoringRules::logs_sample()}} (kernel density estimate of the draws) for the
+log score.
 }
 \details{
 By default scores are aggregated per unit. Pass \code{test_start} to add a
@@ -57,6 +59,10 @@ By default scores are aggregated per unit. Pass \code{test_start} to add a
 (e.g. \code{by = c(groupvar, "horizon")} for a per-(unit, horizon) breakdown that
 lines up with \code{\link[=get_lh_accuracy]{get_lh_accuracy()}} and \code{\link[=compare_approaches]{compare_approaches()}}). \code{transform}
 applies a function to both draws and truth before scoring.
+
+The log score is \code{NA} for cells with fewer than 2 non-missing draws, and is
+infinite for degenerate (point-mass) or far-off forecasts, so group means
+can be \code{Inf}/\code{NaN}.
 }
 \seealso{
 Other postprocess:

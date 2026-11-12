@@ -41,10 +41,13 @@ the \code{update()} / \code{inject_positional_lag()} / \code{clean_names()} over
 }
 \seealso{
 Other formula_helpers:
+\code{\link[=center]{center()}},
 \code{\link[=decay_since_event]{decay_since_event()}},
 \code{\link[=derive_naive_formula]{derive_naive_formula()}},
+\code{\link[=hist_mean]{hist_mean()}},
 \code{\link[=inject_positional_lag]{inject_positional_lag()}},
 \code{\link[=intensity_decay]{intensity_decay()}},
+\code{\link[=mundlak_time_means]{mundlak_time_means()}},
 \code{\link[=time_since_event]{time_since_event()}}
 }
 \concept{formula_helpers}

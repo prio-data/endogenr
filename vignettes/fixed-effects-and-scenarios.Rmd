@@ -1,0 +1,256 @@
+---
+title: "Fixed effects, Mundlak means, and scenario parameters"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Fixed effects, Mundlak means, and scenario parameters}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r data-prep}
+library(endogenr)
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+```
+
+## Unit fixed effects
+
+`factor(gwcode)` in any pooled formula works as a standard dummy-variable
+unit fixed effect.  The panel key column is present in every per-group frame,
+so:
+
+```r
+gdppc_grwt ~ factor(gwcode) + lag(log(gdppc))
+```
+
+estimates a unit-specific intercept for every group in the training data.
+The panel key must be referenced as `factor(<groupvar>)`.
+
+## Time fixed effects and the forecast problem
+
+`factor(year)` introduces **forecast years as unseen factor levels** — standard
+`predict.lm()` would error.  `linear` models handle this automatically:
+
+1. At **fit time**, `.detect_time_fe()` records the estimated year effects.
+2. At **predict time**, the time column is neutralised to the baseline training
+   year (so the factor contrast contributes 0) and a **scenario-drawn
+   time-FE offset** is added instead — drawn from the estimated year effects.
+
+**Constraint (enforced with a clear error):** the `timevar` may enter the
+formula *only* through `factor(timevar)`.  Combining `factor(gwcode)` and
+`factor(year)` gives a genuine **two-way fixed-effects (TWFE)** model that
+simulates forward.
+
+## TWFE example
+
+```{r twfe}
+twfe <- list(
+  build_model("linear",
+              formula = gdppc_grwt ~ factor(gwcode) + factor(year) +
+                lag(log(gdppc)) + lag(psecprop),
+              boot = "resid"),
+  build_model("exogen", formula = ~psecprop),
+  build_model("deterministic",
+              formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+)
+
+sys <- setup_system(twfe, df,
+                    train_start = 1990, test_start = 2010, horizon = 5,
+                    groupvar = "gwcode", timevar = "year", inner_sims = 2)
+fit <- fit_system(sys, nsim = 2)
+res <- simulate_system(fit)
+```
+
+## Inspect and configure scenario parameters
+
+`setup_param(fit)` returns an `endogenr_scenario_params` object keyed by
+outcome variable, covering **every** model in the fitted system.  All
+stochastic draws (time-FE offsets) are **baked at build time** so you can
+inspect the exact values that will enter the run.
+
+Each entry contains:
+
+| Field | Description |
+|---|---|
+| `type` | Model type string (e.g. `"linear"`) |
+| `time_fe` | `endogenr_fe_param` or `NULL`.  Fields: `kind`, `term`, `var`, `ref`, `levels`, `effects`, `effects_by_draw`, `dims`, `active`, `heuristic`, `values` (baked array `nsim × inner_sims × horizon`). |
+| `unit_fe` | `endogenr_fe_param` or `NULL`.  Default `active = FALSE` (persist historical effects unchanged). |
+| `coef` | `endogenr_coef_param` or `NULL`.  Fields: `estimates`, `beta_by_draw`, `linear`, `overrides`, `effective`. |
+
+The object carries a `dims` attribute:
+`list(nsim, inner_sims, horizon, test_start, units, timevar, unitvar)`.
+
+```{r setup-param}
+set.seed(2)
+sp <- setup_param(fit)
+sp
+```
+
+The `time_fe` block for `gdppc_grwt` confirms `factor(year)` detection and
+shows the distribution of estimated year effects plus a summary of the baked
+offset array.
+
+## Time-FE heuristic helpers
+
+Replace `sp[["outcome"]]$time_fe` with the output of one of the helper
+functions to re-bake the draws under a different strategy before passing `sp`
+to `simulate_system()`.
+
+- **`fe_resample(block)`** (default) — sample from estimated year effects per
+  `(draw, inner_sim, step)`.
+- **`fe_distribution(block, sd = ..)`** — Normal draws; optionally fix `mean`
+  and `sd` (filled from effects per draw when omitted).
+- **`fe_fixed(block, value = 0)`** — constant offset for all trajectories.
+- **`fe_converge(block, to, path)`** — path-shaped convergence toward a target
+  (`"zero"`, `"mean"`, numeric, or character unit ids).
+
+All helpers accept `to`, `factor`, `path` (`"constant"` / `"linear"` /
+`"sigmoid"`), `mid`, `steep` arguments for fine-grained control.  They
+consume RNG at call time — `set.seed()` before the helper for reproducibility.
+
+```{r tfe-distribution}
+set.seed(2)
+sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$time_fe <- fe_distribution(sp[["gdppc_grwt"]]$time_fe, sd = 0.01)
+res_dist <- simulate_system(fit, scenario_params = sp)
+nrow(res_dist)
+```
+
+Converge the time-FE offset toward zero over the horizon:
+
+```{r tfe-converge, eval = FALSE}
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$time_fe <- fe_converge(sp[["gdppc_grwt"]]$time_fe,
+                                           to = 0, path = "linear")
+res_conv <- simulate_system(fit, scenario_params = sp)
+```
+
+## Unit-FE heuristic helpers
+
+`factor(unit)` models store a `unit_fe` block with `active = FALSE` by
+default (historical unit effects stay in the design matrix unchanged).
+Apply `fe_converge` or `fe_persist` (with non-default `to`/`path`) to
+activate explicit scenario control:
+
+```{r ufe-converge, eval = FALSE}
+# Converge unit-FE offsets to zero over the horizon (e.g. neutralise
+# country-specific intercepts by the end of the forecast window)
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$unit_fe <- fe_converge(sp[["gdppc_grwt"]]$unit_fe,
+                                           to = 0, path = "linear")
+res_ufe <- simulate_system(fit, scenario_params = sp)
+```
+
+## Coefficient overrides (dynamic simulation parameters)
+
+`coef_override(block, term, value)` bakes overrides into the coef block.
+`value` may be:
+
+- A **scalar** — constant across all draws and forecast steps.
+- A **length-`horizon` numeric vector** — per-step, same across draws.
+- A **`function(h, beta_hat)`** — returns the override β* at step `h` given
+  the per-draw fitted estimate.
+
+The term name must be in `colnames(sp[[oc]]$coef$beta_by_draw)` — the alias
+names from `get_coefficients()` (e.g. `lag_log_gdppc`, `lag_psecprop`).
+Overrides are only supported for `linear` models; `coef_override()` errors
+immediately for other types.
+
+`predict.linear` swaps only the targeted coefficient(s) while the residual
+scale and prediction intervals are untouched, preserving forecast uncertainty.
+
+```{r coef-override}
+# Function override: halve the autoregressive persistence of lag_log_gdppc
+set.seed(2); sp <- setup_param(fit)
+sp[["gdppc_grwt"]]$coef <- coef_override(
+  sp[["gdppc_grwt"]]$coef, "lag_log_gdppc",
+  function(h, beta_hat) beta_hat * 0.5
+)
+res_ovr <- simulate_system(fit, scenario_params = sp)
+nrow(res_ovr)
+```
+
+Scalar example: pin the `lag_psecprop` coefficient to zero (testing exclusion
+of education):
+
+```{r coef-scalar, eval = FALSE}
+sp[["gdppc_grwt"]]$coef <- coef_override(sp[["gdppc_grwt"]]$coef,
+                                          "lag_psecprop", 0)
+res_no_edu <- simulate_system(fit, scenario_params = sp)
+```
+
+Pass `value = NULL` to clear a previously applied override:
+
+```{r coef-clear, eval = FALSE}
+sp[["gdppc_grwt"]]$coef <- coef_override(sp[["gdppc_grwt"]]$coef,
+                                          "lag_psecprop", NULL)
+```
+
+## Mundlak between-effects
+
+The Mundlak (1978) correction decomposes a time-varying covariate into its
+within-unit deviation and its unit mean, adding the mean as a separate
+predictor to absorb between-unit confounding.  `mundlak_means(vars)` builds a
+list of `deterministic` specs that maintain running within-unit means (`m_*`
+columns) via `hist_mean()`, updated at every simulation step.
+
+**Conventions enforced by `validate_panel()`:**
+
+- Each `m_*` output column must already exist in `data` before `setup_system()`.
+  For units present at `test_start - 1`, the column must be **non-NA** there
+  (it is the initial state the simulation bootstraps from).  Pre-compute the
+  running mean over the training window and leave the forecast rows `NA` — the
+  deterministic model updates them each step.
+- Each source column must be model-produced or a panel key.
+
+```{r mundlak}
+# Pre-compute the expanding within-unit mean for the training period.
+# The value at year 2009 (test_start - 1) is the required initial state.
+df <- df[order(df$gwcode, df$year), ]
+df$m_psecprop <- unlist(
+  lapply(split(df$psecprop, df$gwcode), endogenr::hist_mean)
+)
+df$m_psecprop[df$year >= 2010] <- NA_real_  # forecast rows filled by simulation
+
+mund <- c(
+  list(build_model("exogen", formula = ~psecprop)),
+  mundlak_means("psecprop"),        # -> m_psecprop = hist_mean(psecprop)
+  list(
+    build_model("linear",
+                formula = gdppc_grwt ~ lag(log(gdppc)) + psecprop + m_psecprop,
+                boot = "resid"),
+    build_model("deterministic",
+                formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+  )
+)
+
+sysm <- setup_system(mund, df,
+                     train_start = 1990, test_start = 2010, horizon = 5,
+                     groupvar = "gwcode", timevar = "year", inner_sims = 2)
+fitm <- fit_system(sysm, nsim = 2)
+resm <- simulate_system(fitm)
+nrow(resm)
+```
+
+`psecprop` is exogenous, so `m_psecprop = hist_mean(psecprop)` introduces no
+dependency cycle.  `window = Inf` (the default) gives an expanding
+(cumulative) mean; a positive integer gives a trailing window.  Per-variable
+windows can be set with a named vector: `mundlak_means(c("x", "z"),
+window = c(m_x = 5, m_z = Inf))`.

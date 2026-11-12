@@ -1,0 +1,197 @@
+---
+title: "Model families and predictive draws"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Model families and predictive draws}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`build_model(type, formula, ..., bounds = NULL)` returns a lightweight spec;
+no data is needed and no fitting happens here.  Fitting is deferred to
+`fit_system()`, which means the same spec list can be re-used across different
+training windows, bootstrap draws, and experiment grids.
+
+## The 10 model types
+
+### Imports-only families (safe to run in all evaluated chunks)
+
+**`"linear"`** — two-sided formula; pooled OLS.  Optional `boot = "resid"` or
+`"wild"` for residual or wild bootstrap (introduces parameter variation across
+`nsim` draws).
+
+```{r linear-example}
+library(endogenr)
+build_model("linear",
+            formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+            boot = "resid")
+```
+
+**`"glm"`** — two-sided formula; pooled GLM.  `family = stats::gaussian()`
+by default; pass any `stats::family()`.  Optional `boot`.
+
+```{r glm-example, eval = FALSE}
+build_model("glm",
+            formula = event ~ lag(log(gdppc)),
+            family = stats::binomial())
+```
+
+**`"deterministic"`** — two-sided formula; RHS **must** be wrapped in `I()`.
+Evaluated (not fitted) each step.  No `boot`, no extra arguments.
+
+```{r det-example}
+build_model("deterministic",
+            formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+```
+
+**`"exogen"`** — one-sided formula `~var`.  Copies observed values from `data`
+into the simulation grid; the variable must be present for every unit through
+`test_start + horizon - 1`.  No fitting.
+
+```{r exogen-example}
+build_model("exogen", formula = ~psecprop)
+```
+
+### Suggests-gated families (shown syntax-only; not evaluated)
+
+These require packages listed under `Suggests` in `DESCRIPTION`.
+
+**`"parametric_distribution"`** — requires `fitdistrplus`.  One-sided `~var`.
+Fits a parametric distribution to the training window.  The bundled `"t_ls"`
+(location-scale Student-t) derives starting values automatically.
+`param_uncertainty = TRUE` propagates MLE uncertainty across draws.
+
+```{r param-dist, eval = FALSE}
+build_model("parametric_distribution",
+            formula = ~gdppc_grwt,
+            distribution = "t_ls",
+            param_uncertainty = TRUE)
+```
+
+**`"univariate_fable"`** — requires `fable`/`fabletools`/`tsibble`.
+Two-sided fable formula.
+
+```{r fable, eval = FALSE}
+build_model("univariate_fable",
+            formula = gdppc_grwt ~ error("A") + trend("N") + season("N"),
+            method = "ets")
+```
+
+**`"heterolm"`** — requires `heterolm`.  Two-sided mean formula plus a
+one-sided log-variance formula (defaults to `~1`).
+
+```{r heterolm, eval = FALSE}
+build_model("heterolm",
+            formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+            variance = ~lag(log(gdppc)))
+```
+
+**`"glmmTMB"`** — requires `glmmTMB`.  Two-sided formula with lme4-style
+random-effects bars and glmmTMB covariance-structure wrappers.  Grouping
+factors and coordinate columns used in covariance structures (e.g. `region`,
+`times`) must be produced by some model — add an `exogen` to carry them
+forward, or use a panel key.
+
+```{r glmmTMB, eval = FALSE}
+build_model("glmmTMB",
+            formula = gdppc_grwt ~ lag(log(gdppc)) + (1 | gwcode),
+            family = stats::gaussian())
+```
+
+**`"gamlss"`** — requires `gamlss`.  Two-sided `formula` for the `mu` (mean)
+parameter; optional `sigma.formula`, `nu.formula`, `tau.formula`.  Grouping
+factors inside `random()`/`ra()`/`re()` must be produced or be a panel key.
+
+```{r gamlss, eval = FALSE}
+build_model("gamlss",
+            formula = gdppc_grwt ~ lag(log(gdppc)),
+            sigma.formula = ~lag(log(gdppc)),
+            family = gamlss.dist::NO())
+```
+
+**`"spatial_lag"`** — requires `sfdep`.  Two-sided formula; use `lag(y)` to
+avoid a circular dependency on a same-period outcome.  Pass `nb`, `wt`, and
+`unit_ids` from `st_weights_from_sf()`.
+
+```{r spatial-lag, eval = FALSE}
+weights <- st_weights_from_sf(sf_object, unit_col = "gwcode")
+build_model("spatial_lag",
+            formula = sl_gdppc ~ lag(gdppc),
+            nb = weights$nb, wt = weights$wt,
+            unit_ids = weights$unit_ids)
+```
+
+## Predictive draws — `draw_predictive()`
+
+The exported generic `draw_predictive(model, newdata, n_param, n_innov, ...)`
+returns an `nrow(newdata) × max(n_param, 1) * max(n_innov, 1)` matrix of
+response-scale draws:
+
+- `n_param` — parameter-uncertainty draws (`0` = condition on point estimates).
+- `n_innov` — innovation draws per parameter block (`0` = conditional mean).
+
+Methods are implemented for `linear`, `glm`, `glmmTMB`, `parametric_distribution`,
+and `univariate_fable`.  `deterministic`, `exogen`, and `spatial_lag` have no
+stochastic predictive distribution and error if called directly.
+
+```{r draw-predictive, eval = FALSE}
+set.seed(1)
+future::plan(future::sequential)
+
+vars <- c("gdppc", "gdppc_grwt", "psecprop")
+yrs  <- 1990:2014
+df   <- as.data.frame(endogenr::example_data)
+df   <- df[df$year %in% yrs, c("gwcode", "year", vars)]
+
+good <- function(d) {
+  nrow(d) == length(yrs) &&
+    all(vapply(d[vars], function(x) all(is.finite(x)), logical(1)))
+}
+keep <- names(which(vapply(split(df, df$gwcode), good, logical(1))))
+keep <- head(keep, 6L)
+df   <- df[df$gwcode %in% as.integer(keep), ]
+
+sys <- setup_system(
+  list(
+    build_model("linear",
+                formula = gdppc_grwt ~ lag(log(gdppc)) + lag(psecprop),
+                boot = "resid"),
+    build_model("exogen", formula = ~psecprop),
+    build_model("deterministic",
+                formula = gdppc ~ I(abs(lag(gdppc) * (1 + gdppc_grwt))))
+  ),
+  df, train_start = 1990, test_start = 2010, horizon = 5,
+  groupvar = "gwcode", timevar = "year", inner_sims = 2
+)
+fit <- fit_system(sys, nsim = 2)
+
+# draw_predictive() needs newdata with materialized columns (lag_log_gdppc,
+# lag_psecprop); the simulation loop provides those automatically. For a direct
+# call, use sim_to_dist() on simulate_system() output instead — it returns the
+# same per-cell draw vectors as a list-column.
+linear_model <- Filter(function(m) inherits(m, "linear"), fit$fitted_models)[[1]]
+# n_param = 0: condition on point estimates; n_innov = 4: four residual draws
+# draws <- draw_predictive(linear_model, prepared_newdata, n_param = 0L, n_innov = 4L)
+```
+
+## Ensemble semantics — what you must know
+
+The full ensemble is `nsim × inner_sims` trajectories, but parameter
+uncertainty enters **per family**:
+
+- **`linear` / `glm` / `heterolm` / `glmmTMB`** gain across-draw parameter
+  variation only when `min_window` (random-window refits) or `boot` is set;
+  without either, every draw uses the same point estimates.
+- **`parametric_distribution`** and **`univariate_fable`** are fitted *once
+  and shared* across all `nsim` draws, so parameter uncertainty is zero —
+  except `parametric_distribution` with `param_uncertainty = TRUE`.
+- **`exogen`** carries no stochastic distribution at all; it copies observed
+  values.
+
+Innovations are drawn independently per `(unit, time, sim)` row.  The engine
+does not capture cross-unit common shocks or cross-equation residual
+correlation.  See `?endogenr` for the full capability roadmap.

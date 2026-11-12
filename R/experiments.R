@@ -30,26 +30,34 @@
   x
 }
 
-# Internal: coerce `models` into a named list of full model systems. A single
-# system (every element an endogenr_spec) is wrapped as `model1`; a named list
-# of systems is auto-named and returned as-is.
+# Internal: coerce `models` into a named list of flat model systems. If any
+# top-level element is an endogenr_spec, `models` is one system (nested spec
+# lists such as mundlak_means() are flattened) and is wrapped as `model1`; a
+# list with no top-level spec is a list of systems, each flattened and
+# auto-named.
 .normalize_models <- function(models) {
   if (!is.list(models) || length(models) == 0L) {
     stop("`models` must be a model system or a named list of model systems.",
          call. = FALSE)
   }
-  if (all(vapply(models, inherits, logical(1), "endogenr_spec"))) {
-    return(list(model1 = models))
+  # A top-level spec means `models` is one system (possibly with nested spec
+  # lists such as mundlak_means()); otherwise it is a list of systems.
+  if (any(vapply(models, inherits, logical(1), "endogenr_spec"))) {
+    return(list(model1 = .flatten_specs(models)))
   }
-  is_system <- vapply(models, function(m) {
-    is.list(m) && length(m) > 0L &&
-      all(vapply(m, inherits, logical(1), "endogenr_spec"))
-  }, logical(1))
-  if (!all(is_system)) {
-    stop("`models` must be either a single model system (a list of ",
-         "build_model() specs) or a named list of such systems.", call. = FALSE)
-  }
-  .auto_name(models, "model")
+  systems <- lapply(models, function(m) {
+    if (!is.list(m)) {
+      stop("`models` must be either a single model system (a list of ",
+           "build_model() specs) or a named list of such systems.", call. = FALSE)
+    }
+    s <- .flatten_specs(m)
+    if (length(s) == 0L) {
+      stop("`models` must be either a single model system (a list of ",
+           "build_model() specs) or a named list of such systems.", call. = FALSE)
+    }
+    s
+  })
+  .auto_name(systems, "model")
 }
 
 #' Build a window configuration for `run_experiments()`
@@ -194,7 +202,8 @@ window_config <- function(window = c("random", "rolling", "expanding"),
 #' error — `vary_model()` swaps specs, it never appends new ones (build the full
 #' system by hand for that).
 #'
-#' @param base A model system: a list of specs from [build_model()].
+#' @param base A model system: a list of specs from [build_model()], optionally
+#'   containing nested lists of specs (e.g. from [mundlak_means()]).
 #' @param variants A named list of overrides. Each entry is either a single
 #'   [build_model()] spec or a list of specs; every spec replaces the base spec
 #'   with the same outcome. Unnamed or partially named entries are auto-named
@@ -220,11 +229,11 @@ window_config <- function(window = c("random", "rolling", "expanding"),
 #' ))
 #' names(systems)
 vary_model <- function(base, variants) {
-  if (!is.list(base) || length(base) == 0L ||
-      !all(vapply(base, inherits, logical(1), "endogenr_spec"))) {
+  if (!is.list(base) || length(base) == 0L) {
     stop("`base` must be a model system: a non-empty list of build_model() specs.",
          call. = FALSE)
   }
+  base <- .flatten_specs(base, what = "`base`")
   if (!is.list(variants) || length(variants) == 0L) {
     stop("`variants` must be a non-empty list of override specs.", call. = FALSE)
   }
@@ -233,12 +242,7 @@ vary_model <- function(base, variants) {
 
   lapply(stats::setNames(names(variants), names(variants)), function(v) {
     ov <- variants[[v]]
-    overrides <- if (inherits(ov, "endogenr_spec")) list(ov) else ov
-    if (!is.list(overrides) ||
-        !all(vapply(overrides, inherits, logical(1), "endogenr_spec"))) {
-      stop("Variant '", v, "' must be a build_model() spec or a list of specs.",
-           call. = FALSE)
-    }
+    overrides <- .flatten_specs(ov, what = paste0("Variant '", v, "'"))
     sys <- base
     for (spec in overrides) {
       oc  <- .spec_outcome(spec)
@@ -303,7 +307,9 @@ vary_model <- function(base, variants) {
 #' @param data A data.frame, data.table, or tsibble; see [setup_system()].
 #' @param models Either a single model system (a list of [build_model()] specs)
 #'   or a named list of such systems. [vary_model()] is the ergonomic way to
-#'   build the named list by swapping individual specs.
+#'   build the named list by swapping individual specs. Systems may contain
+#'   nested lists of specs (e.g. from [mundlak_means()]); a list whose top level
+#'   contains no spec at all is read as a list of systems.
 #' @param train_start Integer scalar or vector of training starts to cross.
 #' @param test_start Integer scalar or vector of forecast starts to cross.
 #' @param horizon Integer. Forecast horizon, shared across experiments.
@@ -507,7 +513,7 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 
 #' Score a grid of system-simulation experiments
 #'
-#' Computes CRPS, MAE, and Winkler scores for every experiment in a
+#' Computes CRPS, MAE, Winkler, and log scores for every experiment in a
 #' [run_experiments()] result, returning one long `data.table` keyed by
 #' `.experiment`. Each experiment is scored against `truth` with its **own**
 #' `test_start`, so a grid that varies `test_start` is handled correctly (the
@@ -529,7 +535,7 @@ run_experiments <- function(data, models, train_start, test_start, horizon,
 #'
 #' @return A `data.table` with leading columns `.experiment` and any present
 #'   axis columns (`model`, `train_start`, `test_start`, `window_cfg`), the
-#'   `by` columns, and `crps`, `mae`, `winkler` — one block of rows per
+#'   `by` columns, and `crps`, `mae`, `winkler`, `logs` — one block of rows per
 #'   experiment.
 #' @seealso [run_experiments()], [get_accuracy()], [compare_approaches()]
 #' @family experiments
